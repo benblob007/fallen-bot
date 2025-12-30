@@ -570,6 +570,146 @@ def create_arcane_leaderboard_embed(guild, users_data, sort_key="xp", title_suff
     
     return embed
 
+async def create_leaderboard_image(guild, users_data, sort_key="xp", title_suffix="Overall XP"):
+    """Create an image-based leaderboard with Fallen background"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    sorted_users = sorted(users_data.items(), key=lambda x: x[1].get(sort_key, 0), reverse=True)[:10]
+    
+    # Card dimensions (taller for leaderboard)
+    width, height = 800, 600
+    
+    # Try to load background
+    background = None
+    
+    # Check local files
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                break
+            except:
+                pass
+    
+    # Check URL
+    if background is None and LEVEL_CARD_BACKGROUND:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(LEVEL_CARD_BACKGROUND) as resp:
+                    if resp.status == 200:
+                        img_data = await resp.read()
+                        background = Image.open(BytesIO(img_data)).convert("RGBA")
+        except:
+            pass
+    
+    if background is None:
+        return None
+    
+    # Resize and crop background
+    bg_ratio = background.width / background.height
+    card_ratio = width / height
+    
+    if bg_ratio > card_ratio:
+        new_width = int(background.height * card_ratio)
+        left = (background.width - new_width) // 2
+        background = background.crop((left, 0, left + new_width, background.height))
+    else:
+        new_height = int(background.width / card_ratio)
+        top = (background.height - new_height) // 2
+        background = background.crop((0, top, background.width, top + new_height))
+    
+    background = background.resize((width, height), Image.Resampling.LANCZOS)
+    
+    # Create card with darker overlay
+    card = background.copy()
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 180))
+    card = Image.alpha_composite(card, overlay)
+    
+    draw = ImageDraw.Draw(card)
+    
+    # Load fonts
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_text = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+    except:
+        font_title = ImageFont.load_default()
+        font_header = ImageFont.load_default()
+        font_text = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+    
+    # Title
+    title = f"✝ THE FALLEN ✝"
+    title_bbox = draw.textbbox((0, 0), title, font=font_title)
+    title_width = title_bbox[2] - title_bbox[0]
+    draw.text(((width - title_width) // 2, 20), title, font=font_title, fill=(255, 255, 255))
+    
+    # Subtitle
+    subtitle = f"{title_suffix} Leaderboard"
+    sub_bbox = draw.textbbox((0, 0), subtitle, font=font_header)
+    sub_width = sub_bbox[2] - sub_bbox[0]
+    draw.text(((width - sub_width) // 2, 60), subtitle, font=font_header, fill=(200, 200, 200))
+    
+    # Draw leaderboard entries
+    y_start = 110
+    row_height = 45
+    
+    for i, (uid, stats) in enumerate(sorted_users):
+        member = guild.get_member(int(uid)) if guild else None
+        username = member.display_name if member else f"User {uid[:8]}"
+        lvl = stats.get('level', 0)
+        xp_value = stats.get(sort_key, 0)
+        
+        y = y_start + (i * row_height)
+        
+        # Rank medal/number
+        if i == 0:
+            rank_text = "🥇"
+            rank_color = (255, 215, 0)  # Gold
+        elif i == 1:
+            rank_text = "🥈"
+            rank_color = (192, 192, 192)  # Silver
+        elif i == 2:
+            rank_text = "🥉"
+            rank_color = (205, 127, 50)  # Bronze
+        else:
+            rank_text = f"#{i + 1}"
+            rank_color = (150, 150, 150)
+        
+        # Draw row background for top 3
+        if i < 3:
+            row_bg = Image.new("RGBA", (width - 60, 40), (*rank_color[:3], 40))
+            card.paste(row_bg, (30, y - 5), row_bg)
+        
+        # Rank
+        draw.text((40, y), rank_text, font=font_header, fill=rank_color)
+        
+        # Username (truncate if too long)
+        if len(username) > 18:
+            username = username[:15] + "..."
+        draw.text((120, y), username, font=font_text, fill=(255, 255, 255))
+        
+        # Level
+        draw.text((450, y), f"LVL {lvl}", font=font_text, fill=(100, 200, 255))
+        
+        # XP
+        draw.text((580, y), f"{format_number(xp_value)} XP", font=font_text, fill=(255, 200, 100))
+    
+    # Footer
+    footer = f"Members: {guild.member_count} • 落ちた"
+    footer_bbox = draw.textbbox((0, 0), footer, font=font_small)
+    footer_width = footer_bbox[2] - footer_bbox[0]
+    draw.text(((width - footer_width) // 2, height - 30), footer, font=font_small, fill=(150, 150, 150))
+    
+    # Save to bytes
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    
+    return output
+
 # --- LEVELING CHECKER ---
 async def check_level_up(user_id, guild):
     data = load_data()
@@ -1140,15 +1280,30 @@ class LeaderboardSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         sort_key = self.values[0]
         users = load_data()["users"]
+        title_map = {"xp": "Overall XP", "monthly_xp": "Monthly XP", "weekly_xp": "Weekly XP"}
+        title = title_map[sort_key]
         
+        # Try to create image leaderboard
+        if PIL_AVAILABLE:
+            try:
+                lb_image = await create_leaderboard_image(interaction.guild, users, sort_key, title)
+                if lb_image:
+                    file = discord.File(lb_image, filename="leaderboard.png")
+                    # Need to remove old attachments and add new one
+                    await interaction.response.edit_message(attachments=[file], embed=None, view=LeaderboardViewUI(default_val=sort_key))
+                    return
+            except Exception as e:
+                print(f"Leaderboard select image error: {e}")
+        
+        # Fallback to embed
         embed = create_arcane_leaderboard_embed(
             interaction.guild, 
             users, 
             sort_key=sort_key,
-            title_suffix={"xp": "Overall XP", "monthly_xp": "Monthly XP", "weekly_xp": "Weekly XP"}[sort_key]
+            title_suffix=title
         )
         
-        await interaction.response.edit_message(embed=embed, view=LeaderboardViewUI(default_val=sort_key))
+        await interaction.response.edit_message(embed=embed, attachments=[], view=LeaderboardViewUI(default_val=sort_key))
 
 class LeaderboardViewUI(discord.ui.View):
     def __init__(self, default_val="xp"):
@@ -3003,8 +3158,21 @@ async def levelcard_debug(ctx):
 
 @bot.hybrid_command(name="leaderboard", aliases=["lb"], description="View the XP leaderboard")
 async def leaderboard(ctx):
-    """Display the XP leaderboard - Arcane style"""
+    """Display the XP leaderboard with Fallen background"""
     users = load_data()["users"]
+    
+    # Try to create image leaderboard
+    if PIL_AVAILABLE:
+        try:
+            lb_image = await create_leaderboard_image(ctx.guild, users, "xp", "Overall XP")
+            if lb_image:
+                file = discord.File(lb_image, filename="leaderboard.png")
+                await ctx.send(file=file, view=LeaderboardViewUI())
+                return
+        except Exception as e:
+            print(f"Leaderboard image error: {e}")
+    
+    # Fallback to embed
     embed = create_arcane_leaderboard_embed(ctx.guild, users)
     await ctx.send(embed=embed, view=LeaderboardViewUI())
 
