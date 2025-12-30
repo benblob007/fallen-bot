@@ -1765,6 +1765,462 @@ def draw_rank_border(draw, card, x, y, size, border_style):
         draw.ellipse([x - 3, y - 3, x + size + 3, y + size + 3], outline=color, width=2)
 
 # ==========================================
+# ==========================================
+# SERVER STATS IMAGE GENERATOR
+# ==========================================
+
+async def create_server_stats_image(guild):
+    """Create a beautiful server statistics image"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    width, height = 900, 550
+    
+    # Load background
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                break
+            except:
+                pass
+    
+    if background is None:
+        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    else:
+        background = background.resize((width, height), Image.Resampling.LANCZOS)
+    
+    card = background.copy()
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 200))
+    card = Image.alpha_composite(card, overlay)
+    draw = ImageDraw.Draw(card)
+    
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_stat = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+    except:
+        font_title = font_stat = font_label = font_small = ImageFont.load_default()
+    
+    # Top border
+    draw.rectangle([(0, 0), (width, 8)], fill=(139, 0, 0))
+    
+    # Title
+    title = "THE FALLEN STATISTICS"
+    t_bbox = draw.textbbox((0, 0), title, font=font_title)
+    t_width = t_bbox[2] - t_bbox[0]
+    draw.text(((width - t_width) // 2, 25), title, font=font_title, fill=(255, 255, 255))
+    
+    # Load data
+    data = load_data()
+    users = data.get("users", {})
+    
+    total_xp = sum(u.get('xp', 0) for u in users.values())
+    total_coins = sum(u.get('coins', 0) for u in users.values())
+    total_voice = sum(u.get('voice_time', 0) for u in users.values())
+    total_wins = sum(u.get('wins', 0) for u in users.values())
+    total_raids = sum(u.get('raid_participation', 0) for u in users.values())
+    verified_count = sum(1 for u in users.values() if u.get('verified', False))
+    
+    # Stats boxes
+    stats = [
+        ("👥 MEMBERS", str(guild.member_count), (100, 200, 255)),
+        ("✅ VERIFIED", str(verified_count), (100, 255, 100)),
+        ("✨ TOTAL XP", format_number(total_xp), (255, 200, 100)),
+        ("💰 TOTAL COINS", format_number(total_coins), (255, 215, 0)),
+        ("🎙️ VOICE HOURS", f"{total_voice // 60}h", (200, 100, 255)),
+        ("⚔️ MATCHES", format_number(total_wins * 2), (255, 100, 100)),
+    ]
+    
+    box_width = 250
+    box_height = 100
+    start_x = 75
+    start_y = 90
+    gap = 30
+    
+    for i, (label, value, color) in enumerate(stats):
+        col = i % 3
+        row = i // 3
+        x = start_x + col * (box_width + gap)
+        y = start_y + row * (box_height + gap)
+        
+        # Box background
+        box_bg = Image.new("RGBA", (box_width, box_height), (40, 40, 50, 200))
+        card.paste(box_bg, (x, y), box_bg)
+        draw = ImageDraw.Draw(card)
+        
+        # Top accent
+        draw.rectangle([(x, y), (x + box_width, y + 5)], fill=color)
+        
+        # Label
+        draw.text((x + 15, y + 20), label, font=font_label, fill=(150, 150, 150))
+        
+        # Value
+        draw.text((x + 15, y + 50), value, font=font_stat, fill=color)
+    
+    # Top members section
+    section_y = 320
+    draw.text((75, section_y), "🏆 TOP MEMBERS", font=font_label, fill=(200, 200, 200))
+    
+    sorted_users = sorted(users.items(), key=lambda x: x[1].get('xp', 0), reverse=True)[:5]
+    
+    for i, (uid, udata) in enumerate(sorted_users):
+        member = guild.get_member(int(uid))
+        name = member.display_name[:15] if member else f"User {uid[:8]}"
+        xp = format_number(udata.get('xp', 0))
+        
+        y = section_y + 30 + i * 25
+        rank_color = [(255, 215, 0), (192, 192, 192), (205, 127, 50), (150, 150, 150), (150, 150, 150)][i]
+        
+        draw.text((75, y), f"#{i+1}", font=font_label, fill=rank_color)
+        draw.text((110, y), name, font=font_label, fill=(255, 255, 255))
+        draw.text((280, y), xp, font=font_label, fill=(255, 200, 100))
+    
+    # Recent activity
+    draw.text((450, section_y), "📊 SERVER INFO", font=font_label, fill=(200, 200, 200))
+    
+    online = sum(1 for m in guild.members if m.status != discord.Status.offline)
+    text_channels = len(guild.text_channels)
+    voice_channels = len(guild.voice_channels)
+    roles = len(guild.roles)
+    
+    info_items = [
+        f"🟢 Online: {online}",
+        f"💬 Text Channels: {text_channels}",
+        f"🔊 Voice Channels: {voice_channels}",
+        f"🏷️ Roles: {roles}",
+        f"📅 Created: {guild.created_at.strftime('%b %d, %Y')}"
+    ]
+    
+    for i, item in enumerate(info_items):
+        draw.text((450, section_y + 30 + i * 25), item, font=font_label, fill=(180, 180, 180))
+    
+    # Footer
+    draw.rectangle([(0, height - 8), (width, height)], fill=(139, 0, 0))
+    draw.text((30, height - 35), f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", font=font_small, fill=(100, 100, 100))
+    
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+# ==========================================
+# SHOP IMAGE GENERATOR
+# ==========================================
+
+async def create_shop_image():
+    """Create a visual shop image"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    width, height = 900, 600
+    
+    # Load background
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                break
+            except:
+                pass
+    
+    if background is None:
+        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    else:
+        background = background.resize((width, height), Image.Resampling.LANCZOS)
+    
+    card = background.copy()
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 210))
+    card = Image.alpha_composite(card, overlay)
+    draw = ImageDraw.Draw(card)
+    
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_item = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_desc = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_price = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+    except:
+        font_title = font_item = font_desc = font_price = ImageFont.load_default()
+    
+    # Top border
+    draw.rectangle([(0, 0), (width, 8)], fill=(139, 0, 0))
+    
+    # Title
+    title = "🛒 THE FALLEN SHOP"
+    t_bbox = draw.textbbox((0, 0), title, font=font_title)
+    t_width = t_bbox[2] - t_bbox[0]
+    draw.text(((width - t_width) // 2, 25), title, font=font_title, fill=(255, 255, 255))
+    
+    draw.text((width // 2 - 100, 70), "Spend your Fallen Coins!", font=font_desc, fill=(180, 180, 180))
+    
+    # Shop items
+    item_height = 90
+    start_y = 110
+    
+    for i, item in enumerate(SHOP_ITEMS):
+        y = start_y + i * (item_height + 10)
+        
+        # Item background
+        item_bg = Image.new("RGBA", (width - 80, item_height), (50, 30, 30, 200))
+        card.paste(item_bg, (40, y), item_bg)
+        draw = ImageDraw.Draw(card)
+        
+        # Left accent bar
+        draw.rectangle([(40, y), (48, y + item_height)], fill=(139, 0, 0))
+        
+        # Item name
+        draw.text((70, y + 15), item['name'], font=font_item, fill=(255, 255, 255))
+        
+        # Description
+        draw.text((70, y + 45), item['desc'], font=font_desc, fill=(180, 180, 180))
+        
+        # Price tag
+        price_text = f"💰 {item['price']:,}"
+        p_bbox = draw.textbbox((0, 0), price_text, font=font_price)
+        p_width = p_bbox[2] - p_bbox[0]
+        
+        # Price background
+        draw.rounded_rectangle([(width - 180, y + 25), (width - 60, y + 60)], radius=8, fill=(139, 0, 0))
+        draw.text((width - 170, y + 30), price_text, font=font_price, fill=(255, 215, 0))
+    
+    # Footer
+    draw.rectangle([(0, height - 8), (width, height)], fill=(139, 0, 0))
+    draw.text((40, height - 35), "Click the buttons below to purchase!", font=font_desc, fill=(150, 150, 150))
+    
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+# ==========================================
+# MEMBER MILESTONES SYSTEM
+# ==========================================
+
+MEMBER_MILESTONES = [50, 100, 150, 200, 250, 300, 400, 500, 750, 1000]
+
+async def check_member_milestone(guild):
+    """Check if guild hit a member milestone and announce it"""
+    member_count = guild.member_count
+    
+    for milestone in MEMBER_MILESTONES:
+        if member_count == milestone:
+            # Find announcement channel
+            channel = discord.utils.get(guild.text_channels, name="general") or \
+                      discord.utils.get(guild.text_channels, name="welcome") or \
+                      guild.text_channels[0] if guild.text_channels else None
+            
+            if channel:
+                # Create milestone image
+                milestone_image = await create_milestone_image(guild, milestone)
+                
+                if milestone_image:
+                    file = discord.File(milestone_image, filename="milestone.png")
+                    embed = discord.Embed(
+                        title="🎉 MEMBER MILESTONE! 🎉",
+                        description=f"**The Fallen** has reached **{milestone} members**!\n\nThank you all for being part of our community! ⚔️",
+                        color=0xFFD700
+                    )
+                    embed.set_image(url="attachment://milestone.png")
+                    await channel.send(embed=embed, file=file)
+                else:
+                    embed = discord.Embed(
+                        title="🎉 MEMBER MILESTONE! 🎉",
+                        description=f"**The Fallen** has reached **{milestone} members**!\n\nThank you all for being part of our community! ⚔️",
+                        color=0xFFD700
+                    )
+                    await channel.send(embed=embed)
+            break
+
+async def create_milestone_image(guild, milestone):
+    """Create a celebration image for member milestones"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    width, height = 800, 400
+    
+    # Load background
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                break
+            except:
+                pass
+    
+    if background is None:
+        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    else:
+        background = background.resize((width, height), Image.Resampling.LANCZOS)
+    
+    card = background.copy()
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 180))
+    card = Image.alpha_composite(card, overlay)
+    draw = ImageDraw.Draw(card)
+    
+    try:
+        font_big = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 72)
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+    except:
+        font_big = font_title = font_sub = ImageFont.load_default()
+    
+    # Top border
+    draw.rectangle([(0, 0), (width, 10)], fill=(255, 215, 0))
+    
+    # Celebration text
+    text1 = "🎉 MILESTONE REACHED! 🎉"
+    t1_bbox = draw.textbbox((0, 0), text1, font=font_title)
+    t1_width = t1_bbox[2] - t1_bbox[0]
+    draw.text(((width - t1_width) // 2, 50), text1, font=font_title, fill=(255, 215, 0))
+    
+    # Big number
+    number = str(milestone)
+    n_bbox = draw.textbbox((0, 0), number, font=font_big)
+    n_width = n_bbox[2] - n_bbox[0]
+    draw.text(((width - n_width) // 2, 120), number, font=font_big, fill=(255, 255, 255))
+    
+    # Members text
+    text2 = "MEMBERS"
+    t2_bbox = draw.textbbox((0, 0), text2, font=font_title)
+    t2_width = t2_bbox[2] - t2_bbox[0]
+    draw.text(((width - t2_width) // 2, 210), text2, font=font_title, fill=(200, 200, 200))
+    
+    # Thank you message
+    text3 = "Thank you for being part of The Fallen!"
+    t3_bbox = draw.textbbox((0, 0), text3, font=font_sub)
+    t3_width = t3_bbox[2] - t3_bbox[0]
+    draw.text(((width - t3_width) // 2, 280), text3, font=font_sub, fill=(180, 180, 180))
+    
+    # Server name
+    text4 = "✝ THE FALLEN ✝"
+    t4_bbox = draw.textbbox((0, 0), text4, font=font_title)
+    t4_width = t4_bbox[2] - t4_bbox[0]
+    draw.text(((width - t4_width) // 2, 330), text4, font=font_title, fill=(139, 0, 0))
+    
+    # Bottom border
+    draw.rectangle([(0, height - 10), (width, height)], fill=(255, 215, 0))
+    
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+# ==========================================
+# VOICE LEADERBOARD IMAGE GENERATOR
+# ==========================================
+
+async def create_voice_leaderboard_image(guild):
+    """Create a voice time leaderboard image"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    data = load_data()
+    users = data.get("users", {})
+    
+    # Sort by voice time
+    sorted_users = sorted(users.items(), key=lambda x: x[1].get('voice_time', 0), reverse=True)[:10]
+    
+    if not sorted_users:
+        return None
+    
+    num_users = len(sorted_users)
+    row_height = 60
+    header_height = 140
+    footer_height = 50
+    width = 900
+    height = header_height + (num_users * row_height) + footer_height
+    
+    # Load background
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                break
+            except:
+                pass
+    
+    if background is None:
+        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    else:
+        background = background.resize((width, height), Image.Resampling.LANCZOS)
+    
+    card = background.copy()
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 200))
+    card = Image.alpha_composite(card, overlay)
+    draw = ImageDraw.Draw(card)
+    
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_stat = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+    except:
+        font_title = font_sub = font_name = font_stat = ImageFont.load_default()
+    
+    # Header
+    draw.rectangle([(0, 0), (width, 8)], fill=(139, 0, 0))
+    
+    title = "🎙️ VOICE LEADERBOARD"
+    t_bbox = draw.textbbox((0, 0), title, font=font_title)
+    t_width = t_bbox[2] - t_bbox[0]
+    draw.text(((width - t_width) // 2, 30), title, font=font_title, fill=(255, 255, 255))
+    
+    draw.text((width // 2 - 80, 75), "Top Voice Activity", font=font_sub, fill=(180, 180, 180))
+    
+    # Column headers
+    draw.rectangle([(30, 105), (width - 30, 135)], fill=(60, 20, 20))
+    draw.text((50, 110), "RANK", font=font_sub, fill=(200, 200, 200))
+    draw.text((150, 110), "USER", font=font_sub, fill=(200, 200, 200))
+    draw.text((500, 110), "VOICE TIME", font=font_sub, fill=(200, 200, 200))
+    draw.text((700, 110), "XP FROM VOICE", font=font_sub, fill=(200, 200, 200))
+    
+    # Rows
+    rank_colors = {1: (255, 215, 0), 2: (192, 192, 192), 3: (205, 127, 50)}
+    
+    for i, (uid, udata) in enumerate(sorted_users):
+        y = header_height + i * row_height
+        rank = i + 1
+        
+        # Row background
+        row_color = (80, 20, 20, 150) if i % 2 == 0 else (60, 15, 15, 150)
+        row_bg = Image.new("RGBA", (width - 60, row_height - 5), row_color)
+        card.paste(row_bg, (30, y), row_bg)
+        draw = ImageDraw.Draw(card)
+        
+        # Rank
+        rank_color = rank_colors.get(rank, (180, 180, 180))
+        draw.text((60, y + 18), f"#{rank}", font=font_name, fill=rank_color)
+        
+        # Username
+        member = guild.get_member(int(uid))
+        name = member.display_name[:20] if member else f"User {uid[:8]}"
+        draw.text((150, y + 18), name, font=font_name, fill=(255, 255, 255))
+        
+        # Voice time
+        voice_mins = udata.get('voice_time', 0)
+        hours = voice_mins // 60
+        mins = voice_mins % 60
+        time_text = f"{hours}h {mins}m"
+        draw.text((500, y + 18), time_text, font=font_stat, fill=(200, 100, 255))
+        
+        # Estimated XP from voice
+        voice_xp = voice_mins * 10  # Rough estimate
+        draw.text((700, y + 18), format_number(voice_xp), font=font_stat, fill=(255, 200, 100))
+    
+    # Footer
+    draw.rectangle([(0, height - footer_height), (width, height - footer_height + 3)], fill=(139, 0, 0))
+    draw.text((30, height - 35), f"The Fallen | {guild.member_count} Members", font=font_stat, fill=(150, 150, 150))
+    
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
 # LOGGING DASHBOARD
 # ==========================================
 
@@ -2357,23 +2813,26 @@ class LeaderboardSelect(discord.ui.Select):
         options = [
             discord.SelectOption(label="Overall XP", emoji="🌎", value="xp", default=(current_selection == "xp")),
             discord.SelectOption(label="Monthly XP", emoji="📅", value="monthly_xp", default=(current_selection == "monthly_xp")),
-            discord.SelectOption(label="Weekly XP", emoji="📆", value="weekly_xp", default=(current_selection == "weekly_xp"))
+            discord.SelectOption(label="Weekly XP", emoji="📆", value="weekly_xp", default=(current_selection == "weekly_xp")),
+            discord.SelectOption(label="Voice Time", emoji="🎙️", value="voice_time", default=(current_selection == "voice_time"))
         ]
         super().__init__(placeholder="Overall XP", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
         sort_key = self.values[0]
         users = load_data()["users"]
-        title_map = {"xp": "Overall XP", "monthly_xp": "Monthly XP", "weekly_xp": "Weekly XP"}
+        title_map = {"xp": "Overall XP", "monthly_xp": "Monthly XP", "weekly_xp": "Weekly XP", "voice_time": "Voice Time"}
         title = title_map[sort_key]
         
         # Try to create image leaderboard
         if PIL_AVAILABLE:
             try:
-                lb_image = await create_leaderboard_image(interaction.guild, users, sort_key, title)
+                if sort_key == "voice_time":
+                    lb_image = await create_voice_leaderboard_image(interaction.guild)
+                else:
+                    lb_image = await create_leaderboard_image(interaction.guild, users, sort_key, title)
                 if lb_image:
                     file = discord.File(lb_image, filename="leaderboard.png")
-                    # Need to remove old attachments and add new one
                     await interaction.response.edit_message(attachments=[file], embed=None, view=LeaderboardViewUI(default_val=sort_key))
                     return
             except Exception as e:
@@ -4180,6 +4639,8 @@ class PersistentBot(commands.Bot):
                 if member.voice and not member.voice.self_deaf and not member.bot:
                     xp = random.randint(*XP_VOICE_RANGE)
                     add_xp_to_user(member.id, xp)
+                    # Track voice time (in minutes)
+                    add_user_stat(member.id, 'voice_time', 1)
                     await check_level_up(member.id, guild)
 
     @bg_voice_xp.before_loop
@@ -4302,6 +4763,9 @@ async def on_member_join(member):
     
     # Log the join
     await log_action(member.guild, "👋 Member Joined", f"{member.mention} joined the server\nAccount created: <t:{int(member.created_at.timestamp())}:R>", 0x3498db)
+    
+    # Check for member milestones
+    await check_member_milestone(member.guild)
 
 @bot.event
 async def on_message(message):
@@ -4729,11 +5193,26 @@ async def set_bloxlink_role(ctx, role: discord.Role):
 @bot.hybrid_command(name="setup_shop", description="Admin: Set up the shop panel")
 @commands.has_permissions(administrator=True)
 async def setup_shop(ctx):
-    """Create the shop panel in the shop channel"""
+    """Create the shop panel in the shop channel with image"""
     ch = discord.utils.get(ctx.guild.text_channels, name=SHOP_CHANNEL_NAME)
     if not ch:
         return await ctx.send(f"❌ Channel `{SHOP_CHANNEL_NAME}` not found. Create it first!", ephemeral=True)
     
+    # Try to create shop image
+    if PIL_AVAILABLE:
+        try:
+            shop_image = await create_shop_image()
+            if shop_image:
+                file = discord.File(shop_image, filename="shop.png")
+                embed = discord.Embed(color=0x8B0000)
+                embed.set_image(url="attachment://shop.png")
+                await ch.send(file=file, embed=embed, view=ShopView())
+                await ctx.send(f"✅ Shop panel posted in {ch.mention}", ephemeral=True)
+                return
+        except Exception as e:
+            print(f"Shop image error: {e}")
+    
+    # Fallback to embed
     embed = discord.Embed(
         title="🛒 The Fallen Shop",
         description="Spend your hard-earned Fallen Coins here!",
@@ -4745,6 +5224,37 @@ async def setup_shop(ctx):
     
     await ch.send(embed=embed, view=ShopView())
     await ctx.send(f"✅ Shop panel posted in {ch.mention}", ephemeral=True)
+
+@bot.hybrid_command(name="voicetop", description="View voice time leaderboard")
+async def voicetop(ctx):
+    """Display voice time leaderboard"""
+    if PIL_AVAILABLE:
+        try:
+            lb_image = await create_voice_leaderboard_image(ctx.guild)
+            if lb_image:
+                file = discord.File(lb_image, filename="voice_lb.png")
+                await ctx.send(file=file)
+                return
+        except Exception as e:
+            print(f"Voice leaderboard error: {e}")
+    
+    # Fallback to embed
+    data = load_data()
+    users = data.get("users", {})
+    sorted_users = sorted(users.items(), key=lambda x: x[1].get('voice_time', 0), reverse=True)[:10]
+    
+    embed = discord.Embed(title="🎙️ Voice Time Leaderboard", color=0x9b59b6)
+    
+    desc = ""
+    for i, (uid, udata) in enumerate(sorted_users):
+        member = ctx.guild.get_member(int(uid))
+        name = member.display_name if member else f"User {uid[:8]}"
+        mins = udata.get('voice_time', 0)
+        hours = mins // 60
+        desc += f"**#{i+1}** {name} - {hours}h {mins % 60}m\n"
+    
+    embed.description = desc or "No voice data yet!"
+    await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="top10_setup", description="Admin: Set up the Top 10 ranked leaderboard panel")
 @commands.has_permissions(administrator=True)
@@ -5646,7 +6156,19 @@ async def close_ticket(ctx):
 
 @bot.hybrid_command(name="serverstats", description="View server statistics")
 async def serverstats(ctx):
-    """Display comprehensive server statistics"""
+    """Display comprehensive server statistics with image"""
+    # Try to generate image first
+    if PIL_AVAILABLE:
+        try:
+            stats_image = await create_server_stats_image(ctx.guild)
+            if stats_image:
+                file = discord.File(stats_image, filename="serverstats.png")
+                await ctx.send(file=file)
+                return
+        except Exception as e:
+            print(f"Server stats image error: {e}")
+    
+    # Fallback to embed
     stats = get_server_stats(ctx.guild)
     
     embed = discord.Embed(
