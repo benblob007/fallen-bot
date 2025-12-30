@@ -786,6 +786,564 @@ async def create_leaderboard_image(guild, users_data, sort_key="xp", title_suffi
     
     return output
 
+# ==========================================
+# WELCOME CARD IMAGE GENERATOR
+# ==========================================
+
+async def create_welcome_card(member):
+    """Create a beautiful welcome card image for new members"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    width, height = 900, 350
+    
+    # Load background
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                break
+            except:
+                pass
+    
+    if background is None and LEVEL_CARD_BACKGROUND:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(LEVEL_CARD_BACKGROUND) as resp:
+                    if resp.status == 200:
+                        img_data = await resp.read()
+                        background = Image.open(BytesIO(img_data)).convert("RGBA")
+        except:
+            pass
+    
+    if background is None:
+        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    else:
+        background = background.resize((width, height), Image.Resampling.LANCZOS)
+    
+    card = background.copy()
+    
+    # Dark overlay
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 180))
+    card = Image.alpha_composite(card, overlay)
+    
+    draw = ImageDraw.Draw(card)
+    
+    # Load fonts
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
+        font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_text = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+    except:
+        font_title = font_name = font_text = font_small = ImageFont.load_default()
+    
+    # Top decorative line
+    draw.rectangle([(20, 15), (width - 20, 20)], fill=(139, 0, 0))
+    
+    # Welcome text
+    welcome_text = "WELCOME TO"
+    w_bbox = draw.textbbox((0, 0), welcome_text, font=font_text)
+    w_width = w_bbox[2] - w_bbox[0]
+    draw.text(((width - w_width) // 2, 40), welcome_text, font=font_text, fill=(200, 200, 200))
+    
+    # Server name
+    server_text = "THE FALLEN"
+    s_bbox = draw.textbbox((0, 0), server_text, font=font_title)
+    s_width = s_bbox[2] - s_bbox[0]
+    draw.text(((width - s_width) // 2, 70), server_text, font=font_title, fill=(255, 255, 255))
+    
+    # Avatar
+    avatar_size = 120
+    avatar_x = (width - avatar_size) // 2
+    avatar_y = 130
+    
+    # Download avatar
+    try:
+        async with aiohttp.ClientSession() as session:
+            avatar_url = member.display_avatar.with_format('png').with_size(256).url
+            async with session.get(avatar_url) as resp:
+                if resp.status == 200:
+                    avatar_data = await resp.read()
+                    avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
+                    avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
+                    
+                    # Create circular mask
+                    mask = Image.new("L", (avatar_size, avatar_size), 0)
+                    mask_draw = ImageDraw.Draw(mask)
+                    mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+                    
+                    # Red border
+                    draw.ellipse(
+                        [avatar_x - 5, avatar_y - 5, avatar_x + avatar_size + 5, avatar_y + avatar_size + 5],
+                        fill=(139, 0, 0)
+                    )
+                    
+                    card.paste(avatar_img, (avatar_x, avatar_y), mask)
+                    draw = ImageDraw.Draw(card)
+    except:
+        draw.ellipse(
+            [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
+            fill=(60, 60, 70)
+        )
+    
+    # Username
+    name_text = member.display_name
+    n_bbox = draw.textbbox((0, 0), name_text, font=font_name)
+    n_width = n_bbox[2] - n_bbox[0]
+    draw.text(((width - n_width) // 2, 265), name_text, font=font_name, fill=(255, 255, 255))
+    
+    # Member count
+    member_num = f"Member #{member.guild.member_count}"
+    m_bbox = draw.textbbox((0, 0), member_num, font=font_text)
+    m_width = m_bbox[2] - m_bbox[0]
+    draw.text(((width - m_width) // 2, 305), member_num, font=font_text, fill=(139, 0, 0))
+    
+    # Bottom decorative line
+    draw.rectangle([(20, height - 20), (width - 20, height - 15)], fill=(139, 0, 0))
+    
+    # Save
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+# ==========================================
+# PROFILE CARD IMAGE GENERATOR
+# ==========================================
+
+async def create_profile_card(member, user_data, rank, achievements):
+    """Create a detailed profile card image"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    width, height = 900, 500
+    
+    # Load background
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                break
+            except:
+                pass
+    
+    if background is None and LEVEL_CARD_BACKGROUND:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(LEVEL_CARD_BACKGROUND) as resp:
+                    if resp.status == 200:
+                        img_data = await resp.read()
+                        background = Image.open(BytesIO(img_data)).convert("RGBA")
+        except:
+            pass
+    
+    if background is None:
+        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    else:
+        background = background.resize((width, height), Image.Resampling.LANCZOS)
+    
+    card = background.copy()
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 200))
+    card = Image.alpha_composite(card, overlay)
+    
+    draw = ImageDraw.Draw(card)
+    
+    # Load fonts
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_stats = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+    except:
+        font_title = font_name = font_stats = font_label = font_small = ImageFont.load_default()
+    
+    # Get user stats
+    lvl = user_data.get('level', 0)
+    xp = user_data.get('xp', 0)
+    coins = user_data.get('coins', 0)
+    wins = user_data.get('wins', 0)
+    losses = user_data.get('losses', 0)
+    raid_wins = user_data.get('raid_wins', 0)
+    raid_losses = user_data.get('raid_losses', 0)
+    daily_streak = user_data.get('daily_streak', 0)
+    roblox = user_data.get('roblox_username', None)
+    req = calculate_next_level_xp(lvl)
+    progress = min(1.0, xp / req) if req > 0 else 0
+    
+    # Rank border color
+    if rank == 1:
+        border_color = (255, 215, 0)  # Gold
+    elif rank == 2:
+        border_color = (192, 192, 192)  # Silver
+    elif rank == 3:
+        border_color = (205, 127, 50)  # Bronze
+    elif rank <= 10:
+        border_color = (139, 0, 0)  # Red
+    else:
+        border_color = (100, 100, 100)  # Gray
+    
+    # Top border
+    draw.rectangle([(0, 0), (width, 8)], fill=border_color)
+    
+    # Header
+    draw.text((30, 20), "PLAYER PROFILE", font=font_title, fill=(200, 200, 200))
+    
+    # Avatar section (left side)
+    avatar_size = 150
+    avatar_x, avatar_y = 40, 70
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            avatar_url = member.display_avatar.with_format('png').with_size(256).url
+            async with session.get(avatar_url) as resp:
+                if resp.status == 200:
+                    avatar_data = await resp.read()
+                    avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
+                    avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
+                    
+                    mask = Image.new("L", (avatar_size, avatar_size), 0)
+                    mask_draw = ImageDraw.Draw(mask)
+                    mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+                    
+                    # Border
+                    draw.ellipse(
+                        [avatar_x - 5, avatar_y - 5, avatar_x + avatar_size + 5, avatar_y + avatar_size + 5],
+                        fill=border_color
+                    )
+                    
+                    card.paste(avatar_img, (avatar_x, avatar_y), mask)
+                    draw = ImageDraw.Draw(card)
+    except:
+        draw.ellipse([avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size], fill=(60, 60, 70))
+    
+    # Name and rank below avatar
+    draw.text((avatar_x, avatar_y + avatar_size + 15), member.display_name[:15], font=font_name, fill=(255, 255, 255))
+    draw.text((avatar_x, avatar_y + avatar_size + 45), f"Rank #{rank}", font=font_stats, fill=border_color)
+    
+    if roblox:
+        draw.text((avatar_x, avatar_y + avatar_size + 70), f"Roblox: {roblox}", font=font_small, fill=(150, 150, 150))
+    
+    # Stats section (right side)
+    stats_x = 250
+    stats_y = 70
+    box_width = 190
+    box_height = 70
+    gap = 15
+    
+    stats_boxes = [
+        ("LEVEL", str(lvl), (100, 200, 255)),
+        ("XP", format_number(xp), (255, 200, 100)),
+        ("COINS", format_number(coins), (255, 215, 0)),
+        ("WINS", str(wins), (100, 255, 100)),
+        ("LOSSES", str(losses), (255, 100, 100)),
+        ("STREAK", f"{daily_streak} days", (255, 150, 50)),
+    ]
+    
+    for i, (label, value, color) in enumerate(stats_boxes):
+        col = i % 3
+        row = i // 3
+        x = stats_x + col * (box_width + gap)
+        y = stats_y + row * (box_height + gap)
+        
+        # Box background
+        box_bg = Image.new("RGBA", (box_width, box_height), (40, 40, 50, 200))
+        card.paste(box_bg, (x, y), box_bg)
+        draw = ImageDraw.Draw(card)
+        
+        # Top accent
+        draw.rectangle([(x, y), (x + box_width, y + 4)], fill=color)
+        
+        # Label and value
+        draw.text((x + 10, y + 15), label, font=font_label, fill=(150, 150, 150))
+        draw.text((x + 10, y + 35), value, font=font_stats, fill=color)
+    
+    # Progress bar
+    bar_y = 250
+    draw.text((stats_x, bar_y), f"Progress to Level {lvl + 1}", font=font_label, fill=(150, 150, 150))
+    
+    bar_x, bar_width, bar_height = stats_x, 600, 25
+    draw.rounded_rectangle([(bar_x, bar_y + 25), (bar_x + bar_width, bar_y + 25 + bar_height)], radius=12, fill=(40, 40, 50))
+    
+    if progress > 0:
+        fill_width = int(bar_width * progress)
+        if fill_width > 24:
+            draw.rounded_rectangle([(bar_x, bar_y + 25), (bar_x + fill_width, bar_y + 25 + bar_height)], radius=12, fill=(139, 0, 0))
+    
+    progress_text = f"{int(progress * 100)}% ({format_number(xp)} / {format_number(req)})"
+    draw.text((bar_x + bar_width - 200, bar_y + 28), progress_text, font=font_small, fill=(255, 255, 255))
+    
+    # Combat stats
+    combat_y = 320
+    draw.text((stats_x, combat_y), "COMBAT STATS", font=font_stats, fill=(200, 200, 200))
+    
+    total_matches = wins + losses
+    winrate = round((wins / total_matches) * 100, 1) if total_matches > 0 else 0
+    raid_total = raid_wins + raid_losses
+    raid_wr = round((raid_wins / raid_total) * 100, 1) if raid_total > 0 else 0
+    
+    draw.text((stats_x, combat_y + 30), f"Matches: {total_matches} ({winrate}% WR)", font=font_label, fill=(150, 150, 150))
+    draw.text((stats_x + 250, combat_y + 30), f"Raids: {raid_total} ({raid_wr}% WR)", font=font_label, fill=(150, 150, 150))
+    
+    # Achievements section
+    ach_y = 380
+    draw.text((stats_x, ach_y), "ACHIEVEMENTS", font=font_stats, fill=(200, 200, 200))
+    
+    # Draw achievement badges
+    badge_x = stats_x
+    badge_size = 40
+    unlocked = [a for a in achievements if a.get('unlocked', False)][:10]
+    
+    for i, ach in enumerate(unlocked):
+        x = badge_x + i * (badge_size + 10)
+        # Badge circle
+        draw.ellipse([x, ach_y + 30, x + badge_size, ach_y + 30 + badge_size], fill=(139, 0, 0))
+        # Badge icon (first letter)
+        icon = ach.get('icon', '?')[0] if ach.get('icon') else '?'
+        draw.text((x + 12, ach_y + 38), icon, font=font_stats, fill=(255, 255, 255))
+    
+    if not unlocked:
+        draw.text((stats_x, ach_y + 35), "No achievements yet", font=font_small, fill=(100, 100, 100))
+    
+    # Footer
+    draw.rectangle([(0, height - 8), (width, height)], fill=border_color)
+    draw.text((30, height - 30), "The Fallen", font=font_small, fill=(150, 150, 150))
+    
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+# ==========================================
+# ACHIEVEMENT SYSTEM
+# ==========================================
+
+ACHIEVEMENTS = {
+    "first_message": {"name": "First Words", "desc": "Send your first message", "icon": "💬", "requirement": 1, "stat": "messages"},
+    "chatterbox": {"name": "Chatterbox", "desc": "Send 100 messages", "icon": "🗣️", "requirement": 100, "stat": "messages"},
+    "social_butterfly": {"name": "Social Butterfly", "desc": "Send 1000 messages", "icon": "🦋", "requirement": 1000, "stat": "messages"},
+    "level_5": {"name": "Rising Star", "desc": "Reach level 5", "icon": "⭐", "requirement": 5, "stat": "level"},
+    "level_10": {"name": "Dedicated", "desc": "Reach level 10", "icon": "🌟", "requirement": 10, "stat": "level"},
+    "level_25": {"name": "Veteran", "desc": "Reach level 25", "icon": "💫", "requirement": 25, "stat": "level"},
+    "level_50": {"name": "Elite", "desc": "Reach level 50", "icon": "🏆", "requirement": 50, "stat": "level"},
+    "level_100": {"name": "Legendary", "desc": "Reach level 100", "icon": "👑", "requirement": 100, "stat": "level"},
+    "first_win": {"name": "Victory!", "desc": "Win your first match", "icon": "⚔️", "requirement": 1, "stat": "wins"},
+    "fighter": {"name": "Fighter", "desc": "Win 10 matches", "icon": "🥊", "requirement": 10, "stat": "wins"},
+    "champion": {"name": "Champion", "desc": "Win 50 matches", "icon": "🏅", "requirement": 50, "stat": "wins"},
+    "raider": {"name": "Raider", "desc": "Participate in 5 raids", "icon": "🏴‍☠️", "requirement": 5, "stat": "raid_participation"},
+    "raid_master": {"name": "Raid Master", "desc": "Win 10 raids", "icon": "⚡", "requirement": 10, "stat": "raid_wins"},
+    "rich": {"name": "Getting Rich", "desc": "Earn 10,000 coins", "icon": "💰", "requirement": 10000, "stat": "coins"},
+    "wealthy": {"name": "Wealthy", "desc": "Earn 100,000 coins", "icon": "💎", "requirement": 100000, "stat": "coins"},
+    "streak_7": {"name": "Week Warrior", "desc": "7 day daily streak", "icon": "🔥", "requirement": 7, "stat": "daily_streak"},
+    "streak_30": {"name": "Monthly Master", "desc": "30 day daily streak", "icon": "🌙", "requirement": 30, "stat": "daily_streak"},
+    "verified": {"name": "Verified", "desc": "Link your Roblox account", "icon": "✅", "requirement": 1, "stat": "verified"},
+}
+
+def check_achievements(user_data):
+    """Check which achievements the user has unlocked"""
+    unlocked = []
+    user_achievements = user_data.get('achievements', [])
+    
+    for ach_id, ach_data in ACHIEVEMENTS.items():
+        stat = ach_data['stat']
+        requirement = ach_data['requirement']
+        
+        # Get the stat value
+        if stat == 'verified':
+            value = 1 if user_data.get('verified', False) else 0
+        else:
+            value = user_data.get(stat, 0)
+        
+        is_unlocked = value >= requirement
+        
+        unlocked.append({
+            'id': ach_id,
+            'name': ach_data['name'],
+            'desc': ach_data['desc'],
+            'icon': ach_data['icon'],
+            'unlocked': is_unlocked,
+            'progress': min(value, requirement),
+            'requirement': requirement
+        })
+    
+    return unlocked
+
+async def check_new_achievements(user_id, guild):
+    """Check if user unlocked any new achievements and announce them"""
+    data = load_data()
+    uid = str(user_id)
+    user_data = data["users"].get(uid, {})
+    
+    old_achievements = set(user_data.get('achievements', []))
+    current_achievements = check_achievements(user_data)
+    
+    new_unlocks = []
+    for ach in current_achievements:
+        if ach['unlocked'] and ach['id'] not in old_achievements:
+            new_unlocks.append(ach)
+            old_achievements.add(ach['id'])
+    
+    if new_unlocks:
+        data["users"][uid]['achievements'] = list(old_achievements)
+        save_data(data)
+        
+        # Announce new achievements
+        member = guild.get_member(user_id)
+        if member:
+            for ach in new_unlocks:
+                channel = discord.utils.get(guild.text_channels, name=LEVEL_UP_CHANNEL_NAME)
+                if channel:
+                    embed = discord.Embed(
+                        title=f"🏆 Achievement Unlocked!",
+                        description=f"{member.mention} unlocked **{ach['name']}**!\n\n{ach['icon']} *{ach['desc']}*",
+                        color=0xFFD700
+                    )
+                    try:
+                        await channel.send(embed=embed)
+                    except:
+                        pass
+    
+    return new_unlocks
+
+# ==========================================
+# ACTIVITY GRAPH GENERATOR
+# ==========================================
+
+async def create_activity_graph(member, user_data):
+    """Create an activity graph showing XP over time"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    width, height = 800, 400
+    
+    # Create dark background
+    card = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    draw = ImageDraw.Draw(card)
+    
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
+    except:
+        font_title = font_label = font_small = ImageFont.load_default()
+    
+    # Title
+    draw.text((30, 20), f"{member.display_name}'s Activity", font=font_title, fill=(255, 255, 255))
+    
+    # Graph area
+    graph_x, graph_y = 70, 70
+    graph_width, graph_height = 680, 280
+    
+    # Draw grid
+    draw.rectangle([(graph_x, graph_y), (graph_x + graph_width, graph_y + graph_height)], outline=(50, 50, 60))
+    
+    # Get activity data (simulated - would need to track daily XP)
+    activity_log = user_data.get('activity_log', [])
+    
+    # If no data, show message
+    if len(activity_log) < 2:
+        draw.text((graph_x + 200, graph_y + 120), "Not enough data yet", font=font_title, fill=(100, 100, 100))
+        draw.text((graph_x + 180, graph_y + 160), "Activity tracking starts now!", font=font_label, fill=(80, 80, 80))
+    else:
+        # Draw line graph
+        max_xp = max(d.get('xp', 0) for d in activity_log) or 1
+        points = []
+        
+        for i, day_data in enumerate(activity_log[-30:]):  # Last 30 days
+            x = graph_x + int((i / min(29, len(activity_log) - 1)) * graph_width)
+            y = graph_y + graph_height - int((day_data.get('xp', 0) / max_xp) * graph_height)
+            points.append((x, y))
+        
+        # Draw line
+        if len(points) > 1:
+            for i in range(len(points) - 1):
+                draw.line([points[i], points[i + 1]], fill=(139, 0, 0), width=3)
+            
+            # Draw points
+            for point in points:
+                draw.ellipse([point[0] - 4, point[1] - 4, point[0] + 4, point[1] + 4], fill=(255, 100, 100))
+    
+    # Grid lines
+    for i in range(5):
+        y = graph_y + int(i * graph_height / 4)
+        draw.line([(graph_x, y), (graph_x + graph_width, y)], fill=(40, 40, 50))
+    
+    # Y-axis labels
+    draw.text((10, graph_y), "High", font=font_small, fill=(100, 100, 100))
+    draw.text((10, graph_y + graph_height - 10), "Low", font=font_small, fill=(100, 100, 100))
+    
+    # X-axis label
+    draw.text((graph_x + graph_width // 2 - 30, graph_y + graph_height + 10), "Last 30 Days", font=font_label, fill=(100, 100, 100))
+    
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+# ==========================================
+# RAID HISTORY TRACKER
+# ==========================================
+
+RAID_HISTORY_FILE = "raid_history.json"
+
+def load_raid_history():
+    try:
+        with open(RAID_HISTORY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"raids": []}
+
+def save_raid_history(data):
+    with open(RAID_HISTORY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def log_raid(target, result, participants, xp_gained):
+    """Log a raid to history"""
+    history = load_raid_history()
+    history["raids"].append({
+        "target": target,
+        "result": result,  # "win" or "loss"
+        "participants": participants,
+        "xp_gained": xp_gained,
+        "date": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    })
+    # Keep last 100 raids
+    history["raids"] = history["raids"][-100:]
+    save_raid_history(history)
+
+# ==========================================
+# LOGGING DASHBOARD
+# ==========================================
+
+LOG_CHANNEL_NAME = "fallen-logs"
+
+async def log_to_dashboard(guild, log_type, title, description, color=0x3498db, fields=None):
+    """Send a formatted log to the logging channel"""
+    channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
+    if not channel:
+        return
+    
+    embed = discord.Embed(
+        title=f"{log_type} | {title}",
+        description=description,
+        color=color,
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    
+    if fields:
+        for name, value in fields.items():
+            embed.add_field(name=name, value=value, inline=True)
+    
+    embed.set_footer(text="Fallen Logging System")
+    
+    try:
+        await channel.send(embed=embed)
+    except:
+        pass
+
 # --- LEVELING CHECKER ---
 async def check_level_up(user_id, guild):
     data = load_data()
@@ -1450,177 +2008,190 @@ class HelpSelect(discord.ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="Member", emoji="👤", description="Basic commands"),
+            discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
+            discord.SelectOption(label="Achievements", emoji="🏆", description="Achievements & rewards"),
             discord.SelectOption(label="Economy", emoji="💰", description="Coins & rewards"),
             discord.SelectOption(label="Tickets", emoji="🎫", description="Support tickets"),
-            discord.SelectOption(label="Stats", emoji="📊", description="Server & user stats"),
-            discord.SelectOption(label="Applications", emoji="📋", description="Staff applications"),
             discord.SelectOption(label="Raids & Wars", emoji="🏴‍☠️", description="Clan battles"),
             discord.SelectOption(label="Training", emoji="📚", description="Events & tryouts"),
+            discord.SelectOption(label="Applications", emoji="📋", description="Staff applications"),
             discord.SelectOption(label="Staff", emoji="🛡️", description="Moderation"),
             discord.SelectOption(label="Admin", emoji="⚙️", description="Setup & management"),
         ]
         super().__init__(placeholder="Select a category...", min_values=1, max_values=1, options=options)
     
     async def callback(self, interaction: discord.Interaction):
-        e = discord.Embed(color=0x3498db)
+        e = discord.Embed(color=0x8B0000)
+        
         if self.values[0] == "Member": 
             e.title="👤 Member Commands"
             e.description=(
-                "**All commands work with both `!` and `/`**\n\n"
-                "**🔗 Secure Verification:**\n"
-                "`verify` - Verify with Roblox (code in profile)\n"
-                "`link_roblox` - Re-verify with different account\n"
-                "`update_roblox` - Update via popup form\n\n"
-                "**📊 Stats & Profile:**\n"
-                "`level [@user]` - Check level & XP\n"
-                "`leaderboard` / `lb` - View XP rankings\n"
-                "`profile [@user]` - View full profile\n"
-                "`stats [@user]` - View combat stats (W/L)\n"
-                "`fcoins` - Check your coin balance\n\n"
-                "**🎁 Rewards:**\n"
-                "`daily` - Claim daily reward\n"
-                "`schedule` - View upcoming events\n"
-                "`help` - Show this help menu"
+                "**🔗 Verification**\n"
+                "`/verify` - Verify with Roblox\n"
+                "`/link_roblox` - Re-verify with different account\n\n"
+                "**📊 Quick Stats**\n"
+                "`/level` - Check your level card\n"
+                "`/rank` - View your rank card\n"
+                "`/fcoins` - Check coin balance\n\n"
+                "**🎁 Daily**\n"
+                "`/daily` - Claim daily reward\n"
+                "`/schedule` - View events"
             )
-        elif self.values[0] == "Economy": 
-            e.title="💰 Economy Commands"
+            
+        elif self.values[0] == "Profile & Stats":
+            e.title="📊 Profile & Statistics"
             e.description=(
-                "**Earning Coins & XP:**\n"
+                "**🖼️ Visual Cards**\n"
+                "`/profile` - Full profile card with all stats\n"
+                "`/rank` - Rank card with XP bar\n"
+                "`/level` - Level card\n"
+                "`/activity` - Activity graph\n\n"
+                "**📈 Statistics**\n"
+                "`/mystats` - Detailed stats breakdown\n"
+                "`/compare @user` - Compare with someone\n"
+                "`/leaderboard` - XP leaderboard\n"
+                "`/topactive` - Most active members\n"
+                "`/serverstats` - Server statistics"
+            )
+            
+        elif self.values[0] == "Achievements":
+            e.title="🏆 Achievements"
+            e.description=(
+                "**📜 Commands**\n"
+                "`/achievements` - View all achievements\n\n"
+                "**🎯 How to Earn**\n"
+                "• Level up to unlock level achievements\n"
+                "• Win matches for combat achievements\n"
+                "• Participate in raids for raider badges\n"
+                "• Maintain daily streaks for streak awards\n"
+                "• Earn coins for wealth achievements\n"
+                "• Verify your Roblox for verified badge\n\n"
+                "**🏅 Categories**\n"
+                "• Messaging milestones\n"
+                "• Level milestones\n"
+                "• Combat victories\n"
+                "• Raid participation\n"
+                "• Wealth accumulation\n"
+                "• Daily streaks"
+            )
+            
+        elif self.values[0] == "Economy": 
+            e.title="💰 Economy"
+            e.description=(
+                "**💵 Earning Coins**\n"
                 "• Chat and be active\n"
                 "• Join voice channels\n"
-                "• Claim daily rewards (`daily`)\n"
+                "• Claim daily rewards\n"
                 "• Level up milestones\n"
                 "• Attend trainings\n"
-                "• Participate in raids\n\n"
-                "**Spending Coins:**\n"
-                "• Visit the shop channel\n"
-                "• Buy tryouts & custom roles\n\n"
-                "`fcoins` - Check your balance\n"
-                "`daily` - Claim daily (streak bonus!)"
+                "• Win raids\n\n"
+                "**📜 Commands**\n"
+                "`/fcoins` - Check balance\n"
+                "`/daily` - Claim daily (streak bonus!)\n\n"
+                "**🛒 Shop**\n"
+                "Visit the shop channel to spend coins!"
             )
+            
         elif self.values[0] == "Tickets":
-            e.title="🎫 Support Ticket System"
+            e.title="🎫 Support Tickets"
             e.description=(
-                "**Create a Ticket:**\n"
-                "Go to the tickets channel and click:\n"
-                "• 🎫 **Support** - General help & questions\n"
-                "• 🚨 **Report** - Report a rule breaker\n"
-                "• 💡 **Suggestion** - Submit an idea\n\n"
-                "**Commands:**\n"
-                "`close_ticket` - Close your current ticket\n\n"
-                "**How it Works:**\n"
-                "1. Click a button to create a ticket\n"
-                "2. A private channel is created\n"
-                "3. Describe your issue\n"
-                "4. Staff will assist you\n"
-                "5. Ticket is closed when resolved\n\n"
-                "*You can only have one open ticket at a time*"
+                "**📝 Create a Ticket**\n"
+                "Go to tickets channel and click:\n"
+                "🎫 **Support** - General help\n"
+                "🚨 **Report** - Report rule breaker\n"
+                "💡 **Suggestion** - Submit idea\n\n"
+                "**📜 Commands**\n"
+                "`/close_ticket` - Close your ticket\n\n"
+                "*One open ticket at a time*"
             )
-        elif self.values[0] == "Stats":
-            e.title="📊 Statistics Commands"
-            e.description=(
-                "**Personal Stats:**\n"
-                "`mystats [@user]` - Detailed activity stats\n"
-                "`profile [@user]` - View full profile\n"
-                "`stats [@user]` - Combat W/L stats\n"
-                "`compare @user` - Compare with someone\n\n"
-                "**Server Stats:**\n"
-                "`serverstats` - Server-wide statistics\n"
-                "`topactive [7/30]` - Most active members\n"
-                "`leaderboards` - View all leaderboards\n\n"
-                "**Leaderboards:**\n"
-                "`leaderboard` - XP rankings\n"
-                "`raid_lb` - Raid leaderboard"
-            )
-        elif self.values[0] == "Applications":
-            e.title="📋 Application System"
-            e.description=(
-                "**Apply for Staff Positions:**\n"
-                "🎯 **Tryout Host** - Host member tryouts\n"
-                "🛡️ **Moderator** - Moderate the server\n"
-                "📚 **Training Host** - Host trainings\n\n"
-                "**Commands:**\n"
-                "`app_status` - Check your application status\n\n"
-                "**How to Apply:**\n"
-                "1. Go to the applications channel\n"
-                "2. Click 'Apply Now'\n"
-                "3. Select position & check requirements\n"
-                "4. Fill out the form\n"
-                "5. Wait for staff votes!\n\n"
-                "**Requirements Checked:**\n"
-                "• Minimum level\n"
-                "• Days in server\n"
-                "• Warning count\n"
-                "• Verified status\n"
-                "• Cooldown (if reapplying)"
-            )
+            
         elif self.values[0] == "Raids & Wars":
-            e.title="🏴‍☠️ Raids & Wars Commands"
+            e.title="🏴‍☠️ Raids & Wars"
             e.description=(
-                "**Member Commands:**\n"
-                "`raid_lb` - Raid leaderboard\n"
-                "`wars` - View all clan wars\n"
-                "`war_record <clan>` - Record vs clan\n\n"
-                "**Staff Commands:**\n"
-                "`raid_call <target> <time> [reqs]` - Call raid\n"
-                "`raid_log <win/loss> @users` - Log result\n"
-                "`war_declare <clan>` - Declare war\n"
-                "`war_result <clan> <win/loss>` - Log war\n"
-                "`scrim <opponent> <time>` - Schedule scrim"
+                "**👤 Member Commands**\n"
+                "`/raid_lb` - Raid leaderboard\n"
+                "`/raid_history` - View raid history\n"
+                "`/wars` - View all clan wars\n"
+                "`/war_record <clan>` - Record vs clan\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`/raid_call <target> <time>` - Call raid\n"
+                "`/raid_log <win/loss> @users` - Log result\n"
+                "`/war_declare <clan>` - Declare war\n"
+                "`/war_result <clan> <win/loss>` - Log war\n"
+                "`/scrim <opponent> <time>` - Schedule scrim"
             )
+            
         elif self.values[0] == "Training":
             e.title="📚 Training & Tryouts"
             e.description=(
-                "**Member Commands:**\n"
-                "`schedule` - View upcoming events\n\n"
-                "**Staff Commands:**\n"
-                "`schedule_training <type> <time>` - Schedule training\n"
-                "`training_log @users` - Log attendance (+50 XP)\n"
-                "`schedule_tryout <type> <time>` - Schedule tryout\n"
-                "`tryout_result @user <pass/fail>` - Log result"
+                "**👤 Member Commands**\n"
+                "`/schedule` - View upcoming events\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`/schedule_training <type> <time>` - Schedule\n"
+                "`/training_log @users` - Log attendance\n"
+                "`/schedule_tryout <type> <time>` - Schedule tryout\n"
+                "`/tryout_result @user <pass/fail>` - Log result"
             )
+            
+        elif self.values[0] == "Applications":
+            e.title="📋 Applications"
+            e.description=(
+                "**📝 Available Positions**\n"
+                "🎯 **Tryout Host** - Host tryouts\n"
+                "🛡️ **Moderator** - Moderate server\n"
+                "📚 **Training Host** - Host trainings\n\n"
+                "**📜 Commands**\n"
+                "`/app_status` - Check your application\n\n"
+                "**✅ Requirements**\n"
+                "• Minimum level\n"
+                "• Days in server\n"
+                "• No warnings\n"
+                "• Verified status\n"
+                "• Cooldown period"
+            )
+            
         elif self.values[0] == "Staff": 
             e.title="🛡️ Staff Commands"
             e.description=(
-                "**XP Management:**\n"
-                "`addxp @user amount` - Add XP\n"
-                "`removexp @user amount` - Remove XP\n"
-                "`levelchange @user level` - Set level\n"
-                "`checklevel @user` - View user stats\n\n"
-                "**Economy:**\n"
-                "`addfcoins @user amount` - Add coins\n"
-                "`removefcoins @user amount` - Remove coins\n\n"
-                "**Matches:**\n"
-                "`report_set @winner @loser` - Report result\n"
-                "`tstart [title]` - Start tournament\n\n"
-                "**Moderation:**\n"
-                "`warn @user [reason]` - Warn user\n"
-                "`warnings @user` - View warnings\n"
-                "`clearwarnings @user` - Clear warnings\n"
-                "`promote @user @role` - Give role\n"
-                "`demote @user @role` - Remove role\n"
-                "`announce #channel message` - Announcement"
+                "**📊 XP & Levels**\n"
+                "`/addxp @user amount` - Add XP\n"
+                "`/removexp @user amount` - Remove XP\n"
+                "`/levelchange @user level` - Set level\n"
+                "`/checklevel @user` - View stats\n\n"
+                "**💰 Economy**\n"
+                "`/addfcoins @user amount` - Add coins\n"
+                "`/removefcoins @user amount` - Remove\n\n"
+                "**⚔️ Matches**\n"
+                "`/report_set @winner @loser` - Report\n"
+                "`/tstart [title]` - Tournament\n\n"
+                "**🔨 Moderation**\n"
+                "`/warn @user [reason]` - Warn\n"
+                "`/warnings @user` - View warnings\n"
+                "`/clearwarnings @user` - Clear"
             )
+            
         elif self.values[0] == "Admin":
             e.title="⚙️ Admin Commands"
             e.description=(
-                "**Setup Panels:**\n"
-                "`setup_verify [#channel]` - Verification panel\n"
-                "`setup_tickets [#channel]` - Support tickets panel\n"
-                "`setup_shop` - Shop panel\n"
-                "`setup_roster` - Roster panel\n"
-                "`ticket_panel` - Challenge panel\n"
-                "`apply_panel` - Application panel\n\n"
-                "**Roster Management:**\n"
-                "`roster_add @user <1-10>` - Add to roster\n"
-                "`roster_remove <1-10>` - Clear position\n\n"
-                "**Maintenance:**\n"
-                "`inactive_check [days]` - Find inactive\n"
-                "`reset_weekly` - Reset weekly XP\n"
-                "`reset_monthly` - Reset monthly XP\n"
-                "`wipedata` - Reset ALL data (Owner)\n"
-                "`!sync` - Sync slash commands"
+                "**📋 Setup Panels**\n"
+                "`/setup_verify` - Verification panel\n"
+                "`/setup_tickets` - Tickets panel\n"
+                "`/setup_shop` - Shop panel\n"
+                "`/setup_roster` - Clan roster\n"
+                "`/setup_logs` - Logging dashboard\n"
+                "`/apply_panel` - Applications\n\n"
+                "**🔧 Management**\n"
+                "`/roster_add @user name pos` - Add to roster\n"
+                "`/roster_remove @user` - Remove\n"
+                "`/inactive_check [days]` - Find inactive\n\n"
+                "**🔄 Resets**\n"
+                "`/reset_weekly` - Reset weekly XP\n"
+                "`/reset_monthly` - Reset monthly XP\n"
+                "`!sync` - Sync commands"
             )
+        
+        # Add footer to all
+        e.set_footer(text="The Fallen Bot • Use / for slash commands")
         await interaction.response.edit_message(embed=e)
 
 class HelpView(discord.ui.View):
@@ -3020,6 +3591,35 @@ async def on_member_join(member):
         except Exception as e:
             print(f"Could not add unverified role: {e}")
     
+    # Send welcome card to welcome channel
+    welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome") or \
+                      discord.utils.get(member.guild.text_channels, name="welcomes") or \
+                      discord.utils.get(member.guild.text_channels, name="general")
+    
+    if welcome_channel:
+        try:
+            # Generate welcome card image
+            welcome_card = await create_welcome_card(member)
+            if welcome_card:
+                file = discord.File(welcome_card, filename="welcome.png")
+                embed = discord.Embed(
+                    description=f"Welcome {member.mention} to **The Fallen**!\n\nPlease verify your Roblox account to gain full access.",
+                    color=0x8B0000
+                )
+                embed.set_image(url="attachment://welcome.png")
+                await welcome_channel.send(file=file, embed=embed)
+            else:
+                # Fallback to text welcome
+                embed = discord.Embed(
+                    title="👋 Welcome to The Fallen!",
+                    description=f"Welcome {member.mention}!\n\nMember #{member.guild.member_count}",
+                    color=0x8B0000
+                )
+                embed.set_thumbnail(url=member.display_avatar.url)
+                await welcome_channel.send(embed=embed)
+        except Exception as e:
+            print(f"Welcome card error: {e}")
+    
     # Try to DM them with verification instructions
     try:
         embed = discord.Embed(
@@ -3046,6 +3646,14 @@ async def on_member_join(member):
         await member.send(embed=embed)
     except:
         pass  # Can't DM user
+    
+    # Log to dashboard
+    await log_to_dashboard(
+        member.guild, "👋 JOIN", "Member Joined",
+        f"{member.mention} joined the server",
+        color=0x2ecc71,
+        fields={"Account Age": f"<t:{int(member.created_at.timestamp())}:R>", "Member #": str(member.guild.member_count)}
+    )
     
     # Log the join
     await log_action(member.guild, "👋 Member Joined", f"{member.mention} joined the server\nAccount created: <t:{int(member.created_at.timestamp())}:R>", 0x3498db)
@@ -3266,16 +3874,46 @@ async def fcoins(ctx):
 async def help_cmd(ctx):
     """Display help information"""
     embed = discord.Embed(
-        title="🤖 Fallen Bot Help",
-        description="Select a category below to view commands:\n\n**All commands work with both `!` and `/`**",
-        color=0x3498db
+        title="✝ THE FALLEN ✝",
+        description="**Welcome to the Fallen Bot!**\n\nSelect a category below to explore commands.",
+        color=0x8B0000
     )
-    embed.add_field(name="👤 Member", value="Basic commands", inline=True)
-    embed.add_field(name="💰 Economy", value="Coins & rewards", inline=True)
-    embed.add_field(name="🏴‍☠️ Raids & Wars", value="Clan battles", inline=True)
-    embed.add_field(name="📚 Training", value="Events & tryouts", inline=True)
-    embed.add_field(name="🛡️ Staff", value="Moderation", inline=True)
-    embed.add_field(name="⚙️ Admin", value="Setup & config", inline=True)
+    
+    # Categories with emojis
+    embed.add_field(
+        name="━━━━━ User Commands ━━━━━",
+        value=(
+            "👤 **Member** - Verification & basics\n"
+            "📊 **Profile & Stats** - Cards & statistics\n"
+            "🏆 **Achievements** - Badges & progress\n"
+            "💰 **Economy** - Coins & shop"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="━━━━━ Activities ━━━━━",
+        value=(
+            "🎫 **Tickets** - Support system\n"
+            "🏴‍☠️ **Raids & Wars** - Combat & battles\n"
+            "📚 **Training** - Events & tryouts\n"
+            "📋 **Applications** - Staff applications"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="━━━━━ Staff Only ━━━━━",
+        value=(
+            "🛡️ **Staff** - Moderation tools\n"
+            "⚙️ **Admin** - Server management"
+        ),
+        inline=False
+    )
+    
+    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    embed.set_footer(text="Use the dropdown below to view commands • / or ! prefix")
+    
     await ctx.send(embed=embed, view=HelpView())
 
 # --- STAFF COMMANDS ---
@@ -4557,6 +5195,189 @@ async def mystats(ctx, member: discord.Member = None):
     embed.add_field(name="🏆 Server Rank", value=f"#{rank}", inline=True)
     
     await ctx.send(embed=embed)
+
+# ==========================================
+# NEW VISUAL COMMANDS
+# ==========================================
+
+@bot.hybrid_command(name="profile", description="View your detailed profile card")
+async def profile(ctx, member: discord.Member = None):
+    """Display a beautiful profile card with all stats"""
+    target = member or ctx.author
+    user_data = get_user_data(target.id)
+    rank = get_level_rank(target.id)
+    achievements = check_achievements(user_data)
+    
+    if PIL_AVAILABLE:
+        try:
+            profile_card = await create_profile_card(target, user_data, rank, achievements)
+            if profile_card:
+                file = discord.File(profile_card, filename="profile.png")
+                await ctx.send(file=file)
+                return
+        except Exception as e:
+            print(f"Profile card error: {e}")
+    
+    # Fallback to embed
+    embed = discord.Embed(title=f"{target.display_name}'s Profile", color=0x8B0000)
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.add_field(name="Level", value=user_data.get('level', 0), inline=True)
+    embed.add_field(name="XP", value=format_number(user_data.get('xp', 0)), inline=True)
+    embed.add_field(name="Rank", value=f"#{rank}", inline=True)
+    embed.add_field(name="Coins", value=format_number(user_data.get('coins', 0)), inline=True)
+    embed.add_field(name="Wins", value=user_data.get('wins', 0), inline=True)
+    embed.add_field(name="Losses", value=user_data.get('losses', 0), inline=True)
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="rank", description="View your rank card")
+async def rank_cmd(ctx, member: discord.Member = None):
+    """Display your rank card (same as level command)"""
+    target = member or ctx.author
+    user_data = get_user_data(target.id)
+    rank = get_level_rank(target.id)
+    
+    if PIL_AVAILABLE:
+        try:
+            card_image = await create_level_card_image(target, user_data, rank)
+            if card_image:
+                file = discord.File(card_image, filename="rank_card.png")
+                await ctx.send(file=file)
+                return
+        except Exception as e:
+            print(f"Rank card error: {e}")
+    
+    embed = create_arcane_level_embed(target, user_data, rank)
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="achievements", description="View your achievements")
+async def achievements_cmd(ctx, member: discord.Member = None):
+    """Display all achievements and progress"""
+    target = member or ctx.author
+    user_data = get_user_data(target.id)
+    achievements = check_achievements(user_data)
+    
+    unlocked = [a for a in achievements if a['unlocked']]
+    locked = [a for a in achievements if not a['unlocked']]
+    
+    embed = discord.Embed(
+        title=f"🏆 {target.display_name}'s Achievements",
+        description=f"**{len(unlocked)}/{len(achievements)}** achievements unlocked",
+        color=0xFFD700
+    )
+    embed.set_thumbnail(url=target.display_avatar.url)
+    
+    # Unlocked achievements
+    if unlocked:
+        unlocked_text = "\n".join([f"{a['icon']} **{a['name']}** - {a['desc']}" for a in unlocked[:10]])
+        embed.add_field(name="✅ Unlocked", value=unlocked_text or "None", inline=False)
+    
+    # Locked achievements (show progress)
+    if locked:
+        locked_text = "\n".join([f"🔒 **{a['name']}** - {a['progress']}/{a['requirement']}" for a in locked[:5]])
+        embed.add_field(name="🔒 In Progress", value=locked_text or "All unlocked!", inline=False)
+    
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="activity", description="View your activity graph")
+async def activity_cmd(ctx, member: discord.Member = None):
+    """Display an activity graph"""
+    target = member or ctx.author
+    user_data = get_user_data(target.id)
+    
+    if PIL_AVAILABLE:
+        try:
+            graph = await create_activity_graph(target, user_data)
+            if graph:
+                file = discord.File(graph, filename="activity.png")
+                await ctx.send(file=file)
+                return
+        except Exception as e:
+            print(f"Activity graph error: {e}")
+    
+    # Fallback
+    embed = discord.Embed(
+        title=f"📊 {target.display_name}'s Activity",
+        description="Activity tracking requires image generation.\nYour recent stats:",
+        color=0x3498db
+    )
+    embed.add_field(name="Weekly XP", value=format_number(user_data.get('weekly_xp', 0)), inline=True)
+    embed.add_field(name="Monthly XP", value=format_number(user_data.get('monthly_xp', 0)), inline=True)
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="raid_history", description="View raid history")
+async def raid_history_cmd(ctx):
+    """Display recent raid history"""
+    history = load_raid_history()
+    raids = history.get("raids", [])[-10:]  # Last 10 raids
+    
+    if not raids:
+        return await ctx.send("📜 No raid history yet!")
+    
+    embed = discord.Embed(
+        title="🏴‍☠️ Raid History",
+        description="Last 10 raids:",
+        color=0x8B0000
+    )
+    
+    for raid in reversed(raids):
+        result_emoji = "✅" if raid['result'] == "win" else "❌"
+        date = raid.get('date', 'Unknown')[:10]
+        participants = len(raid.get('participants', []))
+        xp = raid.get('xp_gained', 0)
+        
+        embed.add_field(
+            name=f"{result_emoji} vs {raid['target']}",
+            value=f"📅 {date} | 👥 {participants} | +{xp} XP",
+            inline=False
+        )
+    
+    # Stats summary
+    total_raids = len(history.get("raids", []))
+    wins = sum(1 for r in history.get("raids", []) if r['result'] == "win")
+    winrate = round((wins / total_raids) * 100, 1) if total_raids > 0 else 0
+    
+    embed.set_footer(text=f"Total: {total_raids} raids | Win Rate: {winrate}%")
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="setup_logs", description="Admin: Setup the logging dashboard channel")
+@commands.has_permissions(administrator=True)
+async def setup_logs(ctx):
+    """Create the logging dashboard channel"""
+    # Check if channel exists
+    existing = discord.utils.get(ctx.guild.text_channels, name=LOG_CHANNEL_NAME)
+    if existing:
+        return await ctx.send(f"✅ Log channel already exists: {existing.mention}", ephemeral=True)
+    
+    # Create the channel
+    overwrites = {
+        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+    
+    # Add staff access
+    staff_role = discord.utils.get(ctx.guild.roles, name=STAFF_ROLE_NAME)
+    if staff_role:
+        overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True)
+    
+    for role_name in HIGH_STAFF_ROLES:
+        role = discord.utils.get(ctx.guild.roles, name=role_name)
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True)
+    
+    channel = await ctx.guild.create_text_channel(
+        name=LOG_CHANNEL_NAME,
+        overwrites=overwrites,
+        topic="📋 Fallen Bot Logging Dashboard - All bot activities are logged here"
+    )
+    
+    # Send welcome message
+    embed = discord.Embed(
+        title="📋 Logging Dashboard",
+        description="All bot activities will be logged here:\n\n• Member joins/leaves\n• Moderation actions\n• Level ups\n• Raid results\n• And more...",
+        color=0x8B0000
+    )
+    await channel.send(embed=embed)
+    await ctx.send(f"✅ Created logging channel: {channel.mention}", ephemeral=True)
 
 @bot.hybrid_command(name="compare", description="Compare stats with another member")
 async def compare(ctx, member: discord.Member):
