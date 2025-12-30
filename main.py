@@ -2909,7 +2909,18 @@ async def level(ctx, member: discord.Member = None):
     user_data = get_user_data(target.id)
     rank = get_level_rank(target.id)
     
-    # Create beautiful embed-based level card
+    # Try to create image card if PIL is available
+    if PIL_AVAILABLE:
+        try:
+            card_image = await create_level_card_image(target, user_data, rank)
+            if card_image:
+                file = discord.File(card_image, filename="level_card.png")
+                await ctx.send(file=file)
+                return
+        except Exception as e:
+            print(f"Level card image error: {e}")
+    
+    # Fallback to embed if PIL fails
     embed = create_arcane_level_embed(target, user_data, rank)
     await ctx.send(embed=embed)
 
