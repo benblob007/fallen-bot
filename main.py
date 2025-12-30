@@ -18,7 +18,8 @@ except ImportError:
     print("PIL not installed - using embed-based level cards. Install with: pip install Pillow")
 
 # --- CONFIGURATION ---
-TOKEN = "MTQ1MjgyODUzNDI1ODE0MzIzMw.GSXWJW.8Lhb10RGLyig_V4TpoloV6LtdGgtXVJQ6Dj9QM" 
+# Get token from environment variable (set in Render dashboard)
+TOKEN = os.getenv("DISCORD_TOKEN") 
 
 # --- ROLE SETTINGS ---
 REQUIRED_ROLE_NAME = "Mainer"         
@@ -306,78 +307,92 @@ def create_leaderboard_embed(guild):
     return embed
 
 # --- ARCANE-STYLE LEVEL CARD ---
+async def generate_level_card_url(member, user_data, rank):
+    """Generate a level card image using external API"""
+    lvl = user_data['level']
+    xp = user_data['xp']
+    req = calculate_next_level_xp(lvl)
+    progress = min(100, int((xp / req) * 100)) if req > 0 else 0
+    
+    # Get static avatar URL (not animated)
+    avatar_url = member.display_avatar.with_format('png').with_size(256).url
+    
+    # Use vacefron API for rank card (free, no auth needed)
+    # Or create custom HTML card
+    
+    # Build custom card using quickchart.io (supports custom HTML)
+    username = member.display_name.replace(" ", "%20")
+    
+    # Alternative: Use a simpler approach with embed + custom formatting
+    return None
+
 def create_arcane_level_embed(member, user_data, rank):
     """Create a beautiful Fallen-themed level card embed"""
     lvl = user_data['level']
     xp = user_data['xp']
     req = calculate_next_level_xp(lvl)
+    coins = user_data.get('coins', 0)
+    roblox = user_data.get('roblox_username', None)
     
     progress_percent = min(100, int((xp / req) * 100)) if req > 0 else 0
     
-    # Create visual progress bar
-    bar_length = 16
+    # Create visual progress bar with better characters
+    bar_length = 12
     filled = int(bar_length * (progress_percent / 100))
-    progress_bar = "▰" * filled + "▱" * (bar_length - filled)
+    empty = bar_length - filled
+    progress_bar = "🟥" * filled + "⬛" * empty
     
-    # Get role color or default to red theme
-    role_color = member.color if member.color != discord.Color.default() else discord.Color.from_rgb(139, 0, 0)
+    # Dark red theme for Fallen
+    embed = discord.Embed(color=0x8B0000)
     
-    embed = discord.Embed(color=role_color)
-    
-    # Title with Fallen branding
+    # Header with avatar
     embed.set_author(
-        name=f"✝ {member.display_name} ✝",
+        name=f"{member.display_name}",
         icon_url=member.display_avatar.url
     )
     
-    # Main stats display
+    # Main description with all stats formatted nicely
+    embed.description = f"**@{member.name}**"
+    
+    # Stats in a clean layout
     embed.add_field(
-        name="<:fallen:1234> LEVEL",
-        value=f"```ansi\n\u001b[1;37m{lvl}\n```",
+        name="📊 LEVEL",
+        value=f"**{lvl}**",
         inline=True
     )
     embed.add_field(
-        name="🏆 RANK",
-        value=f"```ansi\n\u001b[1;33m#{rank}\n```",
+        name="🏆 RANK", 
+        value=f"**#{rank}**",
         inline=True
     )
     embed.add_field(
-        name="✨ XP",
-        value=f"```ansi\n\u001b[1;36m{format_number(xp)}\n```",
+        name="💰 COINS",
+        value=f"**{coins:,}**",
         inline=True
     )
     
-    # Progress bar section
+    # XP Progress
     embed.add_field(
-        name=f"Progress to Level {lvl + 1}",
-        value=f"```\n{progress_bar} {progress_percent}%\n```\n`{format_number(xp)} / {format_number(req)} XP`",
+        name=f"✨ XP Progress ({progress_percent}%)",
+        value=f"{progress_bar}\n**{format_number(xp)}** / **{format_number(req)}**",
         inline=False
     )
     
-    # Add Roblox info if available
-    roblox = user_data.get('roblox_username')
+    # Roblox if linked
     if roblox:
-        embed.add_field(name="🎮 Roblox", value=f"`{roblox}`", inline=True)
+        embed.add_field(name="🎮 Roblox", value=f"**{roblox}**", inline=True)
     
-    # Coins
-    coins = user_data.get('coins', 0)
-    embed.add_field(name="💰 Coins", value=f"`{coins:,}`", inline=True)
+    # Avatar on side
+    embed.set_thumbnail(url=member.display_avatar.with_format('png').url)
     
-    # Daily streak
-    streak = user_data.get('daily_streak', 0)
-    if streak > 0:
-        embed.add_field(name="🔥 Streak", value=f"`{streak} days`", inline=True)
-    
-    # Large avatar on the side
-    embed.set_thumbnail(url=member.display_avatar.url)
-    
-    # Fallen banner image at bottom
+    # Fallen banner at bottom
     if LEVEL_CARD_BACKGROUND:
         embed.set_image(url=LEVEL_CARD_BACKGROUND)
     
-    # Footer with Fallen branding
-    embed.set_footer(text="✝ The Fallen ✝ • 落ちた", icon_url=member.guild.icon.url if member.guild.icon else None)
+    # Footer
+    embed.set_footer(text="✝ The Fallen ✝ • 落ちた")
     
+    return embed
     return embed
 
 async def create_level_card_image(member, user_data, rank):
