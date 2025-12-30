@@ -42,7 +42,8 @@ STAFF_ROLE_NAME = "Staff"
 UNVERIFIED_ROLE_NAME = "Unverified"
 VERIFIED_ROLE_NAME = "Verified"
 MEMBER_ROLE_NAME = "Abyssbound"
-BLOXLINK_VERIFIED_ROLE = "Bloxlink Verified"  # The role Bloxlink gives when verified - change if different
+BLOXLINK_VERIFIED_ROLE = "Verified"  # The role Bloxlink gives when verified - change if different
+FALLEN_VERIFIED_ROLE = "Fallen Verified"  # The role Fallen bot gives - create this role or change name
 
 # The High Staff roles:
 HIGH_STAFF_ROLES = [
@@ -3884,7 +3885,7 @@ class VerifyView(discord.ui.View):
                 pass
         
         # Add Verified (Fallen's own verified role, can be different from Bloxlink's)
-        fallen_verified = discord.utils.get(guild.roles, name="Fallen Verified")
+        fallen_verified = discord.utils.get(guild.roles, name=FALLEN_VERIFIED_ROLE)
         if fallen_verified and fallen_verified not in member.roles:
             try:
                 await member.add_roles(fallen_verified)
@@ -3939,20 +3940,6 @@ class VerifyView(discord.ui.View):
             color=0x2ecc71,
             fields={"Method": "Bloxlink Quick Verify", "Roblox": roblox_username}
         )
-    
-    @discord.ui.button(label="🔄 Link Different Account", style=discord.ButtonStyle.secondary, custom_id="verify_manual_btn")
-    async def manual_verify(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Manual verification for linking a different Roblox account"""
-        # Check if user has Bloxlink role first
-        bloxlink_role = discord.utils.get(interaction.guild.roles, name=BLOXLINK_VERIFIED_ROLE)
-        
-        if not bloxlink_role or bloxlink_role not in interaction.user.roles:
-            return await interaction.response.send_message(
-                "❌ You need to verify with Bloxlink first before you can link a different account.",
-                ephemeral=True
-            )
-        
-        await interaction.response.send_modal(ManualVerifyModal())
 
 class ManualVerifyModal(discord.ui.Modal, title="🔗 Link Roblox Account"):
     roblox_username = discord.ui.TextInput(
@@ -3994,7 +3981,7 @@ class ManualVerifyModal(discord.ui.Modal, title="🔗 Link Roblox Account"):
                 pass
         
         # Add Fallen Verified
-        fallen_verified = discord.utils.get(guild.roles, name="Fallen Verified")
+        fallen_verified = discord.utils.get(guild.roles, name=FALLEN_VERIFIED_ROLE)
         if fallen_verified and fallen_verified not in member.roles:
             try:
                 await member.add_roles(fallen_verified)
@@ -4262,7 +4249,7 @@ async def on_member_join(member):
             if welcome_card:
                 file = discord.File(welcome_card, filename="welcome.png")
                 embed = discord.Embed(
-                    description=f"Welcome {member.mention} to **The Fallen**!\n\nPlease verify your Roblox account to gain full access.",
+                    description=f"Welcome {member.mention} to **The Fallen**!\n\nVerify with Bloxlink then click the verify button to gain full access.",
                     color=0x8B0000
                 )
                 embed.set_image(url="attachment://welcome.png")
@@ -4282,26 +4269,25 @@ async def on_member_join(member):
     # Try to DM them with verification instructions
     try:
         embed = discord.Embed(
-            title=f"👋 Welcome to The Fallen!",
+            title=f"✝ Welcome to The Fallen! ✝",
             description=(
                 f"Hey **{member.name}**, welcome to the server!\n\n"
                 f"**🔒 You currently have the Unverified role.**\n\n"
-                f"To access the server and all its features, you need to verify your Roblox account.\n\n"
+                f"To access the server, you need to verify your Roblox account.\n\n"
                 f"**How to verify:**\n"
-                f"1️⃣ Go to the verification channel\n"
-                f"2️⃣ Click the **Verify with Roblox** button\n"
-                f"3️⃣ Enter your Roblox username\n"
-                f"4️⃣ Add the code to your Roblox profile\n"
-                f"5️⃣ Click verify!\n\n"
+                f"1️⃣ Use `/verify` to verify with **Bloxlink**\n"
+                f"2️⃣ Go to the verification channel\n"
+                f"3️⃣ Click the **Verify with Fallen** button\n"
+                f"4️⃣ Done! You'll get full access instantly.\n\n"
                 f"**After verifying, you'll receive:**\n"
-                f"• ✅ Verified role\n"
-                f"• ✅ Abyssbound role (full server access)\n"
-                f"• ✅ Your nickname set to your Roblox name\n\n"
+                f"• ✅ Fallen Verified role\n"
+                f"• ✅ Abyssbound role (full server access)\n\n"
                 f"See you inside! ⚔️"
             ),
-            color=0x2ecc71
+            color=0x8B0000
         )
         embed.set_thumbnail(url=member.guild.icon.url if member.guild.icon else None)
+        embed.set_footer(text="✝ The Fallen ✝")
         await member.send(embed=embed)
     except:
         pass  # Can't DM user
@@ -4721,10 +4707,8 @@ async def setup_verify(ctx, channel: discord.TextChannel = None):
             "• 🏷️ **Fallen Verified** role\n"
             "• 🏷️ **Abyssbound** role (full server access)\n"
             "• 🎮 Access to all channels & features\n\n"
-            "**🔄 Already verified with Bloxlink?**\n"
-            "Click the green button to get your roles!\n\n"
-            "**🔗 Want to link a different account?**\n"
-            "Click the gray button to manually link."
+            "**Already verified with Bloxlink?**\n"
+            "Click the button below to get your Fallen roles!"
         ),
         color=0x8B0000
     )
