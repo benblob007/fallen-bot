@@ -8,6 +8,7 @@ import datetime
 import random
 import re
 from io import BytesIO
+import aiohttp
 
 # Try to import PIL for level cards (optional)
 try:
@@ -17,9 +18,23 @@ except ImportError:
     PIL_AVAILABLE = False
     print("PIL not installed - using embed-based level cards. Install with: pip install Pillow")
 
+# Try to import PostgreSQL (optional - falls back to JSON)
+try:
+    import asyncpg
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
+    print("asyncpg not installed - using JSON storage. Install with: pip install asyncpg")
+
+# Database connection pool
+db_pool = None
+
 # --- CONFIGURATION ---
 # Get token from environment variable (set in Render dashboard)
-TOKEN = os.getenv("DISCORD_TOKEN") 
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+# PostgreSQL Database URL (set in Render dashboard)
+DATABASE_URL = os.getenv("DATABASE_URL") 
 
 # --- ROLE SETTINGS ---
 REQUIRED_ROLE_NAME = "Mainer"         
@@ -124,7 +139,166 @@ DEFAULT_THEME = {
     "color": 0x2b2d31 
 }
 
-# --- DATA MANAGEMENT ---
+# --- DATABASE MANAGEMENT ---
+
+async def init_database():
+    """Initialize PostgreSQL database connection and tables"""
+    global db_pool
+    
+    if not POSTGRES_AVAILABLE or not DATABASE_URL:
+        print("📁 Using JSON file storage (PostgreSQL not configured)")
+        return False
+    
+    try:
+        db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10)
+        
+        # Create tables if they don't exist
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    xp INTEGER DEFAULT 0,
+                    level INTEGER DEFAULT 0,
+                    coins INTEGER DEFAULT 0,
+                    wins INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    raid_wins INTEGER DEFAULT 0,
+                    raid_losses INTEGER DEFAULT 0,
+                    raid_participation INTEGER DEFAULT 0,
+                    daily_streak INTEGER DEFAULT 0,
+                    last_daily TIMESTAMP,
+                    weekly_xp INTEGER DEFAULT 0,
+                    monthly_xp INTEGER DEFAULT 0,
+                    messages INTEGER DEFAULT 0,
+                    warnings INTEGER DEFAULT 0,
+                    verified BOOLEAN DEFAULT FALSE,
+                    roblox_username TEXT,
+                    roblox_id BIGINT,
+                    achievements TEXT[] DEFAULT ARRAY[]::TEXT[],
+                    activity_log JSONB DEFAULT '[]'::JSONB,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS raids (
+                    id SERIAL PRIMARY KEY,
+                    target TEXT NOT NULL,
+                    result TEXT NOT NULL,
+                    participants BIGINT[] DEFAULT ARRAY[]::BIGINT[],
+                    xp_gained INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS wars (
+                    id SERIAL PRIMARY KEY,
+                    clan_name TEXT NOT NULL,
+                    wins INTEGER DEFAULT 0,
+                    losses INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'active',
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS tournaments (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    status TEXT DEFAULT 'signup',
+                    participants BIGINT[] DEFAULT ARRAY[]::BIGINT[],
+                    bracket JSONB DEFAULT '[]'::JSONB,
+                    winner_id BIGINT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS roster (
+                    position INTEGER PRIMARY KEY,
+                    user_id BIGINT,
+                    roblox_name TEXT
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value JSONB
+                )
+            ''')
+        
+        print("✅ PostgreSQL database connected and initialized!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ PostgreSQL connection failed: {e}")
+        print("📁 Falling back to JSON file storage")
+        db_pool = None
+        return False
+
+async def db_get_user(user_id: int):
+    """Get user data from database"""
+    if db_pool:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow('SELECT * FROM users WHERE user_id = $1', user_id)
+            if row:
+                return dict(row)
+    return None
+
+async def db_save_user(user_id: int, data: dict):
+    """Save user data to database"""
+    if db_pool:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO users (user_id, xp, level, coins, wins, losses, raid_wins, raid_losses, 
+                    raid_participation, daily_streak, weekly_xp, monthly_xp, messages, warnings,
+                    verified, roblox_username, roblox_id, achievements)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    xp = $2, level = $3, coins = $4, wins = $5, losses = $6, raid_wins = $7,
+                    raid_losses = $8, raid_participation = $9, daily_streak = $10, weekly_xp = $11,
+                    monthly_xp = $12, messages = $13, warnings = $14, verified = $15,
+                    roblox_username = $16, roblox_id = $17, achievements = $18
+            ''', user_id, 
+                data.get('xp', 0), data.get('level', 0), data.get('coins', 0),
+                data.get('wins', 0), data.get('losses', 0), data.get('raid_wins', 0),
+                data.get('raid_losses', 0), data.get('raid_participation', 0),
+                data.get('daily_streak', 0), data.get('weekly_xp', 0), data.get('monthly_xp', 0),
+                data.get('messages', 0), data.get('warnings', 0), data.get('verified', False),
+                data.get('roblox_username'), data.get('roblox_id'),
+                data.get('achievements', [])
+            )
+
+async def db_get_all_users():
+    """Get all users from database"""
+    if db_pool:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch('SELECT * FROM users ORDER BY xp DESC')
+            return {str(row['user_id']): dict(row) for row in rows}
+    return {}
+
+async def db_log_raid(target: str, result: str, participants: list, xp_gained: int):
+    """Log raid to database"""
+    if db_pool:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO raids (target, result, participants, xp_gained)
+                VALUES ($1, $2, $3, $4)
+            ''', target, result, participants, xp_gained)
+
+async def db_get_raid_history(limit: int = 10):
+    """Get raid history from database"""
+    if db_pool:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT * FROM raids ORDER BY created_at DESC LIMIT $1
+            ''', limit)
+            return [dict(row) for row in rows]
+    return []
+
+# --- JSON DATA MANAGEMENT (Fallback) ---
 def load_data():
     if not os.path.exists(LEADERBOARD_FILE):
         return {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
@@ -397,7 +571,7 @@ def create_arcane_level_embed(member, user_data, rank):
     return embed
 
 async def create_level_card_image(member, user_data, rank):
-    """Create a custom image-based level card with background"""
+    """Create a custom image-based level card with background and rank borders"""
     if not PIL_AVAILABLE:
         print("PIL not available for level card")
         return None
@@ -406,6 +580,9 @@ async def create_level_card_image(member, user_data, rank):
     xp = user_data['xp']
     req = calculate_next_level_xp(lvl)
     progress = min(1.0, xp / req) if req > 0 else 0
+    
+    # Get rank border style
+    border_style = get_rank_border(rank)
     
     # Card dimensions
     width, height = 934, 282
@@ -455,10 +632,19 @@ async def create_level_card_image(member, user_data, rank):
         font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
         font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
         font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
     except:
         font_large = ImageFont.load_default()
         font_medium = ImageFont.load_default()
         font_small = ImageFont.load_default()
+        font_title = ImageFont.load_default()
+    
+    # Avatar position
+    avatar_size = 180
+    avatar_x, avatar_y = 50, 51
+    
+    # Draw custom rank border
+    draw_rank_border(draw, card, avatar_x, avatar_y, avatar_size, border_style)
     
     # Download and add avatar
     try:
@@ -467,35 +653,34 @@ async def create_level_card_image(member, user_data, rank):
                 if resp.status == 200:
                     avatar_data = await resp.read()
                     avatar = Image.open(BytesIO(avatar_data)).convert("RGBA")
-                    avatar = avatar.resize((180, 180), Image.Resampling.LANCZOS)
+                    avatar = avatar.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
                     
                     # Create circular mask
-                    mask = Image.new("L", (180, 180), 0)
+                    mask = Image.new("L", (avatar_size, avatar_size), 0)
                     mask_draw = ImageDraw.Draw(mask)
-                    mask_draw.ellipse((0, 0, 180, 180), fill=255)
+                    mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
                     
-                    # Add border
-                    border_size = 186
-                    border = Image.new("RGBA", (border_size, border_size), (0, 0, 0, 0))
-                    border_draw = ImageDraw.Draw(border)
-                    border_draw.ellipse((0, 0, border_size, border_size), fill=(255, 255, 255, 255))
-                    
-                    # Position avatar (left side)
-                    card.paste(border, (47, 48), border)
-                    card.paste(avatar, (50, 51), mask)
+                    # Paste avatar
+                    card.paste(avatar, (avatar_x, avatar_y), mask)
+                    draw = ImageDraw.Draw(card)
     except:
         pass
+    
+    # Rank title badge (below avatar)
+    rank_title = border_style.get("title", "Member")
+    title_color = border_style["color"]
+    draw.text((avatar_x + 40, avatar_y + avatar_size + 5), rank_title, font=font_title, fill=title_color)
     
     # Username
     draw.text((260, 60), member.display_name, font=font_large, fill=(255, 255, 255))
     draw.text((260, 110), f"@{member.name}", font=font_small, fill=(180, 180, 180))
     
-    # Stats
+    # Stats with rank color
     draw.text((260, 160), f"LEVEL", font=font_small, fill=(150, 150, 150))
     draw.text((260, 185), str(lvl), font=font_large, fill=(255, 255, 255))
     
     draw.text((400, 160), f"RANK", font=font_small, fill=(150, 150, 150))
-    draw.text((400, 185), f"#{rank}", font=font_large, fill=(255, 255, 255))
+    draw.text((400, 185), f"#{rank}", font=font_large, fill=title_color)  # Rank colored
     
     draw.text((550, 160), f"XP", font=font_small, fill=(150, 150, 150))
     draw.text((550, 185), f"{format_number(xp)} / {format_number(req)}", font=font_medium, fill=(255, 255, 255))
@@ -1313,6 +1498,269 @@ def log_raid(target, result, participants, xp_gained):
     # Keep last 100 raids
     history["raids"] = history["raids"][-100:]
     save_raid_history(history)
+
+# ==========================================
+# TOURNAMENT BRACKET SYSTEM
+# ==========================================
+
+TOURNAMENT_FILE = "tournaments.json"
+
+def load_tournaments():
+    try:
+        with open(TOURNAMENT_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"active": None, "history": []}
+
+def save_tournaments(data):
+    with open(TOURNAMENT_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def create_bracket(participants):
+    """Create a tournament bracket from participants"""
+    import math
+    
+    # Pad to power of 2
+    n = len(participants)
+    size = 2 ** math.ceil(math.log2(max(n, 2)))
+    
+    # Shuffle participants
+    random.shuffle(participants)
+    
+    # Pad with BYEs
+    while len(participants) < size:
+        participants.append({"id": None, "name": "BYE"})
+    
+    # Create bracket structure
+    bracket = {
+        "rounds": [],
+        "current_round": 0,
+        "size": size
+    }
+    
+    # First round matchups
+    round1 = []
+    for i in range(0, size, 2):
+        match = {
+            "id": len(round1),
+            "player1": participants[i],
+            "player2": participants[i + 1],
+            "winner": None,
+            "score": ""
+        }
+        # Auto-advance BYE matches
+        if participants[i]["id"] is None:
+            match["winner"] = participants[i + 1]
+        elif participants[i + 1]["id"] is None:
+            match["winner"] = participants[i]
+        round1.append(match)
+    
+    bracket["rounds"].append(round1)
+    
+    # Create empty subsequent rounds
+    current_matches = len(round1)
+    while current_matches > 1:
+        current_matches //= 2
+        bracket["rounds"].append([{"id": i, "player1": None, "player2": None, "winner": None, "score": ""} for i in range(current_matches)])
+    
+    return bracket
+
+async def create_bracket_image(tournament_name, bracket):
+    """Generate a visual tournament bracket image"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    rounds = bracket.get("rounds", [])
+    if not rounds:
+        return None
+    
+    num_rounds = len(rounds)
+    first_round_matches = len(rounds[0])
+    
+    # Calculate dimensions
+    match_width = 200
+    match_height = 60
+    round_spacing = 250
+    match_spacing = 20
+    
+    width = num_rounds * round_spacing + 100
+    height = max(400, first_round_matches * (match_height + match_spacing) + 200)
+    
+    # Load background or create dark one
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                break
+            except:
+                pass
+    
+    if background is None and LEVEL_CARD_BACKGROUND:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(LEVEL_CARD_BACKGROUND) as resp:
+                    if resp.status == 200:
+                        img_data = await resp.read()
+                        background = Image.open(BytesIO(img_data)).convert("RGBA")
+        except:
+            pass
+    
+    if background is None:
+        card = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    else:
+        background = background.resize((width, height), Image.Resampling.LANCZOS)
+        card = background.copy()
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 220))
+        card = Image.alpha_composite(card, overlay)
+    
+    draw = ImageDraw.Draw(card)
+    
+    # Load fonts
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_round = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+    except:
+        font_title = font_round = font_name = font_small = ImageFont.load_default()
+    
+    # Title
+    draw.rectangle([(0, 0), (width, 8)], fill=(139, 0, 0))
+    title_text = tournament_name.upper()
+    title_bbox = draw.textbbox((0, 0), title_text, font=font_title)
+    title_width = title_bbox[2] - title_bbox[0]
+    draw.text(((width - title_width) // 2, 20), title_text, font=font_title, fill=(255, 255, 255))
+    
+    # Round names
+    round_names = ["Round 1", "Quarter Finals", "Semi Finals", "Finals", "Champion"]
+    
+    # Draw each round
+    for round_idx, round_matches in enumerate(rounds):
+        x = 50 + round_idx * round_spacing
+        num_matches = len(round_matches)
+        
+        # Calculate vertical spacing for this round
+        total_height = height - 150
+        if num_matches > 0:
+            spacing = total_height / num_matches
+        else:
+            spacing = total_height
+        
+        # Round label
+        round_name = round_names[min(round_idx, len(round_names) - 1)] if round_idx < len(rounds) - 1 else "Champion"
+        draw.text((x, 60), round_name, font=font_round, fill=(200, 200, 200))
+        
+        for match_idx, match in enumerate(round_matches):
+            y = 100 + match_idx * spacing + (spacing - match_height) / 2
+            
+            # Match box
+            box_color = (60, 20, 20, 200) if match.get("winner") else (40, 40, 50, 200)
+            match_bg = Image.new("RGBA", (match_width, match_height), box_color)
+            card.paste(match_bg, (int(x), int(y)), match_bg)
+            draw = ImageDraw.Draw(card)
+            
+            # Player names
+            p1 = match.get("player1") or {}
+            p2 = match.get("player2") or {}
+            winner = match.get("winner") or {}
+            
+            p1_name = p1.get("name", "TBD")[:18] if p1 else "TBD"
+            p2_name = p2.get("name", "TBD")[:18] if p2 else "TBD"
+            
+            # Highlight winner
+            p1_color = (100, 255, 100) if winner.get("id") == p1.get("id") and p1.get("id") else (255, 255, 255)
+            p2_color = (100, 255, 100) if winner.get("id") == p2.get("id") and p2.get("id") else (255, 255, 255)
+            
+            if p1_name == "BYE":
+                p1_color = (100, 100, 100)
+            if p2_name == "BYE":
+                p2_color = (100, 100, 100)
+            
+            draw.text((x + 10, y + 8), p1_name, font=font_name, fill=p1_color)
+            draw.line([(x + 5, y + match_height // 2), (x + match_width - 5, y + match_height // 2)], fill=(80, 80, 80))
+            draw.text((x + 10, y + match_height // 2 + 5), p2_name, font=font_name, fill=p2_color)
+            
+            # Score if available
+            score = match.get("score", "")
+            if score:
+                draw.text((x + match_width - 40, y + match_height // 2 - 8), score, font=font_small, fill=(200, 200, 200))
+            
+            # Draw connector lines to next round
+            if round_idx < len(rounds) - 1:
+                next_x = x + round_spacing
+                # Line from this match to next round
+                mid_y = y + match_height // 2
+                draw.line([(x + match_width, mid_y), (x + match_width + 20, mid_y)], fill=(139, 0, 0), width=2)
+    
+    # Footer
+    draw.rectangle([(0, height - 8), (width, height)], fill=(139, 0, 0))
+    draw.text((20, height - 30), "The Fallen Tournament System", font=font_small, fill=(150, 150, 150))
+    
+    output = BytesIO()
+    card.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+# ==========================================
+# CUSTOM RANK BORDERS
+# ==========================================
+
+RANK_BORDERS = {
+    # Rank range: (border_color, border_style, title)
+    1: {"color": (255, 215, 0), "style": "legendary", "title": "Champion", "glow": True},
+    2: {"color": (192, 192, 192), "style": "elite", "title": "Elite", "glow": True},
+    3: {"color": (205, 127, 50), "style": "elite", "title": "Veteran", "glow": True},
+    10: {"color": (139, 0, 0), "style": "rare", "title": "Top 10", "glow": False},
+    25: {"color": (100, 100, 200), "style": "uncommon", "title": "Rising", "glow": False},
+    50: {"color": (100, 200, 100), "style": "common", "title": "Active", "glow": False},
+    100: {"color": (150, 150, 150), "style": "common", "title": "Member", "glow": False},
+}
+
+def get_rank_border(rank):
+    """Get the appropriate border style for a rank"""
+    for threshold, style in sorted(RANK_BORDERS.items()):
+        if rank <= threshold:
+            return style
+    return {"color": (100, 100, 100), "style": "common", "title": "Newcomer", "glow": False}
+
+def draw_rank_border(draw, card, x, y, size, border_style):
+    """Draw a custom border around avatar based on rank"""
+    color = border_style["color"]
+    style = border_style["style"]
+    glow = border_style.get("glow", False)
+    
+    if style == "legendary":
+        # Double border with glow effect
+        if glow and PIL_AVAILABLE:
+            # Outer glow
+            for i in range(3, 0, -1):
+                alpha = 50 * (4 - i)
+                glow_color = (*color, alpha)
+                draw.ellipse(
+                    [x - 8 - i*2, y - 8 - i*2, x + size + 8 + i*2, y + size + 8 + i*2],
+                    outline=color, width=2
+                )
+        # Main borders
+        draw.ellipse([x - 8, y - 8, x + size + 8, y + size + 8], outline=color, width=4)
+        draw.ellipse([x - 3, y - 3, x + size + 3, y + size + 3], outline=(255, 255, 255), width=2)
+        
+    elif style == "elite":
+        # Thick colored border
+        draw.ellipse([x - 6, y - 6, x + size + 6, y + size + 6], outline=color, width=5)
+        
+    elif style == "rare":
+        # Double thin border
+        draw.ellipse([x - 5, y - 5, x + size + 5, y + size + 5], outline=color, width=3)
+        draw.ellipse([x - 2, y - 2, x + size + 2, y + size + 2], outline=(60, 60, 70), width=1)
+        
+    elif style == "uncommon":
+        # Single colored border
+        draw.ellipse([x - 4, y - 4, x + size + 4, y + size + 4], outline=color, width=3)
+        
+    else:  # common
+        # Simple border
+        draw.ellipse([x - 3, y - 3, x + size + 3, y + size + 3], outline=color, width=2)
 
 # ==========================================
 # LOGGING DASHBOARD
@@ -3556,7 +4004,15 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"✅ Connected to {len(bot.guilds)} guild(s)")
     print(f"✅ PIL Available: {PIL_AVAILABLE}")
+    print(f"✅ PostgreSQL Available: {POSTGRES_AVAILABLE}")
     print("=" * 50)
+    
+    # Initialize PostgreSQL database
+    if POSTGRES_AVAILABLE and DATABASE_URL:
+        print("Connecting to PostgreSQL database...")
+        await init_database()
+    else:
+        print("📁 Using JSON file storage")
     
     # Check database health
     print("Checking database health...")
@@ -5337,6 +5793,297 @@ async def raid_history_cmd(ctx):
     winrate = round((wins / total_raids) * 100, 1) if total_raids > 0 else 0
     
     embed.set_footer(text=f"Total: {total_raids} raids | Win Rate: {winrate}%")
+    await ctx.send(embed=embed)
+
+# ==========================================
+# TOURNAMENT BRACKET COMMANDS
+# ==========================================
+
+@bot.hybrid_command(name="tournament_create", description="Admin: Create a new tournament")
+@commands.has_permissions(administrator=True)
+async def tournament_create(ctx, name: str):
+    """Create a new tournament with signup phase"""
+    tournaments = load_tournaments()
+    
+    if tournaments.get("active"):
+        return await ctx.send("❌ There's already an active tournament! Use `/tournament_end` first.", ephemeral=True)
+    
+    tournaments["active"] = {
+        "name": name,
+        "status": "signup",
+        "participants": [],
+        "bracket": None,
+        "created_by": ctx.author.id,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+    save_tournaments(tournaments)
+    
+    embed = discord.Embed(
+        title=f"🏆 {name}",
+        description=(
+            "**Tournament Created!**\n\n"
+            "Players can now join with `/tournament_join`\n\n"
+            "**Commands:**\n"
+            "`/tournament_join` - Join the tournament\n"
+            "`/tournament_leave` - Leave the tournament\n"
+            "`/tournament_start` - Start the tournament (Admin)\n"
+            "`/tournament_bracket` - View bracket"
+        ),
+        color=0xFFD700
+    )
+    embed.set_footer(text="Signups are now open!")
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="tournament_join", description="Join the active tournament")
+async def tournament_join(ctx):
+    """Join the active tournament"""
+    tournaments = load_tournaments()
+    
+    if not tournaments.get("active"):
+        return await ctx.send("❌ No active tournament. Ask an admin to create one!", ephemeral=True)
+    
+    if tournaments["active"]["status"] != "signup":
+        return await ctx.send("❌ Tournament signups are closed!", ephemeral=True)
+    
+    user_id = ctx.author.id
+    if user_id in [p["id"] for p in tournaments["active"]["participants"]]:
+        return await ctx.send("❌ You're already signed up!", ephemeral=True)
+    
+    tournaments["active"]["participants"].append({
+        "id": user_id,
+        "name": ctx.author.display_name
+    })
+    save_tournaments(tournaments)
+    
+    count = len(tournaments["active"]["participants"])
+    await ctx.send(f"✅ **{ctx.author.display_name}** joined the tournament! ({count} participants)")
+
+@bot.hybrid_command(name="tournament_leave", description="Leave the active tournament")
+async def tournament_leave(ctx):
+    """Leave the active tournament"""
+    tournaments = load_tournaments()
+    
+    if not tournaments.get("active"):
+        return await ctx.send("❌ No active tournament.", ephemeral=True)
+    
+    if tournaments["active"]["status"] != "signup":
+        return await ctx.send("❌ Tournament has already started!", ephemeral=True)
+    
+    user_id = ctx.author.id
+    participants = tournaments["active"]["participants"]
+    
+    for i, p in enumerate(participants):
+        if p["id"] == user_id:
+            participants.pop(i)
+            save_tournaments(tournaments)
+            return await ctx.send(f"✅ **{ctx.author.display_name}** left the tournament.")
+    
+    await ctx.send("❌ You're not signed up!", ephemeral=True)
+
+@bot.hybrid_command(name="tournament_start", description="Admin: Start the tournament and generate bracket")
+@commands.has_permissions(administrator=True)
+async def tournament_start(ctx):
+    """Start the tournament and generate bracket"""
+    tournaments = load_tournaments()
+    
+    if not tournaments.get("active"):
+        return await ctx.send("❌ No active tournament.", ephemeral=True)
+    
+    if tournaments["active"]["status"] != "signup":
+        return await ctx.send("❌ Tournament already started!", ephemeral=True)
+    
+    participants = tournaments["active"]["participants"]
+    if len(participants) < 2:
+        return await ctx.send("❌ Need at least 2 participants!", ephemeral=True)
+    
+    # Generate bracket
+    bracket = create_bracket(participants)
+    tournaments["active"]["bracket"] = bracket
+    tournaments["active"]["status"] = "active"
+    save_tournaments(tournaments)
+    
+    # Generate bracket image
+    bracket_image = await create_bracket_image(tournaments["active"]["name"], bracket)
+    
+    embed = discord.Embed(
+        title=f"🏆 {tournaments['active']['name']} - STARTED!",
+        description=f"**{len(participants)} participants**\n\nUse `/tournament_bracket` to view the bracket\nUse `/tournament_report @winner @loser` to report matches",
+        color=0xFFD700
+    )
+    
+    if bracket_image:
+        file = discord.File(bracket_image, filename="bracket.png")
+        embed.set_image(url="attachment://bracket.png")
+        await ctx.send(file=file, embed=embed)
+    else:
+        await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="tournament_bracket", description="View the tournament bracket")
+async def tournament_bracket(ctx):
+    """View the current tournament bracket"""
+    tournaments = load_tournaments()
+    
+    if not tournaments.get("active"):
+        return await ctx.send("❌ No active tournament.", ephemeral=True)
+    
+    if not tournaments["active"].get("bracket"):
+        # Show signup list
+        participants = tournaments["active"]["participants"]
+        embed = discord.Embed(
+            title=f"🏆 {tournaments['active']['name']} - Signups",
+            description=f"**{len(participants)} participants signed up:**\n\n" + 
+                       "\n".join([f"• {p['name']}" for p in participants]) if participants else "No signups yet!",
+            color=0xFFD700
+        )
+        return await ctx.send(embed=embed)
+    
+    # Generate bracket image
+    bracket_image = await create_bracket_image(tournaments["active"]["name"], tournaments["active"]["bracket"])
+    
+    if bracket_image:
+        file = discord.File(bracket_image, filename="bracket.png")
+        embed = discord.Embed(title=f"🏆 {tournaments['active']['name']}", color=0xFFD700)
+        embed.set_image(url="attachment://bracket.png")
+        await ctx.send(file=file, embed=embed)
+    else:
+        # Fallback to text
+        embed = discord.Embed(
+            title=f"🏆 {tournaments['active']['name']}",
+            description="Bracket visualization unavailable. Use `/tournament_report` to report matches.",
+            color=0xFFD700
+        )
+        await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="tournament_report", description="Report a tournament match result")
+async def tournament_report(ctx, winner: discord.Member, loser: discord.Member, score: str = ""):
+    """Report a tournament match result"""
+    if not is_staff(ctx.author) and ctx.author.id not in [winner.id, loser.id]:
+        return await ctx.send("❌ Only match participants or staff can report!", ephemeral=True)
+    
+    tournaments = load_tournaments()
+    
+    if not tournaments.get("active") or tournaments["active"]["status"] != "active":
+        return await ctx.send("❌ No active tournament.", ephemeral=True)
+    
+    bracket = tournaments["active"]["bracket"]
+    if not bracket:
+        return await ctx.send("❌ Tournament bracket not generated.", ephemeral=True)
+    
+    # Find the match
+    found = False
+    for round_idx, round_matches in enumerate(bracket["rounds"]):
+        for match in round_matches:
+            p1 = match.get("player1") or {}
+            p2 = match.get("player2") or {}
+            
+            if match.get("winner"):
+                continue  # Already completed
+            
+            # Check if this is the right match
+            if (p1.get("id") == winner.id and p2.get("id") == loser.id) or \
+               (p1.get("id") == loser.id and p2.get("id") == winner.id):
+                # Record result
+                match["winner"] = {"id": winner.id, "name": winner.display_name}
+                match["score"] = score
+                
+                # Advance winner to next round
+                if round_idx < len(bracket["rounds"]) - 1:
+                    next_match_idx = match["id"] // 2
+                    next_match = bracket["rounds"][round_idx + 1][next_match_idx]
+                    if match["id"] % 2 == 0:
+                        next_match["player1"] = match["winner"]
+                    else:
+                        next_match["player2"] = match["winner"]
+                
+                found = True
+                break
+        if found:
+            break
+    
+    if not found:
+        return await ctx.send("❌ Match not found in bracket.", ephemeral=True)
+    
+    save_tournaments(tournaments)
+    
+    # Check if tournament is complete
+    final_match = bracket["rounds"][-1][0]
+    if final_match.get("winner"):
+        tournaments["active"]["status"] = "complete"
+        tournaments["active"]["winner"] = final_match["winner"]["id"]
+        
+        # Move to history
+        tournaments["history"].append(tournaments["active"])
+        tournaments["active"] = None
+        save_tournaments(tournaments)
+        
+        # Announce winner
+        embed = discord.Embed(
+            title="🏆 TOURNAMENT COMPLETE! 🏆",
+            description=f"**{final_match['winner']['name']}** is the champion!",
+            color=0xFFD700
+        )
+        bracket_image = await create_bracket_image(tournaments["history"][-1]["name"], bracket)
+        if bracket_image:
+            file = discord.File(bracket_image, filename="bracket.png")
+            embed.set_image(url="attachment://bracket.png")
+            await ctx.send(file=file, embed=embed)
+        else:
+            await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"✅ Match recorded: **{winner.display_name}** defeated **{loser.display_name}** {score}")
+        
+        # Show updated bracket
+        bracket_image = await create_bracket_image(tournaments["active"]["name"], bracket)
+        if bracket_image:
+            file = discord.File(bracket_image, filename="bracket.png")
+            await ctx.send(file=file)
+
+@bot.hybrid_command(name="tournament_end", description="Admin: End the current tournament")
+@commands.has_permissions(administrator=True)
+async def tournament_end(ctx, confirm: str = None):
+    """End the current tournament"""
+    if confirm != "confirm":
+        return await ctx.send("⚠️ This will end the tournament. Use `/tournament_end confirm` to confirm.", ephemeral=True)
+    
+    tournaments = load_tournaments()
+    
+    if not tournaments.get("active"):
+        return await ctx.send("❌ No active tournament.", ephemeral=True)
+    
+    name = tournaments["active"]["name"]
+    tournaments["history"].append(tournaments["active"])
+    tournaments["active"] = None
+    save_tournaments(tournaments)
+    
+    await ctx.send(f"✅ Tournament **{name}** has been ended.")
+
+@bot.hybrid_command(name="db_status", description="Admin: Check database status")
+@commands.has_permissions(administrator=True)
+async def db_status(ctx):
+    """Check database connection status"""
+    embed = discord.Embed(title="📊 Database Status", color=0x3498db)
+    
+    embed.add_field(
+        name="PostgreSQL",
+        value=f"{'✅ Connected' if db_pool else '❌ Not connected'}\n{'Available' if POSTGRES_AVAILABLE else 'Not installed'}",
+        inline=True
+    )
+    embed.add_field(
+        name="Storage Mode",
+        value="PostgreSQL" if db_pool else "JSON Files",
+        inline=True
+    )
+    embed.add_field(
+        name="DATABASE_URL",
+        value="✅ Set" if DATABASE_URL else "❌ Not set",
+        inline=True
+    )
+    
+    # Count users
+    data = load_data()
+    user_count = len(data.get("users", {}))
+    embed.add_field(name="Users", value=str(user_count), inline=True)
+    
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="setup_logs", description="Admin: Setup the logging dashboard channel")
