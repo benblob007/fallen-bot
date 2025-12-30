@@ -61,6 +61,7 @@ LEVEL_CARD_FILE = "level_background.png"
 LEVEL_CARD_PATHS = [
     "level_background.png",
     "./level_background.png",
+    "/opt/render/project/src/level_background.png",  # Render path
     "/home/user_discloud/level_background.png",
     "/app/level_background.png",
     os.path.join(os.path.dirname(__file__), "level_background.png"),
@@ -2749,6 +2750,13 @@ bot = PersistentBot()
 
 @bot.event
 async def on_ready():
+    print("=" * 50)
+    print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"✅ Connected to {len(bot.guilds)} guild(s)")
+    print(f"✅ PIL Available: {PIL_AVAILABLE}")
+    print("=" * 50)
+    
+    # Check database health
     print("Checking database health...")
     data = load_data()
     fixed_count = 0
@@ -2760,9 +2768,16 @@ async def on_ready():
         save_data(data)
         print(f"✅ Repaired {fixed_count} user profiles.")
     
-    print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    print(f"✅ Connected to {len(bot.guilds)} guild(s)")
-    print("💡 Use !sync to register slash commands")
+    # Auto-sync slash commands on startup
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} slash commands globally!")
+    except Exception as e:
+        print(f"❌ Failed to sync commands: {e}")
+    
+    print("=" * 50)
+    print("🚀 Bot is ready!")
+    print("=" * 50)
 
 @bot.event
 async def on_member_join(member):
