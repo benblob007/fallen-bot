@@ -4818,34 +4818,6 @@ async def app_status(ctx):
 # NEW FEATURES - PROFILE, DAILY, STATS
 # ==========================================
 
-@bot.hybrid_command(name="profile", description="View your or another user's full profile")
-async def profile(ctx, member: discord.Member = None):
-    """Display detailed profile"""
-    target = member or ctx.author
-    user_data = get_user_data(target.id)
-    rank = get_level_rank(target.id)
-    
-    embed = discord.Embed(title=f"⚔️ {target.display_name}'s Profile", color=0x2F3136)
-    embed.set_thumbnail(url=target.display_avatar.url)
-    embed.add_field(name="🎮 Roblox", value=user_data.get('roblox_username') or "Not linked", inline=True)
-    embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
-    embed.add_field(name="📊 Level", value=str(user_data.get('level', 0)), inline=True)
-    embed.add_field(name="✨ Total XP", value=format_number(user_data.get('xp', 0)), inline=True)
-    embed.add_field(name="💰 Coins", value=f"{user_data.get('coins', 0):,}", inline=True)
-    embed.add_field(name="🔥 Streak", value=f"{user_data.get('daily_streak', 0)} days", inline=True)
-    
-    w, l = user_data.get('wins', 0), user_data.get('losses', 0)
-    total = w + l
-    wr = round((w / total) * 100, 1) if total > 0 else 0
-    embed.add_field(name="⚔️ W/L Record", value=f"{w}W - {l}L ({wr}%)", inline=True)
-    
-    rw, rl, rp = user_data.get('raid_wins', 0), user_data.get('raid_losses', 0), user_data.get('raid_participation', 0)
-    embed.add_field(name="🏴‍☠️ Raids", value=f"{rw}W - {rl}L ({rp} total)", inline=True)
-    embed.add_field(name="📚 Training", value=f"{user_data.get('training_attendance', 0)} attended", inline=True)
-    embed.add_field(name="⚠️ Warnings", value=f"{len(user_data.get('warnings', []))}/3", inline=True)
-    
-    await ctx.send(embed=embed)
-
 @bot.hybrid_command(name="stats", description="View combat stats")
 async def stats(ctx, member: discord.Member = None):
     """Display W/L stats"""
