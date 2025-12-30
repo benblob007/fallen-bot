@@ -571,19 +571,23 @@ def create_arcane_leaderboard_embed(guild, users_data, sort_key="xp", title_suff
     return embed
 
 async def create_leaderboard_image(guild, users_data, sort_key="xp", title_suffix="Overall XP"):
-    """Create an image-based leaderboard with Fallen background"""
+    """Create a stylish image-based leaderboard with Fallen theme and avatars"""
     if not PIL_AVAILABLE:
         return None
     
     sorted_users = sorted(users_data.items(), key=lambda x: x[1].get(sort_key, 0), reverse=True)[:10]
     
-    # Card dimensions (taller for leaderboard)
-    width, height = 800, 600
+    # Calculate height based on number of users
+    num_users = len(sorted_users)
+    row_height = 60  # Increased for avatars
+    header_height = 140
+    footer_height = 50
+    height = header_height + (num_users * row_height) + footer_height
+    width = 950  # Slightly wider for avatars
     
     # Try to load background
     background = None
     
-    # Check local files
     for path in LEVEL_CARD_PATHS:
         if os.path.exists(path):
             try:
@@ -592,7 +596,6 @@ async def create_leaderboard_image(guild, users_data, sort_key="xp", title_suffi
             except:
                 pass
     
-    # Check URL
     if background is None and LEVEL_CARD_BACKGROUND:
         try:
             async with aiohttp.ClientSession() as session:
@@ -604,104 +607,177 @@ async def create_leaderboard_image(guild, users_data, sort_key="xp", title_suffi
             pass
     
     if background is None:
-        return None
-    
-    # Resize and crop background
-    bg_ratio = background.width / background.height
-    card_ratio = width / height
-    
-    if bg_ratio > card_ratio:
-        new_width = int(background.height * card_ratio)
-        left = (background.width - new_width) // 2
-        background = background.crop((left, 0, left + new_width, background.height))
+        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
     else:
-        new_height = int(background.width / card_ratio)
-        top = (background.height - new_height) // 2
-        background = background.crop((0, top, background.width, top + new_height))
+        background = background.resize((width, height), Image.Resampling.LANCZOS)
     
-    background = background.resize((width, height), Image.Resampling.LANCZOS)
-    
-    # Create card with darker overlay
     card = background.copy()
-    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 180))
+    
+    # Dark overlay
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 200))
     card = Image.alpha_composite(card, overlay)
     
     draw = ImageDraw.Draw(card)
     
     # Load fonts
     try:
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-        font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
-        font_text = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_subtitle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_stats = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
     except:
-        font_title = ImageFont.load_default()
-        font_header = ImageFont.load_default()
-        font_text = ImageFont.load_default()
-        font_small = ImageFont.load_default()
+        font_title = font_subtitle = font_header = font_name = font_stats = font_small = ImageFont.load_default()
     
-    # Title
-    title = f"✝ THE FALLEN ✝"
+    # === HEADER SECTION ===
+    draw.rectangle([(20, 15), (width - 20, 20)], fill=(139, 0, 0))
+    
+    title = "LEADERBOARD"
     title_bbox = draw.textbbox((0, 0), title, font=font_title)
     title_width = title_bbox[2] - title_bbox[0]
-    draw.text(((width - title_width) // 2, 20), title, font=font_title, fill=(255, 255, 255))
+    title_x = (width - title_width) // 2
     
-    # Subtitle
-    subtitle = f"{title_suffix} Leaderboard"
-    sub_bbox = draw.textbbox((0, 0), subtitle, font=font_header)
+    draw.text((title_x - 50, 35), "*", font=font_title, fill=(255, 215, 0))
+    draw.text((title_x + title_width + 20, 35), "*", font=font_title, fill=(255, 215, 0))
+    draw.text((title_x, 35), title, font=font_title, fill=(255, 255, 255))
+    
+    subtitle = f"{title_suffix} Rankings"
+    sub_bbox = draw.textbbox((0, 0), subtitle, font=font_subtitle)
     sub_width = sub_bbox[2] - sub_bbox[0]
-    draw.text(((width - sub_width) // 2, 60), subtitle, font=font_header, fill=(200, 200, 200))
+    draw.text(((width - sub_width) // 2, 80), subtitle, font=font_subtitle, fill=(200, 180, 180))
     
-    # Draw leaderboard entries
-    y_start = 110
-    row_height = 45
+    # === COLUMN HEADERS ===
+    header_y = 115
+    draw.rectangle([(30, header_y - 5), (width - 30, header_y + 20)], fill=(60, 20, 20))
+    
+    draw.text((50, header_y), "RANK", font=font_header, fill=(200, 200, 200))
+    draw.text((140, header_y), "USER", font=font_header, fill=(200, 200, 200))
+    draw.text((520, header_y), "LEVEL", font=font_header, fill=(200, 200, 200))
+    draw.text((640, header_y), "XP", font=font_header, fill=(200, 200, 200))
+    draw.text((800, header_y), "COINS", font=font_header, fill=(200, 200, 200))
+    
+    # === LEADERBOARD ROWS ===
+    y_start = header_y + 35
+    avatar_size = 40
+    
+    rank_colors = {
+        0: (255, 215, 0),    # Gold
+        1: (192, 192, 192),  # Silver  
+        2: (205, 127, 50),   # Bronze
+    }
+    
+    # Download all avatars first
+    avatars = {}
+    async with aiohttp.ClientSession() as session:
+        for uid, stats in sorted_users:
+            member = guild.get_member(int(uid)) if guild else None
+            if member:
+                try:
+                    avatar_url = member.display_avatar.with_format('png').with_size(64).url
+                    async with session.get(avatar_url) as resp:
+                        if resp.status == 200:
+                            avatar_data = await resp.read()
+                            avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
+                            avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
+                            avatars[uid] = avatar_img
+                except:
+                    pass
     
     for i, (uid, stats) in enumerate(sorted_users):
         member = guild.get_member(int(uid)) if guild else None
-        username = member.display_name if member else f"User {uid[:8]}"
+        username = member.display_name if member else f"User_{uid[:6]}"
         lvl = stats.get('level', 0)
         xp_value = stats.get(sort_key, 0)
+        coins = stats.get('coins', 0)
         
         y = y_start + (i * row_height)
         
-        # Rank medal/number
-        if i == 0:
-            rank_text = "🥇"
-            rank_color = (255, 215, 0)  # Gold
-        elif i == 1:
-            rank_text = "🥈"
-            rank_color = (192, 192, 192)  # Silver
-        elif i == 2:
-            rank_text = "🥉"
-            rank_color = (205, 127, 50)  # Bronze
-        else:
-            rank_text = f"#{i + 1}"
-            rank_color = (150, 150, 150)
-        
-        # Draw row background for top 3
+        # Row background
         if i < 3:
-            row_bg = Image.new("RGBA", (width - 60, 40), (*rank_color[:3], 40))
-            card.paste(row_bg, (30, y - 5), row_bg)
+            row_color = (*rank_colors[i], 60)
+        elif i % 2 == 0:
+            row_color = (80, 20, 20, 150)
+        else:
+            row_color = (60, 15, 15, 150)
         
-        # Rank
-        draw.text((40, y), rank_text, font=font_header, fill=rank_color)
+        row_bg = Image.new("RGBA", (width - 60, row_height - 5), row_color)
+        card.paste(row_bg, (30, y), row_bg)
+        draw = ImageDraw.Draw(card)
         
-        # Username (truncate if too long)
-        if len(username) > 18:
-            username = username[:15] + "..."
-        draw.text((120, y), username, font=font_text, fill=(255, 255, 255))
+        # Left accent bar for top 3
+        if i < 3:
+            draw.rectangle([(30, y), (38, y + row_height - 5)], fill=rank_colors[i])
+        
+        # Rank number
+        rank_color = rank_colors.get(i, (180, 180, 180))
+        rank_text = f"#{i + 1}"
+        draw.text((55, y + 17), rank_text, font=font_name, fill=rank_color)
+        
+        # Avatar with circular mask and border
+        avatar_x = 120
+        avatar_y = y + 7
+        
+        # Draw avatar border (diamond shape for top 3, circle for others)
+        if i < 3:
+            # Diamond border for top 3
+            border_size = avatar_size // 2 + 5
+            center_x = avatar_x + avatar_size // 2
+            center_y = avatar_y + avatar_size // 2
+            diamond_points = [
+                (center_x, center_y - border_size),
+                (center_x + border_size, center_y),
+                (center_x, center_y + border_size),
+                (center_x - border_size, center_y)
+            ]
+            draw.polygon(diamond_points, fill=rank_colors[i])
+        else:
+            # Circle border for others
+            draw.ellipse(
+                [avatar_x - 3, avatar_y - 3, avatar_x + avatar_size + 3, avatar_y + avatar_size + 3],
+                fill=(100, 100, 100)
+            )
+        
+        # Paste avatar with circular mask
+        if uid in avatars:
+            avatar_img = avatars[uid]
+            
+            # Create circular mask
+            mask = Image.new("L", (avatar_size, avatar_size), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+            
+            # Paste avatar
+            card.paste(avatar_img, (avatar_x, avatar_y), mask)
+            draw = ImageDraw.Draw(card)
+        else:
+            # Draw placeholder circle
+            draw.ellipse(
+                [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
+                fill=(60, 60, 70)
+            )
+        
+        # Username (shifted right for avatar)
+        display_name = username[:18] + "..." if len(username) > 18 else username
+        draw.text((180, y + 17), display_name, font=font_name, fill=(255, 255, 255))
         
         # Level
-        draw.text((450, y), f"LVL {lvl}", font=font_text, fill=(100, 200, 255))
+        draw.text((540, y + 17), str(lvl), font=font_stats, fill=(100, 200, 255))
         
         # XP
-        draw.text((580, y), f"{format_number(xp_value)} XP", font=font_text, fill=(255, 200, 100))
+        draw.text((660, y + 17), format_number(xp_value), font=font_stats, fill=(255, 200, 100))
+        
+        # Coins
+        draw.text((815, y + 17), format_number(coins), font=font_stats, fill=(255, 215, 0))
     
-    # Footer
-    footer = f"Members: {guild.member_count} • 落ちた"
+    # === FOOTER ===
+    footer_y = height - 35
+    draw.rectangle([(20, footer_y - 10), (width - 20, footer_y - 5)], fill=(139, 0, 0))
+    
+    footer = f"The Fallen | {guild.member_count} Members"
     footer_bbox = draw.textbbox((0, 0), footer, font=font_small)
     footer_width = footer_bbox[2] - footer_bbox[0]
-    draw.text(((width - footer_width) // 2, height - 30), footer, font=font_small, fill=(150, 150, 150))
+    draw.text(((width - footer_width) // 2, footer_y), footer, font=font_small, fill=(150, 150, 150))
     
     # Save to bytes
     output = BytesIO()
