@@ -41,7 +41,8 @@ REQUIRED_ROLE_NAME = "Mainer"
 STAFF_ROLE_NAME = "Staff"             
 UNVERIFIED_ROLE_NAME = "Unverified"
 VERIFIED_ROLE_NAME = "Verified"
-MEMBER_ROLE_NAME = "Abyssbound" 
+MEMBER_ROLE_NAME = "Abyssbound"
+BLOXLINK_VERIFIED_ROLE = "Bloxlink Verified"  # The role Bloxlink gives when verified - change if different
 
 # The High Staff roles:
 HIGH_STAFF_ROLES = [
@@ -3817,34 +3818,236 @@ class VerifyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="🔗 Verify with Roblox", style=discord.ButtonStyle.success, custom_id="verify_roblox_btn")
+    @discord.ui.button(label="✅ Verify with Fallen", style=discord.ButtonStyle.success, custom_id="verify_fallen_btn")
     async def verify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Check if already verified
-        mem = discord.utils.get(interaction.guild.roles, name=MEMBER_ROLE_NAME)
-        if mem and mem in interaction.user.roles:
-            user_data = get_user_data(interaction.user.id)
-            current = user_data.get('roblox_username', 'Unknown')
-            roblox_id = user_data.get('roblox_id', 'Unknown')
-            
-            embed = discord.Embed(
-                title="🔄 Already Verified",
-                description=f"You're already verified as **{current}**!\n\nWant to link a different Roblox account?",
-                color=0x3498db
+        """Quick verify if user has Bloxlink verified role"""
+        member = interaction.user
+        guild = interaction.guild
+        
+        # Check if already has Abyssbound (full access)
+        abyssbound = discord.utils.get(guild.roles, name=MEMBER_ROLE_NAME)
+        if abyssbound and abyssbound in member.roles:
+            return await interaction.response.send_message(
+                "✅ You're already verified with The Fallen!",
+                ephemeral=True
             )
-            embed.add_field(name="Current Account", value=f"[{current}](https://www.roblox.com/users/{roblox_id}/profile)" if roblox_id != 'Unknown' else current)
-            
-            view = discord.ui.View(timeout=60)
-            reverify_btn = discord.ui.Button(label="🔄 Reverify", style=discord.ButtonStyle.primary)
-            
-            async def reverify_callback(inter: discord.Interaction):
-                await inter.response.send_modal(VerifyUsernameModal())
-            
-            reverify_btn.callback = reverify_callback
-            view.add_item(reverify_btn)
-            
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-        else:
-            await interaction.response.send_modal(VerifyUsernameModal())
+        
+        # Check if user has Bloxlink verified role
+        bloxlink_role = discord.utils.get(guild.roles, name=BLOXLINK_VERIFIED_ROLE)
+        
+        if not bloxlink_role or bloxlink_role not in member.roles:
+            embed = discord.Embed(
+                title="❌ Bloxlink Verification Required",
+                description=(
+                    "You need to verify with **Bloxlink** first!\n\n"
+                    "**Steps:**\n"
+                    "1️⃣ Use `/verify` or go to the Bloxlink verification channel\n"
+                    "2️⃣ Complete Bloxlink verification\n"
+                    "3️⃣ Come back here and click this button again\n\n"
+                    "*Once you have the Bloxlink verified role, you can get full access to The Fallen!*"
+                ),
+                color=0xe74c3c
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # User has Bloxlink role - try to get their Roblox info from nickname
+        # Bloxlink usually sets nickname to Roblox username
+        roblox_username = member.display_name
+        
+        # Remove any clan tags or extra stuff (common format: "Username | Tag" or "[Tag] Username")
+        if " | " in roblox_username:
+            roblox_username = roblox_username.split(" | ")[0]
+        if "] " in roblox_username:
+            roblox_username = roblox_username.split("] ")[-1]
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Try to look up the Roblox user to get their ID
+        roblox_user = await get_roblox_user_by_username(roblox_username)
+        
+        roblox_id = None
+        if roblox_user:
+            roblox_username = roblox_user["name"]  # Use correct capitalization
+            roblox_id = roblox_user["id"]
+        
+        # Give roles
+        roles_given = []
+        roles_removed = []
+        
+        # Remove Unverified
+        unverified = discord.utils.get(guild.roles, name=UNVERIFIED_ROLE_NAME)
+        if unverified and unverified in member.roles:
+            try:
+                await member.remove_roles(unverified)
+                roles_removed.append(unverified.name)
+            except:
+                pass
+        
+        # Add Verified (Fallen's own verified role, can be different from Bloxlink's)
+        fallen_verified = discord.utils.get(guild.roles, name="Fallen Verified")
+        if fallen_verified and fallen_verified not in member.roles:
+            try:
+                await member.add_roles(fallen_verified)
+                roles_given.append(fallen_verified.name)
+            except:
+                pass
+        
+        # Add Abyssbound (member role)
+        if abyssbound and abyssbound not in member.roles:
+            try:
+                await member.add_roles(abyssbound)
+                roles_given.append(abyssbound.name)
+            except:
+                pass
+        
+        # Save to database
+        data = load_data()
+        uid = str(member.id)
+        data = ensure_user_structure(data, uid)
+        data["users"][uid]["roblox_username"] = roblox_username
+        data["users"][uid]["verified"] = True
+        if roblox_id:
+            data["users"][uid]["roblox_id"] = roblox_id
+        save_data(data)
+        
+        # Check achievements
+        await check_new_achievements(member.id, guild)
+        
+        # Success message
+        embed = discord.Embed(
+            title="✅ Welcome to The Fallen!",
+            description=(
+                f"You've been verified as **{roblox_username}**!\n\n"
+                f"**Roles Given:** {', '.join(roles_given) if roles_given else 'None needed'}\n\n"
+                "You now have full access to the server. Enjoy! ⚔️"
+            ),
+            color=0x2ecc71
+        )
+        if roblox_id:
+            embed.add_field(
+                name="🎮 Roblox Profile",
+                value=f"[View Profile](https://www.roblox.com/users/{roblox_id}/profile)"
+            )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        # Log to dashboard
+        await log_to_dashboard(
+            guild, "✅ VERIFY", "Member Verified",
+            f"{member.mention} verified as **{roblox_username}**",
+            color=0x2ecc71,
+            fields={"Method": "Bloxlink Quick Verify", "Roblox": roblox_username}
+        )
+    
+    @discord.ui.button(label="🔄 Link Different Account", style=discord.ButtonStyle.secondary, custom_id="verify_manual_btn")
+    async def manual_verify(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Manual verification for linking a different Roblox account"""
+        # Check if user has Bloxlink role first
+        bloxlink_role = discord.utils.get(interaction.guild.roles, name=BLOXLINK_VERIFIED_ROLE)
+        
+        if not bloxlink_role or bloxlink_role not in interaction.user.roles:
+            return await interaction.response.send_message(
+                "❌ You need to verify with Bloxlink first before you can link a different account.",
+                ephemeral=True
+            )
+        
+        await interaction.response.send_modal(ManualVerifyModal())
+
+class ManualVerifyModal(discord.ui.Modal, title="🔗 Link Roblox Account"):
+    roblox_username = discord.ui.TextInput(
+        label="Roblox Username",
+        placeholder="Enter your Roblox username",
+        min_length=3,
+        max_length=20,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        username = self.roblox_username.value.strip()
+        member = interaction.user
+        guild = interaction.guild
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Look up the Roblox user
+        roblox_user = await get_roblox_user_by_username(username)
+        
+        if not roblox_user:
+            return await interaction.followup.send(
+                f"❌ Could not find Roblox user **{username}**. Please check the spelling.",
+                ephemeral=True
+            )
+        
+        roblox_username = roblox_user["name"]
+        roblox_id = roblox_user["id"]
+        
+        # Give roles
+        roles_given = []
+        
+        # Remove Unverified
+        unverified = discord.utils.get(guild.roles, name=UNVERIFIED_ROLE_NAME)
+        if unverified and unverified in member.roles:
+            try:
+                await member.remove_roles(unverified)
+            except:
+                pass
+        
+        # Add Fallen Verified
+        fallen_verified = discord.utils.get(guild.roles, name="Fallen Verified")
+        if fallen_verified and fallen_verified not in member.roles:
+            try:
+                await member.add_roles(fallen_verified)
+                roles_given.append(fallen_verified.name)
+            except:
+                pass
+        
+        # Add Abyssbound
+        abyssbound = discord.utils.get(guild.roles, name=MEMBER_ROLE_NAME)
+        if abyssbound and abyssbound not in member.roles:
+            try:
+                await member.add_roles(abyssbound)
+                roles_given.append(abyssbound.name)
+            except:
+                pass
+        
+        # Try to set nickname
+        try:
+            await member.edit(nick=roblox_username)
+        except:
+            pass
+        
+        # Save to database
+        data = load_data()
+        uid = str(member.id)
+        data = ensure_user_structure(data, uid)
+        data["users"][uid]["roblox_username"] = roblox_username
+        data["users"][uid]["roblox_id"] = roblox_id
+        data["users"][uid]["verified"] = True
+        save_data(data)
+        
+        # Check achievements
+        await check_new_achievements(member.id, guild)
+        
+        embed = discord.Embed(
+            title="✅ Account Linked!",
+            description=(
+                f"Successfully linked to **{roblox_username}**!\n\n"
+                f"[View Roblox Profile](https://www.roblox.com/users/{roblox_id}/profile)"
+            ),
+            color=0x2ecc71
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        # Log
+        await log_to_dashboard(
+            guild, "🔗 LINK", "Account Linked",
+            f"{member.mention} linked to **{roblox_username}**",
+            color=0x3498db,
+            fields={"Roblox ID": str(roblox_id)}
+        )
 
 class UpdateNicknameModal(discord.ui.Modal, title="🔄 Update Roblox Username"):
     roblox_username = discord.ui.TextInput(
@@ -4506,29 +4709,38 @@ async def setup_verify(ctx, channel: discord.TextChannel = None):
     target_channel = channel or ctx.channel
     
     embed = discord.Embed(
-        title="🔗 Secure Roblox Verification",
+        title="✝ The Fallen Verification ✝",
         description=(
             "Welcome to **The Fallen**!\n\n"
-            "**🔒 You currently have the Unverified role.**\n"
-            "To access the server, you must verify your Roblox account.\n\n"
-            "**📝 How Verification Works:**\n"
-            "1️⃣ Click the button and enter your Roblox username\n"
-            "2️⃣ Add a unique code to your Roblox profile description\n"
-            "3️⃣ Click verify - we'll check your profile automatically!\n\n"
+            "**🔒 You need to verify to access the server.**\n\n"
+            "**📝 How to Verify:**\n"
+            "1️⃣ First, verify with **Bloxlink** (`/verify`)\n"
+            "2️⃣ Once you have the Bloxlink verified role, click the button below\n"
+            "3️⃣ You'll automatically get access to The Fallen!\n\n"
             "**✅ After verifying, you'll receive:**\n"
-            "• 🏷️ **Verified** role\n"
+            "• 🏷️ **Fallen Verified** role\n"
             "• 🏷️ **Abyssbound** role (full server access)\n"
-            "• 📝 Nickname set to your Roblox username\n"
             "• 🎮 Access to all channels & features\n\n"
-            "**Click the button below to start!**"
+            "**🔄 Already verified with Bloxlink?**\n"
+            "Click the green button to get your roles!\n\n"
+            "**🔗 Want to link a different account?**\n"
+            "Click the gray button to manually link."
         ),
-        color=0x2ecc71
+        color=0x8B0000
     )
-    embed.set_footer(text="🛡️ Secure verification prevents impersonation")
+    embed.set_footer(text="✝ The Fallen ✝ • Powered by Bloxlink")
     
     await target_channel.send(embed=embed, view=VerifyView())
     await ctx.send(f"✅ Verification panel posted in {target_channel.mention}", ephemeral=True)
     await log_action(ctx.guild, "📋 Verify Panel", f"Posted in {target_channel.mention} by {ctx.author.mention}", 0x2ecc71)
+
+@bot.hybrid_command(name="set_bloxlink_role", description="Admin: Set the Bloxlink verified role name")
+@commands.has_permissions(administrator=True)
+async def set_bloxlink_role(ctx, role: discord.Role):
+    """Set which role Bloxlink gives when users verify"""
+    global BLOXLINK_VERIFIED_ROLE
+    BLOXLINK_VERIFIED_ROLE = role.name
+    await ctx.send(f"✅ Bloxlink verified role set to **{role.name}**\n\nUsers with this role can now click the verify button to get Fallen access.", ephemeral=True)
 
 @bot.hybrid_command(name="setup_shop", description="Admin: Set up the shop panel")
 @commands.has_permissions(administrator=True)
