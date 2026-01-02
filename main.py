@@ -37,12 +37,12 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL") 
 
 # --- ROLE SETTINGS ---
-REQUIRED_ROLE_NAME = "Mainer"         
+REQUIRED_ROLE_NAME = "Mainer"         # Legacy - keeping for backwards compatibility         
 STAFF_ROLE_NAME = "Staff"             
 UNVERIFIED_ROLE_NAME = "Unverified"
 VERIFIED_ROLE_NAME = "Verified"
 MEMBER_ROLE_NAME = "Abyssbound"
-BLOXLINK_VERIFIED_ROLE = "Verified"  # The role Bloxlink gives when verified - change if different
+BLOXLINK_VERIFIED_ROLE = "Bloxlink Verified"  # The role Bloxlink gives when verified - change if different
 FALLEN_VERIFIED_ROLE = "Fallen Verified"  # The role Fallen bot gives - create this role or change name
 
 # The High Staff roles:
@@ -2221,6 +2221,315 @@ async def create_voice_leaderboard_image(guild):
     output.seek(0)
     return output
 
+# ==========================================
+# INACTIVITY STRIKE SYSTEM
+# ==========================================
+
+INACTIVITY_FILE = "inactivity_data.json"
+INACTIVITY_CHECK_DAYS = 7  # Days of inactivity before strike
+MAX_INACTIVITY_STRIKES = 5  # Strikes before kick
+
+# Rank demotion order (highest to lowest) - Stage 0 is highest
+RANK_DEMOTION_ORDER = [
+    "Stage 0〢FALLEN DEITY",
+    "Stage 1〢FALLEN APEX", 
+    "Stage 2〢FALLEN ASCENDANT",
+    "Stage 3〢FORSAKEN WARRIOR",
+    "Stage 4〢ABYSS-TOUCHED",
+    "Stage 5〢BROKEN INITIATE",
+]
+
+# All member ranks that should be checked for inactivity
+MEMBER_RANKS = RANK_DEMOTION_ORDER.copy()
+
+def get_member_rank(member):
+    """Get the member's current rank from the rank order"""
+    for rank in RANK_DEMOTION_ORDER:
+        role = discord.utils.get(member.roles, name=rank)
+        if role:
+            return rank
+    return None
+
+def get_next_demotion_rank(current_rank):
+    """Get the rank below the current one"""
+    try:
+        current_index = RANK_DEMOTION_ORDER.index(current_rank)
+        if current_index < len(RANK_DEMOTION_ORDER) - 1:
+            return RANK_DEMOTION_ORDER[current_index + 1]
+    except ValueError:
+        pass
+    return None  # Already at lowest or not found
+
+def load_inactivity_data():
+    try:
+        with open(INACTIVITY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"strikes": {}, "last_check": None}
+
+def save_inactivity_data(data):
+    with open(INACTIVITY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def get_inactivity_strikes(user_id):
+    """Get inactivity strikes for a user"""
+    data = load_inactivity_data()
+    return data["strikes"].get(str(user_id), {
+        "count": 0,
+        "history": [],
+        "demoted": False
+    })
+
+def add_inactivity_strike(user_id, reason="Inactivity"):
+    """Add an inactivity strike to a user"""
+    data = load_inactivity_data()
+    uid = str(user_id)
+    
+    if uid not in data["strikes"]:
+        data["strikes"][uid] = {
+            "count": 0,
+            "history": [],
+            "demoted": False
+        }
+    
+    data["strikes"][uid]["count"] += 1
+    data["strikes"][uid]["history"].append({
+        "date": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "reason": reason
+    })
+    
+    save_inactivity_data(data)
+    return data["strikes"][uid]["count"]
+
+def clear_inactivity_strikes(user_id):
+    """Clear all inactivity strikes for a user"""
+    data = load_inactivity_data()
+    uid = str(user_id)
+    
+    if uid in data["strikes"]:
+        data["strikes"][uid] = {
+            "count": 0,
+            "history": [],
+            "demoted": False
+        }
+        save_inactivity_data(data)
+
+def remove_inactivity_strike(user_id):
+    """Remove one inactivity strike from a user"""
+    data = load_inactivity_data()
+    uid = str(user_id)
+    
+    if uid in data["strikes"] and data["strikes"][uid]["count"] > 0:
+        data["strikes"][uid]["count"] -= 1
+        save_inactivity_data(data)
+        return data["strikes"][uid]["count"]
+    return 0
+
+def mark_user_demoted(user_id):
+    """Mark that user has been demoted due to inactivity"""
+    data = load_inactivity_data()
+    uid = str(user_id)
+    
+    if uid in data["strikes"]:
+        data["strikes"][uid]["demoted"] = True
+        save_inactivity_data(data)
+
+async def send_inactivity_strike_dm(member, strike_count, demoted=False, kicked=False, old_rank=None, new_rank=None):
+    """Send DM to user about inactivity strike"""
+    try:
+        if kicked:
+            embed = discord.Embed(
+                title="⛔ Removed from The Fallen",
+                description=(
+                    f"You have been **kicked** from **The Fallen** due to reaching "
+                    f"**{MAX_INACTIVITY_STRIKES} inactivity strikes**.\n\n"
+                    f"We understand life gets busy, but consistent activity is required "
+                    f"to maintain membership.\n\n"
+                    f"**You may rejoin and reapply if you can commit to being active.**"
+                ),
+                color=0xe74c3c
+            )
+        elif demoted:
+            old_rank_display = old_rank or "Previous Rank"
+            new_rank_display = new_rank or "Lower Rank"
+            embed = discord.Embed(
+                title="📉 Rank Demotion - Inactivity",
+                description=(
+                    f"You have received **Strike {strike_count}/{MAX_INACTIVITY_STRIKES}** for inactivity.\n\n"
+                    f"Due to continuous inactivity, you have been **demoted**:\n"
+                    f"```\n{old_rank_display}\n       ↓\n{new_rank_display}```\n\n"
+                    f"**What this means:**\n"
+                    f"• Further inactivity will result in more demotions\n"
+                    f"• At the lowest rank with max strikes = removal from clan\n"
+                    f"• You can regain rank through activity and tryouts\n\n"
+                    f"**To avoid further demotions:**\n"
+                    f"• Participate in raids and trainings\n"
+                    f"• Be active in chat\n"
+                    f"• Attend clan events"
+                ),
+                color=0xe67e22
+            )
+        else:
+            embed = discord.Embed(
+                title="⚠️ Inactivity Strike Received",
+                description=(
+                    f"You have received **Strike {strike_count}/{MAX_INACTIVITY_STRIKES}** for inactivity.\n\n"
+                    f"**What happens next:**\n"
+                    f"• **Strike 3+:** Rank demotion (one rank per strike)\n"
+                    f"• **Strike 5 at lowest rank:** Removal from The Fallen\n\n"
+                    f"**Rank Order (highest to lowest):**\n"
+                    f"```\n"
+                    f"Stage 0〢FALLEN DEITY\n"
+                    f"Stage 1〢FALLEN APEX\n"
+                    f"Stage 2〢FALLEN ASCENDANT\n"
+                    f"Stage 3〢FORSAKEN WARRIOR\n"
+                    f"Stage 4〢ABYSS-TOUCHED\n"
+                    f"Stage 5〢BROKEN INITIATE\n"
+                    f"```\n\n"
+                    f"**To avoid further strikes:**\n"
+                    f"• Participate in raids and trainings\n"
+                    f"• Be active in chat\n"
+                    f"• Attend clan events\n\n"
+                    f"*If you're going to be away, let staff know in advance!*"
+                ),
+                color=0xf1c40f
+            )
+        
+        embed.set_footer(text="✝ The Fallen ✝ • Inactivity System")
+        embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        await member.send(embed=embed)
+        return True
+    except:
+        return False  # Can't DM user
+
+async def check_member_inactivity(member, guild):
+    """Check if a member is inactive and apply strikes if needed"""
+    # Check if member has any of the ranked roles
+    current_rank = get_member_rank(member)
+    
+    if not current_rank:
+        return None  # Not a ranked member, skip
+    
+    # Get user data
+    user_data = get_user_data(member.id)
+    last_active = user_data.get("last_active")
+    
+    if not last_active:
+        return None
+    
+    # Parse last active date
+    try:
+        last_active_date = datetime.datetime.fromisoformat(last_active.replace('Z', '+00:00'))
+    except:
+        return None
+    
+    # Check if inactive for more than threshold
+    now = datetime.datetime.now(datetime.timezone.utc)
+    days_inactive = (now - last_active_date).days
+    
+    if days_inactive < INACTIVITY_CHECK_DAYS:
+        return None  # Not inactive long enough
+    
+    # Get current strikes
+    strike_info = get_inactivity_strikes(member.id)
+    current_strikes = strike_info["count"]
+    
+    # Add a strike
+    new_strike_count = add_inactivity_strike(member.id, f"Inactive for {days_inactive} days")
+    
+    result = {
+        "member": member,
+        "strikes": new_strike_count,
+        "days_inactive": days_inactive,
+        "action": "strike",
+        "current_rank": current_rank,
+        "new_rank": None
+    }
+    
+    # Check for demotion (Strike 3+) - demote one rank per strike after 3
+    if new_strike_count >= 3:
+        next_rank = get_next_demotion_rank(current_rank)
+        
+        if next_rank:
+            # Demote to next rank
+            try:
+                current_role = discord.utils.get(guild.roles, name=current_rank)
+                next_role = discord.utils.get(guild.roles, name=next_rank)
+                
+                if current_role and next_role:
+                    await member.remove_roles(current_role)
+                    await member.add_roles(next_role)
+                    result["action"] = "demoted"
+                    result["new_rank"] = next_rank
+                    await send_inactivity_strike_dm(member, new_strike_count, demoted=True, old_rank=current_rank, new_rank=next_rank)
+            except Exception as e:
+                print(f"Failed to demote {member}: {e}")
+        
+        # Already at lowest rank (Stage 5) and hit max strikes = kick
+        elif new_strike_count >= MAX_INACTIVITY_STRIKES:
+            result["action"] = "kicked"
+            await send_inactivity_strike_dm(member, new_strike_count, kicked=True)
+            try:
+                await member.kick(reason=f"Inactivity: {MAX_INACTIVITY_STRIKES} strikes at lowest rank")
+            except Exception as e:
+                print(f"Failed to kick {member}: {e}")
+                result["action"] = "kick_failed"
+    
+    else:
+        # Just a regular strike (1-2)
+        await send_inactivity_strike_dm(member, new_strike_count)
+    
+    return result
+
+async def run_inactivity_check(guild):
+    """Run inactivity check on all ranked members"""
+    results = {
+        "checked": 0,
+        "strikes_given": 0,
+        "demotions": 0,
+        "kicks": 0,
+        "details": []
+    }
+    
+    # Get all rank roles
+    rank_roles = []
+    for rank_name in MEMBER_RANKS:
+        role = discord.utils.get(guild.roles, name=rank_name)
+        if role:
+            rank_roles.append(role)
+    
+    if not rank_roles:
+        return results
+    
+    for member in guild.members:
+        if member.bot:
+            continue
+        
+        # Check if member has any ranked role
+        has_rank = any(role in member.roles for role in rank_roles)
+        if not has_rank:
+            continue
+        
+        results["checked"] += 1
+        
+        result = await check_member_inactivity(member, guild)
+        if result:
+            results["strikes_given"] += 1
+            results["details"].append(result)
+            
+            if result["action"] == "demoted":
+                results["demotions"] += 1
+            elif result["action"] == "kicked":
+                results["kicks"] += 1
+    
+    # Update last check time
+    data = load_inactivity_data()
+    data["last_check"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    save_inactivity_data(data)
+    
+    return results
+
+# ==========================================
 # LOGGING DASHBOARD
 # ==========================================
 
@@ -6746,6 +7055,302 @@ async def tournament_end(ctx, confirm: str = None):
     save_tournaments(tournaments)
     
     await ctx.send(f"✅ Tournament **{name}** has been ended.")
+
+# ==========================================
+# INACTIVITY COMMANDS
+# ==========================================
+
+@bot.hybrid_command(name="inactivity_check", description="Staff: Run inactivity check on all ranked members")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def inactivity_check_cmd(ctx):
+    """Run inactivity check and give strikes to inactive ranked members"""
+    await ctx.defer()
+    
+    results = await run_inactivity_check(ctx.guild)
+    
+    embed = discord.Embed(
+        title="📊 Inactivity Check Results",
+        color=0xe67e22,
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    
+    embed.add_field(name="👥 Members Checked", value=str(results["checked"]), inline=True)
+    embed.add_field(name="⚠️ Strikes Given", value=str(results["strikes_given"]), inline=True)
+    embed.add_field(name="📉 Demotions", value=str(results["demotions"]), inline=True)
+    embed.add_field(name="👢 Kicks", value=str(results["kicks"]), inline=True)
+    
+    if results["details"]:
+        details_text = ""
+        for detail in results["details"][:10]:  # Show first 10
+            action_emoji = {"strike": "⚠️", "demoted": "📉", "kicked": "👢", "kick_failed": "❌"}.get(detail["action"], "❓")
+            rank_info = ""
+            if detail.get("new_rank"):
+                rank_info = f" → {detail['new_rank']}"
+            details_text += f"{action_emoji} {detail['member'].mention} - Strike {detail['strikes']}/5 ({detail['days_inactive']}d){rank_info}\n"
+        
+        embed.add_field(name="📋 Details", value=details_text or "None", inline=False)
+    
+    embed.set_footer(text=f"Threshold: {INACTIVITY_CHECK_DAYS} days")
+    await ctx.send(embed=embed)
+    
+    # Log to dashboard
+    await log_to_dashboard(
+        ctx.guild, "📊 INACTIVITY", "Inactivity Check Ran",
+        f"Checked {results['checked']} ranked members\n{results['strikes_given']} strikes given",
+        color=0xe67e22,
+        fields={"Demotions": str(results["demotions"]), "Kicks": str(results["kicks"]), "By": ctx.author.mention}
+    )
+
+@bot.hybrid_command(name="inactivity_strikes", description="Check inactivity strikes for a user")
+async def inactivity_strikes_cmd(ctx, member: discord.Member = None):
+    """Check inactivity strikes for a user"""
+    target = member or ctx.author
+    
+    # Staff can check anyone, members can only check themselves
+    if member and member != ctx.author and not is_staff(ctx.author):
+        return await ctx.send("❌ You can only check your own strikes.", ephemeral=True)
+    
+    strike_info = get_inactivity_strikes(target.id)
+    user_data = get_user_data(target.id)
+    
+    # Get current rank
+    current_rank = get_member_rank(target)
+    
+    # Calculate days since last active
+    last_active = user_data.get("last_active")
+    if last_active:
+        try:
+            last_active_date = datetime.datetime.fromisoformat(last_active.replace('Z', '+00:00'))
+            days_ago = (datetime.datetime.now(datetime.timezone.utc) - last_active_date).days
+            last_active_text = f"<t:{int(last_active_date.timestamp())}:R>"
+        except:
+            last_active_text = "Unknown"
+            days_ago = 0
+    else:
+        last_active_text = "Never recorded"
+        days_ago = 0
+    
+    embed = discord.Embed(
+        title=f"📊 Inactivity Status - {target.display_name}",
+        color=0xe74c3c if strike_info["count"] >= 3 else 0xf1c40f if strike_info["count"] > 0 else 0x2ecc71
+    )
+    
+    # Current rank
+    if current_rank:
+        embed.add_field(name="🏅 Current Rank", value=current_rank, inline=False)
+    
+    # Strike visual
+    strikes_visual = "🔴" * strike_info["count"] + "⚫" * (MAX_INACTIVITY_STRIKES - strike_info["count"])
+    embed.add_field(name="⚠️ Strikes", value=f"{strikes_visual}\n**{strike_info['count']}/{MAX_INACTIVITY_STRIKES}**", inline=True)
+    embed.add_field(name="📅 Last Active", value=last_active_text, inline=True)
+    
+    # Next demotion rank
+    if current_rank:
+        next_rank = get_next_demotion_rank(current_rank)
+        if next_rank:
+            embed.add_field(name="📉 Next Demotion", value=next_rank, inline=True)
+        else:
+            embed.add_field(name="📉 Next Demotion", value="At lowest rank", inline=True)
+    
+    # Warning levels
+    if strike_info["count"] == 0:
+        status = "✅ Good standing"
+    elif strike_info["count"] < 3:
+        status = "⚠️ Warning - Stay active!"
+    elif strike_info["count"] < 5:
+        status = "🚨 Critical - At risk of demotion/kick!"
+    else:
+        status = "⛔ Maximum strikes reached"
+    
+    embed.add_field(name="Status", value=status, inline=False)
+    
+    # Strike history (last 5)
+    if strike_info.get("history"):
+        history_text = ""
+        for h in strike_info["history"][-5:]:
+            try:
+                date = datetime.datetime.fromisoformat(h["date"].replace('Z', '+00:00'))
+                history_text += f"• <t:{int(date.timestamp())}:d> - {h['reason']}\n"
+            except:
+                history_text += f"• {h['reason']}\n"
+        embed.add_field(name="📜 Recent History", value=history_text or "None", inline=False)
+    
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.set_footer(text=f"Threshold: {INACTIVITY_CHECK_DAYS} days of inactivity")
+    
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="add_inactivity_strike", description="Staff: Add an inactivity strike to a user")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def add_inactivity_strike_cmd(ctx, member: discord.Member, reason: str = "Manual strike by staff"):
+    """Manually add an inactivity strike"""
+    new_count = add_inactivity_strike(member.id, reason)
+    
+    # Check if demotion needed
+    demoted = False
+    kicked = False
+    
+    if new_count >= 3:
+        strike_info = get_inactivity_strikes(member.id)
+        if not strike_info.get("demoted"):
+            mainer_role = discord.utils.get(ctx.guild.roles, name=REQUIRED_ROLE_NAME)
+            tryout_role = discord.utils.get(ctx.guild.roles, name="Tryout")
+            
+            if mainer_role and mainer_role in member.roles:
+                try:
+                    await member.remove_roles(mainer_role)
+                    if tryout_role:
+                        await member.add_roles(tryout_role)
+                    mark_user_demoted(member.id)
+                    demoted = True
+                except:
+                    pass
+    
+    if new_count >= MAX_INACTIVITY_STRIKES:
+        try:
+            await send_inactivity_strike_dm(member, new_count, kicked=True)
+            await member.kick(reason=f"Inactivity: {MAX_INACTIVITY_STRIKES} strikes")
+            kicked = True
+        except:
+            pass
+    else:
+        await send_inactivity_strike_dm(member, new_count, demoted=demoted)
+    
+    # Response
+    action_text = ""
+    if kicked:
+        action_text = " → **KICKED**"
+    elif demoted:
+        action_text = " → **DEMOTED to Tryout**"
+    
+    embed = discord.Embed(
+        title="⚠️ Inactivity Strike Added",
+        description=f"{member.mention} now has **{new_count}/{MAX_INACTIVITY_STRIKES}** strikes{action_text}",
+        color=0xe74c3c if new_count >= 3 else 0xf1c40f
+    )
+    embed.add_field(name="Reason", value=reason, inline=False)
+    embed.set_footer(text=f"Added by {ctx.author}")
+    
+    await ctx.send(embed=embed)
+    
+    # Log
+    await log_to_dashboard(
+        ctx.guild, "⚠️ STRIKE", "Inactivity Strike Added",
+        f"{member.mention} received strike {new_count}/5\nReason: {reason}",
+        color=0xe67e22,
+        fields={"By": ctx.author.mention, "Action": action_text or "None"}
+    )
+
+@bot.hybrid_command(name="remove_inactivity_strike", description="Staff: Remove an inactivity strike from a user")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def remove_inactivity_strike_cmd(ctx, member: discord.Member):
+    """Remove one inactivity strike from a user"""
+    new_count = remove_inactivity_strike(member.id)
+    
+    embed = discord.Embed(
+        title="✅ Inactivity Strike Removed",
+        description=f"{member.mention} now has **{new_count}/{MAX_INACTIVITY_STRIKES}** strikes",
+        color=0x2ecc71
+    )
+    embed.set_footer(text=f"Removed by {ctx.author}")
+    
+    await ctx.send(embed=embed)
+    
+    # Try to DM user
+    try:
+        dm_embed = discord.Embed(
+            title="✅ Inactivity Strike Removed",
+            description=f"One of your inactivity strikes has been removed!\n\nYou now have **{new_count}/{MAX_INACTIVITY_STRIKES}** strikes.",
+            color=0x2ecc71
+        )
+        dm_embed.set_footer(text="✝ The Fallen ✝ • Keep up the activity!")
+        await member.send(embed=dm_embed)
+    except:
+        pass
+
+@bot.hybrid_command(name="clear_inactivity_strikes", description="Admin: Clear all inactivity strikes from a user")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def clear_inactivity_strikes_cmd(ctx, member: discord.Member):
+    """Clear all inactivity strikes from a user"""
+    clear_inactivity_strikes(member.id)
+    
+    embed = discord.Embed(
+        title="✅ All Strikes Cleared",
+        description=f"{member.mention}'s inactivity strikes have been cleared.",
+        color=0x2ecc71
+    )
+    embed.set_footer(text=f"Cleared by {ctx.author}")
+    
+    await ctx.send(embed=embed)
+    
+    # Try to DM user
+    try:
+        dm_embed = discord.Embed(
+            title="✅ Inactivity Strikes Cleared",
+            description="All of your inactivity strikes have been cleared!\n\nYou now have **0/5** strikes.",
+            color=0x2ecc71
+        )
+        dm_embed.set_footer(text="✝ The Fallen ✝ • Fresh start!")
+        await member.send(embed=dm_embed)
+    except:
+        pass
+    
+    # Log
+    await log_to_dashboard(
+        ctx.guild, "✅ CLEARED", "Inactivity Strikes Cleared",
+        f"{member.mention}'s strikes were cleared",
+        color=0x2ecc71,
+        fields={"By": ctx.author.mention}
+    )
+
+@bot.hybrid_command(name="inactive_list", description="Staff: Show all members with inactivity strikes")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def inactive_list_cmd(ctx):
+    """Show all members with inactivity strikes"""
+    data = load_inactivity_data()
+    
+    striked_users = [(uid, info) for uid, info in data.get("strikes", {}).items() if info.get("count", 0) > 0]
+    striked_users.sort(key=lambda x: x[1]["count"], reverse=True)
+    
+    if not striked_users:
+        return await ctx.send("✅ No members have inactivity strikes!")
+    
+    embed = discord.Embed(
+        title="📋 Inactivity Strike List",
+        color=0xe67e22,
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    
+    description = ""
+    for uid, info in striked_users[:20]:  # Show top 20
+        member = ctx.guild.get_member(int(uid))
+        name = member.display_name if member else f"Unknown ({uid})"
+        strikes = info["count"]
+        demoted = "📉" if info.get("demoted") else ""
+        
+        strike_bar = "🔴" * strikes + "⚫" * (5 - strikes)
+        description += f"{demoted}{name}: {strike_bar} ({strikes}/5)\n"
+    
+    embed.description = description
+    
+    # Summary
+    total_striked = len(striked_users)
+    critical = sum(1 for _, info in striked_users if info["count"] >= 3)
+    embed.set_footer(text=f"Total: {total_striked} members with strikes | {critical} critical (3+ strikes)")
+    
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="set_inactivity_days", description="Admin: Set days of inactivity before strike")
+@commands.has_permissions(administrator=True)
+async def set_inactivity_days(ctx, days: int):
+    """Set the number of days before inactivity strike"""
+    global INACTIVITY_CHECK_DAYS
+    
+    if days < 1 or days > 90:
+        return await ctx.send("❌ Days must be between 1 and 90.", ephemeral=True)
+    
+    INACTIVITY_CHECK_DAYS = days
+    await ctx.send(f"✅ Inactivity threshold set to **{days} days**.", ephemeral=True)
 
 @bot.hybrid_command(name="db_status", description="Admin: Check database status")
 @commands.has_permissions(administrator=True)
