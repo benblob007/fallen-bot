@@ -4918,11 +4918,27 @@ class DataWipeConfirmView(discord.ui.View):
 # --- BOT SETUP ---
 class PersistentBot(commands.Bot):
     def __init__(self): 
+        intents = discord.Intents.all()
+        
         super().__init__(
             command_prefix="!", 
-            intents=discord.Intents.all(), 
-            help_command=None
+            intents=intents, 
+            help_command=None,
+            # Rate limit settings
+            max_messages=1000,  # Reduce message cache to save memory
+            heartbeat_timeout=120.0,  # Longer timeout for stability
+            guild_ready_timeout=10.0,  # Faster guild ready
+            assume_unsync_clock=True,  # Better for cloud hosting
         )
+        
+        # Track rate limits
+        self.rate_limit_hits = 0
+        self.last_rate_limit = None
+    
+    async def on_error(self, event_method, *args, **kwargs):
+        """Handle errors gracefully"""
+        import traceback
+        print(f"Error in {event_method}: {traceback.format_exc()}")
     
     async def setup_hook(self):
         # Register persistent views (only views with custom_id buttons that persist after restart)
@@ -4944,20 +4960,25 @@ class PersistentBot(commands.Bot):
         self.bg_voice_xp.start()
         print("Bot setup complete!")
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(minutes=2)  # Changed from 1 to 2 minutes to reduce API calls
     async def bg_voice_xp(self):
-        for guild in self.guilds:
-            for member in guild.members:
-                if member.voice and not member.voice.self_deaf and not member.bot:
-                    xp = random.randint(*XP_VOICE_RANGE)
-                    add_xp_to_user(member.id, xp)
-                    # Track voice time (in minutes)
-                    add_user_stat(member.id, 'voice_time', 1)
-                    await check_level_up(member.id, guild)
+        try:
+            for guild in self.guilds:
+                for member in guild.members:
+                    if member.voice and not member.voice.self_deaf and not member.bot:
+                        xp = random.randint(*XP_VOICE_RANGE)
+                        add_xp_to_user(member.id, xp)
+                        # Track voice time (in minutes)
+                        add_user_stat(member.id, 'voice_time', 2)  # 2 minutes now
+                        await check_level_up(member.id, guild)
+                        await asyncio.sleep(0.1)  # Small delay between users
+        except Exception as e:
+            print(f"Voice XP error: {e}")
 
     @bg_voice_xp.before_loop
     async def before_voice_xp(self):
         await self.wait_until_ready()
+        await asyncio.sleep(30)  # Wait 30 seconds after ready before starting
 
 bot = PersistentBot()
 
@@ -5178,6 +5199,7 @@ async def verify(ctx):
         await ctx.send(embed=embed, view=view, ephemeral=True)
 
 @bot.hybrid_command(name="level", description="Check your level and XP")
+@commands.cooldown(1, 10, commands.BucketType.user)  # 1 use per 10 seconds per user
 async def level(ctx, member: discord.Member = None):
     """Display your Fallen level card"""
     target = member or ctx.author
@@ -5262,6 +5284,7 @@ async def levelcard_debug(ctx):
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="leaderboard", aliases=["lb"], description="View the XP leaderboard")
+@commands.cooldown(1, 15, commands.BucketType.user)  # 1 use per 15 seconds per user
 async def leaderboard(ctx):
     """Display the XP leaderboard with Fallen background"""
     users = load_data()["users"]
@@ -6659,6 +6682,7 @@ async def mystats(ctx, member: discord.Member = None):
 # ==========================================
 
 @bot.hybrid_command(name="profile", description="View your detailed profile card")
+@commands.cooldown(1, 15, commands.BucketType.user)  # 1 use per 15 seconds per user
 async def profile(ctx, member: discord.Member = None):
     """Display a beautiful profile card with all stats"""
     target = member or ctx.author
@@ -7500,6 +7524,83 @@ async def leaderboards(ctx):
     
     await ctx.send(embed=embed)
 
-# Run the bot
+# Global error handler for rate limits
+@bot.event
+async def on_command_error(ctx, error):
+    """Handle command errors gracefully"""
+    if isinstance(error, commands.CommandOnCooldown):
+        await ctx.send(f"⏰ Command on cooldown. Try again in {error.retry_after:.1f}s", ephemeral=True)
+    elif isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You don't have permission to use this command.", ephemeral=True)
+    elif isinstance(error, commands.MissingRole):
+        await ctx.send("❌ You don't have the required role.", ephemeral=True)
+    elif isinstance(error, commands.MissingAnyRole):
+        await ctx.send("❌ You don't have any of the required roles.", ephemeral=True)
+    elif isinstance(error, commands.BotMissingPermissions):
+        await ctx.send("❌ I don't have permission to do that.", ephemeral=True)
+    elif "429" in str(error) or "rate limit" in str(error).lower():
+        print(f"Rate limit hit: {error}")
+        await asyncio.sleep(5)  # Wait before next action
+    else:
+        print(f"Command error: {error}")
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error):
+    """Handle slash command errors"""
+    if "429" in str(error) or "rate limit" in str(error).lower():
+        print(f"Rate limit on slash command: {error}")
+        try:
+            await interaction.response.send_message("⏰ Please wait a moment and try again.", ephemeral=True)
+        except:
+            pass
+    elif isinstance(error, discord.app_commands.errors.MissingPermissions):
+        try:
+            await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
+        except:
+            pass
+    else:
+        print(f"App command error: {error}")
+        try:
+            await interaction.response.send_message("❌ An error occurred. Please try again.", ephemeral=True)
+        except:
+            pass
+
+# Run the bot with reconnect enabled
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    import asyncio
+    import time
+    
+    async def run_bot():
+        """Run bot with automatic reconnection"""
+        retry_count = 0
+        max_retries = 5
+        
+        while retry_count < max_retries:
+            try:
+                print(f"Starting bot... (attempt {retry_count + 1})")
+                await bot.start(TOKEN)
+            except discord.errors.HTTPException as e:
+                if e.status == 429:  # Rate limited
+                    retry_after = getattr(e, 'retry_after', 60)
+                    print(f"Rate limited! Waiting {retry_after} seconds...")
+                    await asyncio.sleep(retry_after)
+                    retry_count += 1
+                else:
+                    print(f"HTTP error: {e}")
+                    await asyncio.sleep(30)
+                    retry_count += 1
+            except Exception as e:
+                print(f"Bot error: {e}")
+                await asyncio.sleep(30)
+                retry_count += 1
+            finally:
+                if not bot.is_closed():
+                    await bot.close()
+        
+        print("Max retries reached. Exiting.")
+    
+    # Run with asyncio
+    try:
+        asyncio.run(run_bot())
+    except KeyboardInterrupt:
+        print("Bot stopped by user.")
