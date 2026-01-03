@@ -2222,11 +2222,828 @@ async def create_voice_leaderboard_image(guild):
     return output
 
 # ==========================================
+# ELO DUEL SYSTEM
+# ==========================================
+
+DUELS_FILE = "duels_data.json"
+DEFAULT_ELO = 1000
+MIN_ELO = 100
+K_FACTOR = 32  # How much ELO changes per match
+
+# ELO Rank Tiers
+ELO_TIERS = [
+    (2000, "🏆 Grandmaster", (255, 215, 0)),
+    (1800, "💎 Diamond", (185, 242, 255)),
+    (1600, "🥇 Platinum", (229, 228, 226)),
+    (1400, "🥈 Gold", (255, 215, 0)),
+    (1200, "🥉 Silver", (192, 192, 192)),
+    (1000, "⚔️ Bronze", (205, 127, 50)),
+    (0, "🗡️ Unranked", (128, 128, 128)),
+]
+
+def load_duels_data():
+    try:
+        with open(DUELS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"elo": {}, "pending_duels": {}, "duel_history": [], "active_duels": {}}
+
+def save_duels_data(data):
+    with open(DUELS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def get_elo(user_id):
+    """Get a user's ELO rating"""
+    data = load_duels_data()
+    return data["elo"].get(str(user_id), DEFAULT_ELO)
+
+def set_elo(user_id, elo):
+    """Set a user's ELO rating"""
+    data = load_duels_data()
+    data["elo"][str(user_id)] = max(MIN_ELO, elo)  # Can't go below MIN_ELO
+    save_duels_data(data)
+
+def get_elo_tier(elo):
+    """Get the tier name and color for an ELO rating"""
+    for threshold, name, color in ELO_TIERS:
+        if elo >= threshold:
+            return name, color
+    return "🗡️ Unranked", (128, 128, 128)
+
+def calculate_elo_change(winner_elo, loser_elo):
+    """Calculate ELO change using standard ELO formula"""
+    expected_winner = 1 / (1 + 10 ** ((loser_elo - winner_elo) / 400))
+    expected_loser = 1 / (1 + 10 ** ((winner_elo - loser_elo) / 400))
+    
+    winner_change = round(K_FACTOR * (1 - expected_winner))
+    loser_change = round(K_FACTOR * (0 - expected_loser))
+    
+    return winner_change, loser_change
+
+def create_pending_duel(challenger_id, opponent_id, ps_link):
+    """Create a pending duel request"""
+    data = load_duels_data()
+    duel_id = f"duel_{int(datetime.datetime.now().timestamp())}"
+    
+    data["pending_duels"][duel_id] = {
+        "challenger": str(challenger_id),
+        "opponent": str(opponent_id),
+        "ps_link": ps_link,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "status": "pending"
+    }
+    save_duels_data(data)
+    return duel_id
+
+def get_pending_duel(duel_id):
+    """Get a pending duel by ID"""
+    data = load_duels_data()
+    return data["pending_duels"].get(duel_id)
+
+def accept_duel(duel_id, channel_id):
+    """Accept a duel and move it to active"""
+    data = load_duels_data()
+    if duel_id in data["pending_duels"]:
+        duel = data["pending_duels"].pop(duel_id)
+        duel["status"] = "active"
+        duel["channel_id"] = str(channel_id)
+        duel["accepted_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        data["active_duels"][duel_id] = duel
+        save_duels_data(data)
+        return duel
+    return None
+
+def decline_duel(duel_id):
+    """Decline/cancel a duel"""
+    data = load_duels_data()
+    if duel_id in data["pending_duels"]:
+        del data["pending_duels"][duel_id]
+        save_duels_data(data)
+        return True
+    if duel_id in data["active_duels"]:
+        del data["active_duels"][duel_id]
+        save_duels_data(data)
+        return True
+    return False
+
+def complete_duel(duel_id, winner_id, loser_id):
+    """Complete a duel and update ELO"""
+    data = load_duels_data()
+    
+    if duel_id not in data["active_duels"]:
+        return None
+    
+    duel = data["active_duels"].pop(duel_id)
+    
+    # Get current ELO
+    winner_elo = data["elo"].get(str(winner_id), DEFAULT_ELO)
+    loser_elo = data["elo"].get(str(loser_id), DEFAULT_ELO)
+    
+    # Calculate changes
+    winner_change, loser_change = calculate_elo_change(winner_elo, loser_elo)
+    
+    # Apply changes
+    new_winner_elo = winner_elo + winner_change
+    new_loser_elo = max(MIN_ELO, loser_elo + loser_change)
+    
+    data["elo"][str(winner_id)] = new_winner_elo
+    data["elo"][str(loser_id)] = new_loser_elo
+    
+    # Record history
+    history_entry = {
+        "duel_id": duel_id,
+        "winner": str(winner_id),
+        "loser": str(loser_id),
+        "winner_elo_before": winner_elo,
+        "winner_elo_after": new_winner_elo,
+        "loser_elo_before": loser_elo,
+        "loser_elo_after": new_loser_elo,
+        "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+    data["duel_history"].append(history_entry)
+    
+    # Keep only last 500 duels in history
+    if len(data["duel_history"]) > 500:
+        data["duel_history"] = data["duel_history"][-500:]
+    
+    save_duels_data(data)
+    
+    return {
+        "winner_change": winner_change,
+        "loser_change": loser_change,
+        "winner_new_elo": new_winner_elo,
+        "loser_new_elo": new_loser_elo
+    }
+
+def get_duel_history(user_id, limit=10):
+    """Get duel history for a user"""
+    data = load_duels_data()
+    uid = str(user_id)
+    
+    user_duels = [d for d in data["duel_history"] if d["winner"] == uid or d["loser"] == uid]
+    return user_duels[-limit:][::-1]  # Most recent first
+
+def get_elo_leaderboard(limit=10):
+    """Get top ELO players"""
+    data = load_duels_data()
+    sorted_elo = sorted(data["elo"].items(), key=lambda x: x[1], reverse=True)
+    return sorted_elo[:limit]
+
+# Duel Request View
+class DuelRequestView(discord.ui.View):
+    def __init__(self, duel_id, challenger, opponent, ps_link):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.duel_id = duel_id
+        self.challenger = challenger
+        self.opponent = opponent
+        self.ps_link = ps_link
+    
+    @discord.ui.button(label="Accept Duel", style=discord.ButtonStyle.success, emoji="⚔️")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.opponent.id:
+            return await interaction.response.send_message("❌ Only the challenged player can accept!", ephemeral=True)
+        
+        await interaction.response.defer()
+        
+        # Create duel ticket channel
+        guild = interaction.guild
+        category = discord.utils.get(guild.categories, name="DUELS") or discord.utils.get(guild.categories, name="TICKETS")
+        
+        if not category:
+            # Create category if it doesn't exist
+            category = await guild.create_category("DUELS")
+        
+        # Create the channel
+        channel_name = f"duel-{self.challenger.display_name[:10]}-vs-{self.opponent.display_name[:10]}"
+        
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            self.challenger: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            self.opponent: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
+        }
+        
+        # Add staff roles
+        for role_name in HIGH_STAFF_ROLES + [STAFF_ROLE_NAME]:
+            role = discord.utils.get(guild.roles, name=role_name)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        
+        duel_channel = await guild.create_text_channel(channel_name, category=category, overwrites=overwrites)
+        
+        # Accept the duel
+        accept_duel(self.duel_id, duel_channel.id)
+        
+        # Get ELO info
+        challenger_elo = get_elo(self.challenger.id)
+        opponent_elo = get_elo(self.opponent.id)
+        challenger_tier, _ = get_elo_tier(challenger_elo)
+        opponent_tier, _ = get_elo_tier(opponent_elo)
+        
+        # Send duel embed to channel
+        embed = discord.Embed(
+            title="⚔️ DUEL MATCH ⚔️",
+            description=(
+                f"**{self.challenger.display_name}** vs **{self.opponent.display_name}**\n\n"
+                f"🎮 **Private Server Link:**\n{self.ps_link}\n\n"
+                f"**ELO Ratings:**\n"
+                f"• {self.challenger.mention}: **{challenger_elo}** {challenger_tier}\n"
+                f"• {self.opponent.mention}: **{opponent_elo}** {opponent_tier}\n\n"
+                f"*Join the private server and fight! Staff will report the winner.*"
+            ),
+            color=0xe74c3c
+        )
+        embed.set_footer(text=f"Duel ID: {self.duel_id}")
+        
+        await duel_channel.send(
+            f"{self.challenger.mention} {self.opponent.mention}",
+            embed=embed,
+            view=DuelStaffControlView(self.duel_id, self.challenger, self.opponent)
+        )
+        
+        # Update original message
+        await interaction.message.edit(
+            content=f"✅ Duel accepted! Go to {duel_channel.mention}",
+            embed=None,
+            view=None
+        )
+    
+    @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.opponent.id:
+            return await interaction.response.send_message("❌ Only the challenged player can decline!", ephemeral=True)
+        
+        decline_duel(self.duel_id)
+        await interaction.response.edit_message(
+            content=f"❌ {self.opponent.display_name} declined the duel.",
+            embed=None,
+            view=None
+        )
+
+# Staff Control View for Duel Channel
+class DuelStaffControlView(discord.ui.View):
+    def __init__(self, duel_id, player1, player2):
+        super().__init__(timeout=None)
+        self.duel_id = duel_id
+        self.player1 = player1
+        self.player2 = player2
+        
+        # Add custom_id for persistence
+        self.player1_btn = discord.ui.Button(
+            label=f"{player1.display_name} Wins",
+            style=discord.ButtonStyle.success,
+            custom_id=f"duel_win_{duel_id}_p1",
+            row=0
+        )
+        self.player1_btn.callback = self.player1_wins
+        self.add_item(self.player1_btn)
+        
+        self.player2_btn = discord.ui.Button(
+            label=f"{player2.display_name} Wins",
+            style=discord.ButtonStyle.success,
+            custom_id=f"duel_win_{duel_id}_p2",
+            row=0
+        )
+        self.player2_btn.callback = self.player2_wins
+        self.add_item(self.player2_btn)
+    
+    async def player1_wins(self, interaction: discord.Interaction):
+        await self.report_winner(interaction, self.player1, self.player2)
+    
+    async def player2_wins(self, interaction: discord.Interaction):
+        await self.report_winner(interaction, self.player2, self.player1)
+    
+    async def report_winner(self, interaction: discord.Interaction, winner, loser):
+        # Check if staff
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Only staff can report duel results!", ephemeral=True)
+        
+        await interaction.response.defer()
+        
+        # Complete the duel
+        result = complete_duel(self.duel_id, winner.id, loser.id)
+        
+        if not result:
+            return await interaction.followup.send("❌ This duel has already been completed or doesn't exist.")
+        
+        winner_tier, _ = get_elo_tier(result["winner_new_elo"])
+        loser_tier, _ = get_elo_tier(result["loser_new_elo"])
+        
+        # Result embed
+        embed = discord.Embed(
+            title="🏆 DUEL COMPLETE 🏆",
+            description=f"**Winner:** {winner.mention}",
+            color=0x2ecc71
+        )
+        embed.add_field(
+            name=f"⬆️ {winner.display_name}",
+            value=f"**{result['winner_new_elo']}** (+{result['winner_change']})\n{winner_tier}",
+            inline=True
+        )
+        embed.add_field(
+            name=f"⬇️ {loser.display_name}",
+            value=f"**{result['loser_new_elo']}** ({result['loser_change']})\n{loser_tier}",
+            inline=True
+        )
+        embed.set_footer(text=f"Reported by {interaction.user.display_name}")
+        
+        await interaction.message.edit(embed=embed, view=None)
+        await interaction.followup.send(f"✅ Duel result recorded! This channel will be deleted in 30 seconds.")
+        
+        # Log to dashboard
+        await log_to_dashboard(
+            interaction.guild, "⚔️ DUEL", "Duel Completed",
+            f"**Winner:** {winner.mention} (+{result['winner_change']} → {result['winner_new_elo']})\n"
+            f"**Loser:** {loser.mention} ({result['loser_change']} → {result['loser_new_elo']})",
+            color=0x2ecc71,
+            fields={"Reported By": interaction.user.mention}
+        )
+        
+        # Delete channel after delay
+        await asyncio.sleep(30)
+        try:
+            await interaction.channel.delete()
+        except:
+            pass
+    
+    @discord.ui.button(label="Cancel Duel", style=discord.ButtonStyle.danger, emoji="🚫", row=1)
+    async def cancel_duel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Only staff can cancel duels!", ephemeral=True)
+        
+        decline_duel(self.duel_id)
+        
+        embed = discord.Embed(
+            title="🚫 DUEL CANCELLED",
+            description=f"This duel has been cancelled by {interaction.user.mention}.\n\nNo ELO changes.",
+            color=0xe74c3c
+        )
+        
+        await interaction.response.edit_message(embed=embed, view=None)
+        await interaction.followup.send("Channel will be deleted in 10 seconds.")
+        
+        await asyncio.sleep(10)
+        try:
+            await interaction.channel.delete()
+        except:
+            pass
+
+# ==========================================
+# UPDATED TOURNAMENT SYSTEM
+# ==========================================
+
+TOURNAMENTS_FILE = "tournaments.json"
+
+def load_tournaments():
+    try:
+        with open(TOURNAMENTS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"active": None, "history": []}
+
+def save_tournaments(data):
+    with open(TOURNAMENTS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def create_tournament(name, creator_id):
+    """Create a new tournament"""
+    data = load_tournaments()
+    
+    if data["active"]:
+        return None  # Tournament already active
+    
+    tournament = {
+        "id": f"tourney_{int(datetime.datetime.now().timestamp())}",
+        "name": name,
+        "creator": str(creator_id),
+        "participants": [],
+        "bracket": None,
+        "status": "signup",  # signup, active, complete
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "winner": None
+    }
+    
+    data["active"] = tournament
+    save_tournaments(data)
+    return tournament
+
+def join_tournament(user_id):
+    """Join the active tournament"""
+    data = load_tournaments()
+    
+    if not data["active"] or data["active"]["status"] != "signup":
+        return False
+    
+    uid = str(user_id)
+    if uid not in data["active"]["participants"]:
+        data["active"]["participants"].append(uid)
+        save_tournaments(data)
+        return True
+    return False
+
+def leave_tournament(user_id):
+    """Leave the active tournament"""
+    data = load_tournaments()
+    
+    if not data["active"] or data["active"]["status"] != "signup":
+        return False
+    
+    uid = str(user_id)
+    if uid in data["active"]["participants"]:
+        data["active"]["participants"].remove(uid)
+        save_tournaments(data)
+        return True
+    return False
+
+def start_tournament():
+    """Start the tournament and generate bracket"""
+    data = load_tournaments()
+    
+    if not data["active"] or data["active"]["status"] != "signup":
+        return None
+    
+    if len(data["active"]["participants"]) < 2:
+        return None
+    
+    # Generate bracket
+    participants = data["active"]["participants"].copy()
+    random.shuffle(participants)
+    
+    # Pad to power of 2
+    import math
+    size = 2 ** math.ceil(math.log2(len(participants)))
+    while len(participants) < size:
+        participants.append(None)  # BYE
+    
+    # Create bracket structure
+    bracket = {
+        "rounds": [],
+        "current_round": 0
+    }
+    
+    # First round
+    round1 = []
+    for i in range(0, len(participants), 2):
+        match = {
+            "id": f"m{len(round1)+1}",
+            "player1": participants[i],
+            "player2": participants[i+1],
+            "winner": None
+        }
+        # Auto-advance BYEs
+        if match["player1"] is None:
+            match["winner"] = match["player2"]
+        elif match["player2"] is None:
+            match["winner"] = match["player1"]
+        round1.append(match)
+    
+    bracket["rounds"].append(round1)
+    
+    # Create empty subsequent rounds
+    num_rounds = int(math.log2(size))
+    matches_in_round = len(round1) // 2
+    
+    for r in range(1, num_rounds):
+        round_matches = []
+        for i in range(matches_in_round):
+            round_matches.append({
+                "id": f"r{r+1}m{i+1}",
+                "player1": None,
+                "player2": None,
+                "winner": None
+            })
+        bracket["rounds"].append(round_matches)
+        matches_in_round = max(1, matches_in_round // 2)
+    
+    data["active"]["bracket"] = bracket
+    data["active"]["status"] = "active"
+    save_tournaments(data)
+    
+    return data["active"]
+
+def report_tournament_match(match_id, winner_id):
+    """Report a tournament match result"""
+    data = load_tournaments()
+    
+    if not data["active"] or data["active"]["status"] != "active":
+        return None
+    
+    bracket = data["active"]["bracket"]
+    winner_uid = str(winner_id)
+    
+    # Find the match
+    for round_idx, round_matches in enumerate(bracket["rounds"]):
+        for match in round_matches:
+            if match["id"] == match_id:
+                if winner_uid not in [match["player1"], match["player2"]]:
+                    return None
+                
+                match["winner"] = winner_uid
+                
+                # Advance winner to next round
+                if round_idx < len(bracket["rounds"]) - 1:
+                    next_round = bracket["rounds"][round_idx + 1]
+                    match_idx = round_matches.index(match)
+                    next_match_idx = match_idx // 2
+                    
+                    if match_idx % 2 == 0:
+                        next_round[next_match_idx]["player1"] = winner_uid
+                    else:
+                        next_round[next_match_idx]["player2"] = winner_uid
+                    
+                    # Check for auto-advance (BYE)
+                    next_match = next_round[next_match_idx]
+                    if next_match["player1"] and next_match["player2"] is None:
+                        next_match["winner"] = next_match["player1"]
+                    elif next_match["player2"] and next_match["player1"] is None:
+                        next_match["winner"] = next_match["player2"]
+                else:
+                    # Final match - tournament complete
+                    data["active"]["winner"] = winner_uid
+                    data["active"]["status"] = "complete"
+                
+                save_tournaments(data)
+                return match
+    
+    return None
+
+def end_tournament():
+    """End the tournament and archive it"""
+    data = load_tournaments()
+    
+    if data["active"]:
+        data["active"]["ended_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        data["history"].append(data["active"])
+        data["active"] = None
+        
+        # Keep only last 20 tournaments
+        if len(data["history"]) > 20:
+            data["history"] = data["history"][-20:]
+        
+        save_tournaments(data)
+        return True
+    return False
+
+def get_active_tournament():
+    """Get the active tournament"""
+    data = load_tournaments()
+    return data["active"]
+
+# Tournament Panel View
+class TournamentPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="⚔️", custom_id="tournament_join")
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = get_active_tournament()
+        
+        if not tournament:
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        if tournament["status"] != "signup":
+            return await interaction.response.send_message("❌ Signups are closed!", ephemeral=True)
+        
+        if str(interaction.user.id) in tournament["participants"]:
+            return await interaction.response.send_message("❌ You're already signed up!", ephemeral=True)
+        
+        if join_tournament(interaction.user.id):
+            await interaction.response.send_message(f"✅ You joined **{tournament['name']}**!", ephemeral=True)
+            
+            # Update the panel
+            await self.update_panel(interaction.message)
+        else:
+            await interaction.response.send_message("❌ Failed to join!", ephemeral=True)
+    
+    @discord.ui.button(label="Leave", style=discord.ButtonStyle.secondary, emoji="🚪", custom_id="tournament_leave")
+    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = get_active_tournament()
+        
+        if not tournament or tournament["status"] != "signup":
+            return await interaction.response.send_message("❌ Cannot leave at this time!", ephemeral=True)
+        
+        if leave_tournament(interaction.user.id):
+            await interaction.response.send_message("✅ You left the tournament.", ephemeral=True)
+            await self.update_panel(interaction.message)
+        else:
+            await interaction.response.send_message("❌ You're not in the tournament!", ephemeral=True)
+    
+    @discord.ui.button(label="View Bracket", style=discord.ButtonStyle.primary, emoji="📊", custom_id="tournament_bracket")
+    async def bracket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = get_active_tournament()
+        
+        if not tournament:
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        if tournament["status"] == "signup":
+            # Show participants
+            participants = tournament["participants"]
+            if not participants:
+                desc = "No participants yet!"
+            else:
+                names = []
+                for uid in participants[:20]:
+                    member = interaction.guild.get_member(int(uid))
+                    names.append(member.display_name if member else f"User {uid[:8]}")
+                desc = "\n".join([f"• {name}" for name in names])
+                if len(participants) > 20:
+                    desc += f"\n...and {len(participants) - 20} more"
+            
+            embed = discord.Embed(
+                title=f"📋 {tournament['name']} - Participants ({len(participants)})",
+                description=desc,
+                color=0x3498db
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            # Show bracket
+            embed = await self.create_bracket_embed(tournament, interaction.guild)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Staff: Manage", style=discord.ButtonStyle.danger, emoji="⚙️", custom_id="tournament_manage", row=1)
+    async def manage(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        tournament = get_active_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        await interaction.response.send_message(
+            "**Tournament Management**",
+            view=TournamentManageStaffView(interaction.message),
+            ephemeral=True
+        )
+    
+    async def update_panel(self, message):
+        """Update the tournament panel embed"""
+        tournament = get_active_tournament()
+        
+        if not tournament:
+            return
+        
+        participant_count = len(tournament["participants"])
+        status_text = {
+            "signup": "🟢 Signups Open",
+            "active": "🔴 In Progress",
+            "complete": "🏆 Complete"
+        }.get(tournament["status"], "Unknown")
+        
+        embed = discord.Embed(
+            title=f"🏆 {tournament['name']}",
+            description=(
+                f"**Status:** {status_text}\n"
+                f"**Participants:** {participant_count}\n\n"
+                f"Click **Join Tournament** to participate!"
+            ),
+            color=0xFFD700
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • Tournament System")
+        
+        try:
+            await message.edit(embed=embed)
+        except:
+            pass
+    
+    async def create_bracket_embed(self, tournament, guild):
+        """Create a bracket embed"""
+        bracket = tournament.get("bracket")
+        if not bracket:
+            return discord.Embed(title="No bracket yet", color=0x3498db)
+        
+        embed = discord.Embed(
+            title=f"📊 {tournament['name']} - Bracket",
+            color=0xFFD700
+        )
+        
+        for round_idx, round_matches in enumerate(bracket["rounds"]):
+            round_name = ["Round 1", "Quarter Finals", "Semi Finals", "Finals"][min(round_idx, 3)]
+            if round_idx >= len(bracket["rounds"]) - 1:
+                round_name = "Finals"
+            
+            matches_text = ""
+            for match in round_matches:
+                p1 = guild.get_member(int(match["player1"])).display_name if match["player1"] else "BYE"
+                p2 = guild.get_member(int(match["player2"])).display_name if match["player2"] else "BYE"
+                
+                if match["winner"]:
+                    winner = guild.get_member(int(match["winner"]))
+                    winner_name = winner.display_name if winner else "Unknown"
+                    matches_text += f"~~{p1}~~ vs ~~{p2}~~ → **{winner_name}**\n"
+                else:
+                    matches_text += f"{p1} vs {p2}\n"
+            
+            embed.add_field(name=round_name, value=matches_text or "TBD", inline=False)
+        
+        if tournament["winner"]:
+            winner = guild.get_member(int(tournament["winner"]))
+            embed.add_field(name="🏆 CHAMPION", value=winner.mention if winner else "Unknown", inline=False)
+        
+        return embed
+
+# Staff Management View
+class TournamentManageStaffView(discord.ui.View):
+    def __init__(self, panel_message):
+        super().__init__(timeout=300)
+        self.panel_message = panel_message
+    
+    @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.success, emoji="▶️")
+    async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = get_active_tournament()
+        
+        if not tournament:
+            return await interaction.response.send_message("❌ No tournament!", ephemeral=True)
+        
+        if tournament["status"] != "signup":
+            return await interaction.response.send_message("❌ Already started!", ephemeral=True)
+        
+        if len(tournament["participants"]) < 2:
+            return await interaction.response.send_message("❌ Need at least 2 participants!", ephemeral=True)
+        
+        result = start_tournament()
+        if result:
+            await interaction.response.send_message("✅ Tournament started! Bracket generated.", ephemeral=True)
+            
+            # Update panel
+            tournament = get_active_tournament()
+            embed = discord.Embed(
+                title=f"🏆 {tournament['name']}",
+                description=f"**Status:** 🔴 In Progress\n**Participants:** {len(tournament['participants'])}",
+                color=0xFFD700
+            )
+            embed.set_footer(text="✝ The Fallen ✝ • Tournament System")
+            
+            try:
+                await self.panel_message.edit(embed=embed)
+            except:
+                pass
+        else:
+            await interaction.response.send_message("❌ Failed to start!", ephemeral=True)
+    
+    @discord.ui.button(label="Report Match", style=discord.ButtonStyle.primary, emoji="📝")
+    async def report(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = get_active_tournament()
+        
+        if not tournament or tournament["status"] != "active":
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        # Show match selection modal
+        await interaction.response.send_modal(TournamentReportModal())
+    
+    @discord.ui.button(label="End Tournament", style=discord.ButtonStyle.danger, emoji="🛑")
+    async def end(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if end_tournament():
+            await interaction.response.send_message("✅ Tournament ended!", ephemeral=True)
+            
+            try:
+                embed = discord.Embed(
+                    title="🏆 Tournament Ended",
+                    description="No active tournament. Stay tuned for the next one!",
+                    color=0x95a5a6
+                )
+                await self.panel_message.edit(embed=embed, view=None)
+            except:
+                pass
+        else:
+            await interaction.response.send_message("❌ No tournament to end!", ephemeral=True)
+
+class TournamentReportModal(discord.ui.Modal, title="Report Tournament Match"):
+    match_id = discord.ui.TextInput(
+        label="Match ID",
+        placeholder="e.g., m1, r2m1",
+        required=True,
+        max_length=20
+    )
+    winner_id = discord.ui.TextInput(
+        label="Winner User ID",
+        placeholder="Right-click user > Copy ID",
+        required=True,
+        max_length=30
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            winner = int(self.winner_id.value)
+            result = report_tournament_match(self.match_id.value, winner)
+            
+            if result:
+                member = interaction.guild.get_member(winner)
+                await interaction.response.send_message(
+                    f"✅ Match **{self.match_id.value}** reported!\n"
+                    f"Winner: {member.mention if member else winner}",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message("❌ Invalid match or winner!", ephemeral=True)
+        except:
+            await interaction.response.send_message("❌ Invalid input!", ephemeral=True)
+
+# ==========================================
 # INACTIVITY STRIKE SYSTEM
 # ==========================================
 
 INACTIVITY_FILE = "inactivity_data.json"
-INACTIVITY_CHECK_DAYS = 7  # Days of inactivity before strike
+INACTIVITY_CHECK_DAYS = 3  # Days of inactivity before strike
 MAX_INACTIVITY_STRIKES = 5  # Strikes before kick
 
 # Rank demotion order (highest to lowest) - Stage 0 is highest
@@ -2512,15 +3329,22 @@ async def run_inactivity_check(guild):
         
         results["checked"] += 1
         
-        result = await check_member_inactivity(member, guild)
-        if result:
-            results["strikes_given"] += 1
-            results["details"].append(result)
-            
-            if result["action"] == "demoted":
-                results["demotions"] += 1
-            elif result["action"] == "kicked":
-                results["kicks"] += 1
+        try:
+            result = await check_member_inactivity(member, guild)
+            if result:
+                results["strikes_given"] += 1
+                results["details"].append(result)
+                
+                if result["action"] == "demoted":
+                    results["demotions"] += 1
+                elif result["action"] == "kicked":
+                    results["kicks"] += 1
+                
+                # Add delay between actions to avoid rate limits
+                await asyncio.sleep(1.5)
+        except Exception as e:
+            print(f"Error checking {member}: {e}")
+            continue
     
     # Update last check time
     data = load_inactivity_data()
@@ -3227,12 +4051,12 @@ class HelpSelect(discord.ui.Select):
         options = [
             discord.SelectOption(label="Member", emoji="👤", description="Basic commands"),
             discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
-            discord.SelectOption(label="Achievements", emoji="🏆", description="Achievements & rewards"),
+            discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
+            discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
+            discord.SelectOption(label="Achievements", emoji="🎖️", description="Achievements & rewards"),
             discord.SelectOption(label="Economy", emoji="💰", description="Coins & rewards"),
             discord.SelectOption(label="Tickets", emoji="🎫", description="Support tickets"),
             discord.SelectOption(label="Raids & Wars", emoji="🏴‍☠️", description="Clan battles"),
-            discord.SelectOption(label="Training", emoji="📚", description="Events & tryouts"),
-            discord.SelectOption(label="Applications", emoji="📋", description="Staff applications"),
             discord.SelectOption(label="Staff", emoji="🛡️", description="Moderation"),
             discord.SelectOption(label="Admin", emoji="⚙️", description="Setup & management"),
         ]
@@ -3245,8 +4069,7 @@ class HelpSelect(discord.ui.Select):
             e.title="👤 Member Commands"
             e.description=(
                 "**🔗 Verification**\n"
-                "`/verify` - Verify with Roblox\n"
-                "`/link_roblox` - Re-verify with different account\n\n"
+                "`/verify` - Verify with Roblox\n\n"
                 "**📊 Quick Stats**\n"
                 "`/level` - Check your level card\n"
                 "`/rank` - View your rank card\n"
@@ -3262,35 +4085,63 @@ class HelpSelect(discord.ui.Select):
                 "**🖼️ Visual Cards**\n"
                 "`/profile` - Full profile card with all stats\n"
                 "`/rank` - Rank card with XP bar\n"
-                "`/level` - Level card\n"
-                "`/activity` - Activity graph\n\n"
+                "`/level` - Level card\n\n"
                 "**📈 Statistics**\n"
                 "`/mystats` - Detailed stats breakdown\n"
-                "`/compare @user` - Compare with someone\n"
                 "`/leaderboard` - XP leaderboard\n"
-                "`/topactive` - Most active members\n"
+                "`/voicetop` - Voice time leaderboard\n"
                 "`/serverstats` - Server statistics"
+            )
+        
+        elif self.values[0] == "Duels & ELO":
+            e.title="⚔️ Duels & ELO System"
+            e.description=(
+                "**⚔️ Duel Commands**\n"
+                "`/duel @user` - Challenge to 1v1 duel\n"
+                "`/elo` - Check your ELO rating\n"
+                "`/elo @user` - Check someone's ELO\n"
+                "`/elo_leaderboard` - Top ranked players\n"
+                "`/duel_history` - View your duel history\n\n"
+                "**🏅 ELO Ranks**\n"
+                "🏆 Grandmaster (2000+)\n"
+                "💎 Diamond (1800+)\n"
+                "🥇 Platinum (1600+)\n"
+                "🥈 Gold (1400+)\n"
+                "🥉 Silver (1200+)\n"
+                "⚔️ Bronze (1000+)\n\n"
+                "*Win duels to climb the ranks!*"
+            )
+        
+        elif self.values[0] == "Tournaments":
+            e.title="🏆 Tournament System"
+            e.description=(
+                "**👤 Member Commands**\n"
+                "• Click **Join Tournament** on panel\n"
+                "• Click **View Bracket** to see matches\n"
+                "• Click **Leave** to withdraw\n\n"
+                "**🛡️ Staff Commands**\n"
+                "• Click **Staff: Manage** on panel\n"
+                "• **Start Tournament** - Begin bracket\n"
+                "• **Report Match** - Log winner\n"
+                "• **End Tournament** - Cancel/finish\n\n"
+                "**⚙️ Admin Commands**\n"
+                "`/tournament_create <name>` - Create new\n"
+                "`/tournament_panel` - Post panel\n"
+                "`/tournament_end confirm` - End tournament"
             )
             
         elif self.values[0] == "Achievements":
-            e.title="🏆 Achievements"
+            e.title="🎖️ Achievements"
             e.description=(
                 "**📜 Commands**\n"
                 "`/achievements` - View all achievements\n\n"
                 "**🎯 How to Earn**\n"
-                "• Level up to unlock level achievements\n"
-                "• Win matches for combat achievements\n"
+                "• Level up to unlock level badges\n"
+                "• Win duels for combat achievements\n"
                 "• Participate in raids for raider badges\n"
-                "• Maintain daily streaks for streak awards\n"
+                "• Maintain daily streaks\n"
                 "• Earn coins for wealth achievements\n"
-                "• Verify your Roblox for verified badge\n\n"
-                "**🏅 Categories**\n"
-                "• Messaging milestones\n"
-                "• Level milestones\n"
-                "• Combat victories\n"
-                "• Raid participation\n"
-                "• Wealth accumulation\n"
-                "• Daily streaks"
+                "• Verify your Roblox account"
             )
             
         elif self.values[0] == "Economy": 
@@ -3301,8 +4152,7 @@ class HelpSelect(discord.ui.Select):
                 "• Join voice channels\n"
                 "• Claim daily rewards\n"
                 "• Level up milestones\n"
-                "• Attend trainings\n"
-                "• Win raids\n\n"
+                "• Win raids & duels\n\n"
                 "**📜 Commands**\n"
                 "`/fcoins` - Check balance\n"
                 "`/daily` - Claim daily (streak bonus!)\n\n"
@@ -3329,63 +4179,30 @@ class HelpSelect(discord.ui.Select):
                 "**👤 Member Commands**\n"
                 "`/raid_lb` - Raid leaderboard\n"
                 "`/raid_history` - View raid history\n"
-                "`/wars` - View all clan wars\n"
-                "`/war_record <clan>` - Record vs clan\n\n"
+                "`/wars` - View all clan wars\n\n"
                 "**🛡️ Staff Commands**\n"
                 "`/raid_call <target> <time>` - Call raid\n"
                 "`/raid_log <win/loss> @users` - Log result\n"
                 "`/war_declare <clan>` - Declare war\n"
-                "`/war_result <clan> <win/loss>` - Log war\n"
-                "`/scrim <opponent> <time>` - Schedule scrim"
-            )
-            
-        elif self.values[0] == "Training":
-            e.title="📚 Training & Tryouts"
-            e.description=(
-                "**👤 Member Commands**\n"
-                "`/schedule` - View upcoming events\n\n"
-                "**🛡️ Staff Commands**\n"
-                "`/schedule_training <type> <time>` - Schedule\n"
-                "`/training_log @users` - Log attendance\n"
-                "`/schedule_tryout <type> <time>` - Schedule tryout\n"
-                "`/tryout_result @user <pass/fail>` - Log result"
-            )
-            
-        elif self.values[0] == "Applications":
-            e.title="📋 Applications"
-            e.description=(
-                "**📝 Available Positions**\n"
-                "🎯 **Tryout Host** - Host tryouts\n"
-                "🛡️ **Moderator** - Moderate server\n"
-                "📚 **Training Host** - Host trainings\n\n"
-                "**📜 Commands**\n"
-                "`/app_status` - Check your application\n\n"
-                "**✅ Requirements**\n"
-                "• Minimum level\n"
-                "• Days in server\n"
-                "• No warnings\n"
-                "• Verified status\n"
-                "• Cooldown period"
+                "`/war_result <clan> <win/loss>` - Log war"
             )
             
         elif self.values[0] == "Staff": 
             e.title="🛡️ Staff Commands"
             e.description=(
-                "**📊 XP & Levels**\n"
+                "**📊 XP & Economy**\n"
                 "`/addxp @user amount` - Add XP\n"
-                "`/removexp @user amount` - Remove XP\n"
-                "`/checklevel @user` - View stats\n\n"
-                "**💰 Economy**\n"
                 "`/addfcoins @user amount` - Add coins\n"
-                "`/removefcoins @user amount` - Remove\n\n"
+                "`/checklevel @user` - View stats\n\n"
                 "**⚠️ Inactivity System**\n"
-                "`/inactivity_check` - Run check on all ranked\n"
+                "`/inactivity_check` - Run check on ranked\n"
                 "`/inactivity_strikes @user` - View strikes\n"
                 "`/add_inactivity_strike @user` - Add strike\n"
-                "`/remove_inactivity_strike @user` - Remove\n"
                 "`/inactive_list` - All striked members\n\n"
+                "**⚔️ ELO Admin**\n"
+                "`/elo_reset confirm` - Reset all ELO\n\n"
                 "**🔨 Moderation**\n"
-                "`/warn @user [reason]` - Warn\n"
+                "`/warn @user [reason]` - Warn user\n"
                 "`/warnings @user` - View warnings"
             )
             
@@ -3396,15 +4213,11 @@ class HelpSelect(discord.ui.Select):
                 "`/setup_verify` - Verification panel\n"
                 "`/setup_tickets` - Tickets panel\n"
                 "`/setup_shop` - Shop panel\n"
-                "`/setup_roster` - Clan roster\n"
-                "`/setup_logs` - Logging dashboard\n"
-                "`/apply_panel` - Applications\n\n"
+                "`/tournament_create <name>` - Tournament\n"
+                "`/setup_logs` - Logging dashboard\n\n"
                 "**⚠️ Inactivity Admin**\n"
-                "`/clear_inactivity_strikes @user` - Clear all\n"
-                "`/set_inactivity_days [days]` - Set threshold\n\n"
-                "**🔧 Management**\n"
-                "`/roster_add @user name pos` - Add to roster\n"
-                "`/roster_remove @user` - Remove\n\n"
+                "`/clear_inactivity_strikes @user` - Clear\n"
+                "`/set_inactivity_days [days]` - Threshold\n\n"
                 "**🔄 Resets**\n"
                 "`/reset_weekly` - Reset weekly XP\n"
                 "`/reset_monthly` - Reset monthly XP\n"
@@ -4970,6 +5783,8 @@ class PersistentBot(commands.Bot):
                         add_xp_to_user(member.id, xp)
                         # Track voice time (in minutes)
                         add_user_stat(member.id, 'voice_time', 2)  # 2 minutes now
+                        # Update last_active for inactivity tracking
+                        update_user_data(member.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
                         await check_level_up(member.id, guild)
                         await asyncio.sleep(0.1)  # Small delay between users
         except Exception as e:
@@ -5105,6 +5920,10 @@ async def on_message(message):
     if not message.author.bot and message.guild:
         xp = random.randint(*XP_TEXT_RANGE)
         add_xp_to_user(message.author.id, xp)
+        
+        # Update last_active timestamp for inactivity tracking
+        update_user_data(message.author.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
+        
         await check_level_up(message.author.id, message.guild)
     await bot.process_commands(message)
 
@@ -5113,6 +5932,10 @@ async def on_reaction_add(reaction, user):
     if not user.bot and reaction.message.guild:
         xp = random.randint(*XP_REACTION_RANGE)
         add_xp_to_user(user.id, xp)
+        
+        # Update last_active timestamp for inactivity tracking
+        update_user_data(user.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
+        
         await check_level_up(user.id, reaction.message.guild)
 
 # ============================================
@@ -6337,39 +7160,6 @@ async def top10_remove(ctx, position: int):
     await ctx.send(f"✅ Top 10 position **{position}** cleared")
     await log_action(ctx.guild, "📝 Top 10 Updated", f"Position {position} cleared by {ctx.author.mention}", 0xF1C40F)
 
-@bot.hybrid_command(name="inactive_check", description="Admin: Check inactive members")
-@commands.has_permissions(administrator=True)
-async def inactive_check(ctx, days: int = 7):
-    """List members inactive for X days"""
-    data = load_data()
-    now = datetime.datetime.now(datetime.timezone.utc)
-    inactive = []
-    
-    for uid, ud in data["users"].items():
-        last = ud.get("last_active")
-        if last:
-            try:
-                last_dt = datetime.datetime.fromisoformat(last)
-                if last_dt.tzinfo is None:
-                    last_dt = last_dt.replace(tzinfo=datetime.timezone.utc)
-                diff = (now - last_dt).days
-                if diff >= days:
-                    m = ctx.guild.get_member(int(uid))
-                    if m:
-                        inactive.append((m, diff))
-            except:
-                pass
-    
-    if not inactive:
-        return await ctx.send(f"✅ No members inactive for {days}+ days!")
-    
-    inactive.sort(key=lambda x: -x[1])
-    embed = discord.Embed(title=f"😴 Inactive Members ({days}+ days)", color=0xFFA500)
-    embed.description = "\n".join([f"• {m.mention} - {d} days" for m, d in inactive[:20]])
-    if len(inactive) > 20:
-        embed.set_footer(text=f"...and {len(inactive) - 20} more")
-    await ctx.send(embed=embed)
-
 @bot.hybrid_command(name="reset_weekly", description="Admin: Reset weekly XP")
 @commands.has_permissions(administrator=True)
 async def reset_weekly(ctx):
@@ -6824,264 +7614,237 @@ async def raid_history_cmd(ctx):
 # ==========================================
 # TOURNAMENT BRACKET COMMANDS
 # ==========================================
+# DUEL & ELO COMMANDS
+# ==========================================
+
+class DuelModal(discord.ui.Modal, title="Challenge to Duel"):
+    ps_link = discord.ui.TextInput(
+        label="Roblox Private Server Link",
+        placeholder="https://www.roblox.com/games/...",
+        required=True,
+        style=discord.TextStyle.short
+    )
+    
+    def __init__(self, opponent):
+        super().__init__()
+        self.opponent = opponent
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validate link
+        link = self.ps_link.value
+        if "roblox.com" not in link.lower():
+            return await interaction.response.send_message("❌ Please provide a valid Roblox private server link!", ephemeral=True)
+        
+        # Check cooldowns (anti-spam)
+        # Create the duel
+        duel_id = create_pending_duel(interaction.user.id, self.opponent.id, link)
+        
+        challenger_elo = get_elo(interaction.user.id)
+        opponent_elo = get_elo(self.opponent.id)
+        challenger_tier, _ = get_elo_tier(challenger_elo)
+        opponent_tier, _ = get_elo_tier(opponent_elo)
+        
+        embed = discord.Embed(
+            title="⚔️ DUEL CHALLENGE ⚔️",
+            description=(
+                f"**{interaction.user.display_name}** challenges **{self.opponent.display_name}**!\n\n"
+                f"**ELO Ratings:**\n"
+                f"• {interaction.user.mention}: **{challenger_elo}** {challenger_tier}\n"
+                f"• {self.opponent.mention}: **{opponent_elo}** {opponent_tier}\n\n"
+                f"🎮 **Private Server:** [Click Here]({link})\n\n"
+                f"{self.opponent.mention}, do you accept this challenge?"
+            ),
+            color=0xe74c3c
+        )
+        embed.set_footer(text=f"Duel ID: {duel_id} • Expires in 5 minutes")
+        
+        await interaction.response.send_message(
+            content=self.opponent.mention,
+            embed=embed,
+            view=DuelRequestView(duel_id, interaction.user, self.opponent, link)
+        )
+
+@bot.hybrid_command(name="duel", description="Challenge another player to a 1v1 duel")
+@commands.cooldown(1, 60, commands.BucketType.user)  # 1 duel request per minute
+async def duel_cmd(ctx, opponent: discord.Member):
+    """Challenge another player to a duel"""
+    if opponent.bot:
+        return await ctx.send("❌ You can't duel a bot!", ephemeral=True)
+    
+    if opponent.id == ctx.author.id:
+        return await ctx.send("❌ You can't duel yourself!", ephemeral=True)
+    
+    # Show modal for PS link
+    await ctx.interaction.response.send_modal(DuelModal(opponent))
+
+@bot.hybrid_command(name="elo", description="Check ELO rating")
+@commands.cooldown(1, 5, commands.BucketType.user)
+async def elo_cmd(ctx, member: discord.Member = None):
+    """Check your or another player's ELO rating"""
+    target = member or ctx.author
+    
+    elo = get_elo(target.id)
+    tier, color = get_elo_tier(elo)
+    
+    # Get win/loss from history
+    history = get_duel_history(target.id, 100)
+    wins = sum(1 for d in history if d["winner"] == str(target.id))
+    losses = len(history) - wins
+    
+    embed = discord.Embed(
+        title=f"⚔️ {target.display_name}'s ELO",
+        color=discord.Color.from_rgb(*color)
+    )
+    embed.add_field(name="Rating", value=f"**{elo}**", inline=True)
+    embed.add_field(name="Rank", value=tier, inline=True)
+    embed.add_field(name="Record", value=f"{wins}W - {losses}L", inline=True)
+    embed.set_thumbnail(url=target.display_avatar.url)
+    
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="elo_leaderboard", description="View the ELO leaderboard")
+@commands.cooldown(1, 15, commands.BucketType.user)
+async def elo_leaderboard_cmd(ctx):
+    """View the top ELO players"""
+    top_players = get_elo_leaderboard(10)
+    
+    if not top_players:
+        return await ctx.send("❌ No ELO data yet! Challenge someone with `/duel`")
+    
+    embed = discord.Embed(
+        title="🏆 ELO Leaderboard",
+        color=0xFFD700
+    )
+    
+    desc = ""
+    for i, (uid, elo) in enumerate(top_players):
+        member = ctx.guild.get_member(int(uid))
+        name = member.display_name if member else f"User {uid[:8]}"
+        tier, _ = get_elo_tier(elo)
+        
+        medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
+        desc += f"{medal} **{name}** - {elo} {tier}\n"
+    
+    embed.description = desc
+    embed.set_footer(text="Challenge others with /duel to climb!")
+    
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="duel_history", description="View your duel history")
+@commands.cooldown(1, 10, commands.BucketType.user)
+async def duel_history_cmd(ctx, member: discord.Member = None):
+    """View duel history"""
+    target = member or ctx.author
+    
+    history = get_duel_history(target.id, 10)
+    
+    if not history:
+        return await ctx.send(f"❌ {target.display_name} has no duel history yet!")
+    
+    embed = discord.Embed(
+        title=f"⚔️ {target.display_name}'s Duel History",
+        color=0x3498db
+    )
+    
+    desc = ""
+    for duel in history:
+        won = duel["winner"] == str(target.id)
+        opponent_id = duel["loser"] if won else duel["winner"]
+        opponent = ctx.guild.get_member(int(opponent_id))
+        opponent_name = opponent.display_name if opponent else f"User {opponent_id[:8]}"
+        
+        if won:
+            elo_change = f"+{duel['winner_elo_after'] - duel['winner_elo_before']}"
+            desc += f"✅ **Won** vs {opponent_name} ({elo_change})\n"
+        else:
+            elo_change = f"{duel['loser_elo_after'] - duel['loser_elo_before']}"
+            desc += f"❌ **Lost** vs {opponent_name} ({elo_change})\n"
+    
+    embed.description = desc
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="elo_reset", description="Admin: Reset all ELO ratings")
+@commands.has_permissions(administrator=True)
+async def elo_reset_cmd(ctx, confirm: str = None):
+    """Reset all ELO ratings"""
+    if confirm != "confirm":
+        return await ctx.send("⚠️ This will reset ALL ELO ratings! Use `/elo_reset confirm` to confirm.", ephemeral=True)
+    
+    data = load_duels_data()
+    data["elo"] = {}
+    save_duels_data(data)
+    
+    await ctx.send("✅ All ELO ratings have been reset!")
+
+# ==========================================
+# TOURNAMENT COMMANDS (Panel-based)
+# ==========================================
 
 @bot.hybrid_command(name="tournament_create", description="Admin: Create a new tournament")
 @commands.has_permissions(administrator=True)
-async def tournament_create(ctx, name: str):
-    """Create a new tournament with signup phase"""
-    tournaments = load_tournaments()
+async def tournament_create_cmd(ctx, name: str, channel: discord.TextChannel = None):
+    """Create a new tournament with signup panel"""
+    tournament = create_tournament(name, ctx.author.id)
     
-    if tournaments.get("active"):
-        return await ctx.send("❌ There's already an active tournament! Use `/tournament_end` first.", ephemeral=True)
+    if not tournament:
+        return await ctx.send("❌ There's already an active tournament! End it first.", ephemeral=True)
     
-    tournaments["active"] = {
-        "name": name,
-        "status": "signup",
-        "participants": [],
-        "bracket": None,
-        "created_by": ctx.author.id,
-        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-    }
-    save_tournaments(tournaments)
+    target_channel = channel or ctx.channel
     
     embed = discord.Embed(
         title=f"🏆 {name}",
         description=(
-            "**Tournament Created!**\n\n"
-            "Players can now join with `/tournament_join`\n\n"
-            "**Commands:**\n"
-            "`/tournament_join` - Join the tournament\n"
-            "`/tournament_leave` - Leave the tournament\n"
-            "`/tournament_start` - Start the tournament (Admin)\n"
-            "`/tournament_bracket` - View bracket"
+            f"**Status:** 🟢 Signups Open\n"
+            f"**Participants:** 0\n\n"
+            f"Click **Join Tournament** to participate!"
         ),
         color=0xFFD700
     )
-    embed.set_footer(text="Signups are now open!")
-    await ctx.send(embed=embed)
+    embed.set_footer(text="✝ The Fallen ✝ • Tournament System")
+    
+    await target_channel.send(embed=embed, view=TournamentPanelView())
+    await ctx.send(f"✅ Tournament **{name}** created in {target_channel.mention}!", ephemeral=True)
 
-@bot.hybrid_command(name="tournament_join", description="Join the active tournament")
-async def tournament_join(ctx):
-    """Join the active tournament"""
-    tournaments = load_tournaments()
-    
-    if not tournaments.get("active"):
-        return await ctx.send("❌ No active tournament. Ask an admin to create one!", ephemeral=True)
-    
-    if tournaments["active"]["status"] != "signup":
-        return await ctx.send("❌ Tournament signups are closed!", ephemeral=True)
-    
-    user_id = ctx.author.id
-    if user_id in [p["id"] for p in tournaments["active"]["participants"]]:
-        return await ctx.send("❌ You're already signed up!", ephemeral=True)
-    
-    tournaments["active"]["participants"].append({
-        "id": user_id,
-        "name": ctx.author.display_name
-    })
-    save_tournaments(tournaments)
-    
-    count = len(tournaments["active"]["participants"])
-    await ctx.send(f"✅ **{ctx.author.display_name}** joined the tournament! ({count} participants)")
-
-@bot.hybrid_command(name="tournament_leave", description="Leave the active tournament")
-async def tournament_leave(ctx):
-    """Leave the active tournament"""
-    tournaments = load_tournaments()
-    
-    if not tournaments.get("active"):
-        return await ctx.send("❌ No active tournament.", ephemeral=True)
-    
-    if tournaments["active"]["status"] != "signup":
-        return await ctx.send("❌ Tournament has already started!", ephemeral=True)
-    
-    user_id = ctx.author.id
-    participants = tournaments["active"]["participants"]
-    
-    for i, p in enumerate(participants):
-        if p["id"] == user_id:
-            participants.pop(i)
-            save_tournaments(tournaments)
-            return await ctx.send(f"✅ **{ctx.author.display_name}** left the tournament.")
-    
-    await ctx.send("❌ You're not signed up!", ephemeral=True)
-
-@bot.hybrid_command(name="tournament_start", description="Admin: Start the tournament and generate bracket")
+@bot.hybrid_command(name="tournament_panel", description="Admin: Post tournament panel")
 @commands.has_permissions(administrator=True)
-async def tournament_start(ctx):
-    """Start the tournament and generate bracket"""
-    tournaments = load_tournaments()
+async def tournament_panel_cmd(ctx):
+    """Post the tournament panel"""
+    tournament = get_active_tournament()
     
-    if not tournaments.get("active"):
-        return await ctx.send("❌ No active tournament.", ephemeral=True)
+    if not tournament:
+        return await ctx.send("❌ No active tournament! Create one with `/tournament_create`", ephemeral=True)
     
-    if tournaments["active"]["status"] != "signup":
-        return await ctx.send("❌ Tournament already started!", ephemeral=True)
-    
-    participants = tournaments["active"]["participants"]
-    if len(participants) < 2:
-        return await ctx.send("❌ Need at least 2 participants!", ephemeral=True)
-    
-    # Generate bracket
-    bracket = create_bracket(participants)
-    tournaments["active"]["bracket"] = bracket
-    tournaments["active"]["status"] = "active"
-    save_tournaments(tournaments)
-    
-    # Generate bracket image
-    bracket_image = await create_bracket_image(tournaments["active"]["name"], bracket)
+    participant_count = len(tournament["participants"])
+    status_text = {
+        "signup": "🟢 Signups Open",
+        "active": "🔴 In Progress",
+        "complete": "🏆 Complete"
+    }.get(tournament["status"], "Unknown")
     
     embed = discord.Embed(
-        title=f"🏆 {tournaments['active']['name']} - STARTED!",
-        description=f"**{len(participants)} participants**\n\nUse `/tournament_bracket` to view the bracket\nUse `/tournament_report @winner @loser` to report matches",
+        title=f"🏆 {tournament['name']}",
+        description=(
+            f"**Status:** {status_text}\n"
+            f"**Participants:** {participant_count}\n\n"
+            f"Click **Join Tournament** to participate!"
+        ),
         color=0xFFD700
     )
+    embed.set_footer(text="✝ The Fallen ✝ • Tournament System")
     
-    if bracket_image:
-        file = discord.File(bracket_image, filename="bracket.png")
-        embed.set_image(url="attachment://bracket.png")
-        await ctx.send(file=file, embed=embed)
-    else:
-        await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="tournament_bracket", description="View the tournament bracket")
-async def tournament_bracket(ctx):
-    """View the current tournament bracket"""
-    tournaments = load_tournaments()
-    
-    if not tournaments.get("active"):
-        return await ctx.send("❌ No active tournament.", ephemeral=True)
-    
-    if not tournaments["active"].get("bracket"):
-        # Show signup list
-        participants = tournaments["active"]["participants"]
-        embed = discord.Embed(
-            title=f"🏆 {tournaments['active']['name']} - Signups",
-            description=f"**{len(participants)} participants signed up:**\n\n" + 
-                       "\n".join([f"• {p['name']}" for p in participants]) if participants else "No signups yet!",
-            color=0xFFD700
-        )
-        return await ctx.send(embed=embed)
-    
-    # Generate bracket image
-    bracket_image = await create_bracket_image(tournaments["active"]["name"], tournaments["active"]["bracket"])
-    
-    if bracket_image:
-        file = discord.File(bracket_image, filename="bracket.png")
-        embed = discord.Embed(title=f"🏆 {tournaments['active']['name']}", color=0xFFD700)
-        embed.set_image(url="attachment://bracket.png")
-        await ctx.send(file=file, embed=embed)
-    else:
-        # Fallback to text
-        embed = discord.Embed(
-            title=f"🏆 {tournaments['active']['name']}",
-            description="Bracket visualization unavailable. Use `/tournament_report` to report matches.",
-            color=0xFFD700
-        )
-        await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="tournament_report", description="Report a tournament match result")
-async def tournament_report(ctx, winner: discord.Member, loser: discord.Member, score: str = ""):
-    """Report a tournament match result"""
-    if not is_staff(ctx.author) and ctx.author.id not in [winner.id, loser.id]:
-        return await ctx.send("❌ Only match participants or staff can report!", ephemeral=True)
-    
-    tournaments = load_tournaments()
-    
-    if not tournaments.get("active") or tournaments["active"]["status"] != "active":
-        return await ctx.send("❌ No active tournament.", ephemeral=True)
-    
-    bracket = tournaments["active"]["bracket"]
-    if not bracket:
-        return await ctx.send("❌ Tournament bracket not generated.", ephemeral=True)
-    
-    # Find the match
-    found = False
-    for round_idx, round_matches in enumerate(bracket["rounds"]):
-        for match in round_matches:
-            p1 = match.get("player1") or {}
-            p2 = match.get("player2") or {}
-            
-            if match.get("winner"):
-                continue  # Already completed
-            
-            # Check if this is the right match
-            if (p1.get("id") == winner.id and p2.get("id") == loser.id) or \
-               (p1.get("id") == loser.id and p2.get("id") == winner.id):
-                # Record result
-                match["winner"] = {"id": winner.id, "name": winner.display_name}
-                match["score"] = score
-                
-                # Advance winner to next round
-                if round_idx < len(bracket["rounds"]) - 1:
-                    next_match_idx = match["id"] // 2
-                    next_match = bracket["rounds"][round_idx + 1][next_match_idx]
-                    if match["id"] % 2 == 0:
-                        next_match["player1"] = match["winner"]
-                    else:
-                        next_match["player2"] = match["winner"]
-                
-                found = True
-                break
-        if found:
-            break
-    
-    if not found:
-        return await ctx.send("❌ Match not found in bracket.", ephemeral=True)
-    
-    save_tournaments(tournaments)
-    
-    # Check if tournament is complete
-    final_match = bracket["rounds"][-1][0]
-    if final_match.get("winner"):
-        tournaments["active"]["status"] = "complete"
-        tournaments["active"]["winner"] = final_match["winner"]["id"]
-        
-        # Move to history
-        tournaments["history"].append(tournaments["active"])
-        tournaments["active"] = None
-        save_tournaments(tournaments)
-        
-        # Announce winner
-        embed = discord.Embed(
-            title="🏆 TOURNAMENT COMPLETE! 🏆",
-            description=f"**{final_match['winner']['name']}** is the champion!",
-            color=0xFFD700
-        )
-        bracket_image = await create_bracket_image(tournaments["history"][-1]["name"], bracket)
-        if bracket_image:
-            file = discord.File(bracket_image, filename="bracket.png")
-            embed.set_image(url="attachment://bracket.png")
-            await ctx.send(file=file, embed=embed)
-        else:
-            await ctx.send(embed=embed)
-    else:
-        await ctx.send(f"✅ Match recorded: **{winner.display_name}** defeated **{loser.display_name}** {score}")
-        
-        # Show updated bracket
-        bracket_image = await create_bracket_image(tournaments["active"]["name"], bracket)
-        if bracket_image:
-            file = discord.File(bracket_image, filename="bracket.png")
-            await ctx.send(file=file)
+    await ctx.send(embed=embed, view=TournamentPanelView())
 
 @bot.hybrid_command(name="tournament_end", description="Admin: End the current tournament")
 @commands.has_permissions(administrator=True)
-async def tournament_end(ctx, confirm: str = None):
+async def tournament_end_cmd(ctx, confirm: str = None):
     """End the current tournament"""
     if confirm != "confirm":
-        return await ctx.send("⚠️ This will end the tournament. Use `/tournament_end confirm` to confirm.", ephemeral=True)
+        return await ctx.send("⚠️ Use `/tournament_end confirm` to confirm.", ephemeral=True)
     
-    tournaments = load_tournaments()
-    
-    if not tournaments.get("active"):
-        return await ctx.send("❌ No active tournament.", ephemeral=True)
-    
-    name = tournaments["active"]["name"]
-    tournaments["history"].append(tournaments["active"])
-    tournaments["active"] = None
-    save_tournaments(tournaments)
-    
-    await ctx.send(f"✅ Tournament **{name}** has been ended.")
+    if end_tournament():
+        await ctx.send("✅ Tournament ended!")
+    else:
+        await ctx.send("❌ No active tournament!", ephemeral=True)
 
 # ==========================================
 # INACTIVITY COMMANDS
@@ -7089,10 +7852,12 @@ async def tournament_end(ctx, confirm: str = None):
 
 @bot.hybrid_command(name="inactivity_check", description="Staff: Run inactivity check on all ranked members")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+@commands.cooldown(1, 300, commands.BucketType.guild)  # Once per 5 minutes per server
 async def inactivity_check_cmd(ctx):
     """Run inactivity check and give strikes to inactive ranked members"""
     await ctx.defer()
     
+    # Add delay between each member check to avoid rate limits
     results = await run_inactivity_check(ctx.guild)
     
     embed = discord.Embed(
