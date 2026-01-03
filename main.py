@@ -89,25 +89,25 @@ MAX_COINS = 1000000
 
 # --- LEVELING SYSTEM CONFIG ---
 LEVEL_CONFIG = {
-    5: {"xp": 1500, "role": "Faint Emberling", "coins": 500},
-    10: {"xp": 4000, "role": "Initiate of Shadows", "coins": 1000},
-    20: {"xp": 12000, "role": "Abysswalk Student", "coins": 2000},
-    30: {"xp": 25000, "role": "Twilight Disciple", "coins": 3000},
-    40: {"xp": 45000, "role": "Duskforged Aspirant", "coins": 4000},
-    50: {"xp": 70000, "role": "Bearer of Abyssal Echo", "coins": 5000},
-    60: {"xp": 100000, "role": "Nightwoven Adept", "coins": 6000},
-    70: {"xp": 140000, "role": "Veilmarked Veteran", "coins": 7000},
-    80: {"xp": 190000, "role": "Shadowborn Ascendant", "coins": 8000},
-    100: {"xp": 300000, "role": "Abyssforged Warden", "coins": 15000},
-    120: {"xp": 450000, "role": "Eclipsed Oathbearer", "coins": 20000},
-    140: {"xp": 650000, "role": "Harbinger of Dusk", "coins": 30000},
-    160: {"xp": 900000, "role": "Ascended Dreadkeeper", "coins": 40000},
-    200: {"xp": 1500000, "role": "Eternal Shadow Sovereign", "coins": 100000},
+    5: {"xp": 250, "role": "Faint Emberling", "coins": 50},
+    10: {"xp": 750, "role": "Initiate of Shadows", "coins": 100},
+    20: {"xp": 2000, "role": "Abysswalk Student", "coins": 200},
+    30: {"xp": 4500, "role": "Twilight Disciple", "coins": 400},
+    40: {"xp": 8000, "role": "Duskforged Aspirant", "coins": 600},
+    50: {"xp": 13000, "role": "Bearer of Abyssal Echo", "coins": 1000},
+    60: {"xp": 20000, "role": "Nightwoven Adept", "coins": 1500},
+    70: {"xp": 30000, "role": "Veilmarked Veteran", "coins": 2000},
+    80: {"xp": 45000, "role": "Shadowborn Ascendant", "coins": 2500},
+    100: {"xp": 75000, "role": "Abyssforged Warden", "coins": 5000},
+    120: {"xp": 120000, "role": "Eclipsed Oathbearer", "coins": 7500},
+    140: {"xp": 180000, "role": "Harbinger of Dusk", "coins": 10000},
+    160: {"xp": 260000, "role": "Ascended Dreadkeeper", "coins": 15000},
+    200: {"xp": 400000, "role": "Eternal Shadow Sovereign", "coins": 50000},
 }
 
-XP_TEXT_RANGE = (1, 10) 
-XP_VOICE_RANGE = (10, 20) 
-XP_REACTION_RANGE = (1, 5) 
+XP_TEXT_RANGE = (5, 15)      # XP per message (increased)
+XP_VOICE_RANGE = (15, 30)    # XP per 2 minutes in voice (increased)
+XP_REACTION_RANGE = (2, 8)   # XP per reaction (increased) 
 COOLDOWN_SECONDS = 60 
 
 # --- SHOP CONFIG ---
