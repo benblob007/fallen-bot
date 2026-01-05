@@ -115,6 +115,155 @@ XP_REACTION_RANGE = (2, 8)   # XP per reaction
 XP_MESSAGE_COOLDOWN = 60     # 1 minute between message XP
 XP_REACTION_COOLDOWN = 30    # 30 seconds between reaction XP
 
+# ==========================================
+# RATE LIMIT PROTECTION
+# ==========================================
+# Discord API limits: 50 requests per second globally
+# We add delays and queuing to stay well under this
+
+API_CALL_DELAY = 0.5  # Seconds between API calls in bulk operations
+BULK_OPERATION_DELAY = 1.0  # Delay between bulk operations (role adds, kicks, etc.)
+MAX_BULK_ACTIONS_PER_MINUTE = 30  # Max bulk actions per minute
+
+# Track API calls for rate limiting
+api_call_tracker = {
+    "last_call": 0,
+    "calls_this_minute": 0,
+    "minute_start": 0
+}
+
+async def rate_limited_action(coro, delay=API_CALL_DELAY):
+    """Execute an action with rate limit protection"""
+    global api_call_tracker
+    
+    now = datetime.datetime.now().timestamp()
+    
+    # Reset counter every minute
+    if now - api_call_tracker["minute_start"] > 60:
+        api_call_tracker["calls_this_minute"] = 0
+        api_call_tracker["minute_start"] = now
+    
+    # Check if we're over the limit
+    if api_call_tracker["calls_this_minute"] >= MAX_BULK_ACTIONS_PER_MINUTE:
+        wait_time = 60 - (now - api_call_tracker["minute_start"])
+        if wait_time > 0:
+            await asyncio.sleep(wait_time)
+        api_call_tracker["calls_this_minute"] = 0
+        api_call_tracker["minute_start"] = datetime.datetime.now().timestamp()
+    
+    # Add delay since last call
+    time_since_last = now - api_call_tracker["last_call"]
+    if time_since_last < delay:
+        await asyncio.sleep(delay - time_since_last)
+    
+    # Execute the action
+    api_call_tracker["last_call"] = datetime.datetime.now().timestamp()
+    api_call_tracker["calls_this_minute"] += 1
+    
+    return await coro
+
+async def safe_add_role(member, role):
+    """Safely add a role with rate limit protection"""
+    try:
+        await rate_limited_action(member.add_roles(role))
+        return True
+    except discord.HTTPException as e:
+        if e.status == 429:  # Rate limited
+            retry_after = e.retry_after if hasattr(e, 'retry_after') else 5
+            print(f"Rate limited! Waiting {retry_after}s...")
+            await asyncio.sleep(retry_after)
+            try:
+                await member.add_roles(role)
+                return True
+            except:
+                return False
+        return False
+    except:
+        return False
+
+async def safe_remove_role(member, role):
+    """Safely remove a role with rate limit protection"""
+    try:
+        await rate_limited_action(member.remove_roles(role))
+        return True
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = e.retry_after if hasattr(e, 'retry_after') else 5
+            print(f"Rate limited! Waiting {retry_after}s...")
+            await asyncio.sleep(retry_after)
+            try:
+                await member.remove_roles(role)
+                return True
+            except:
+                return False
+        return False
+    except:
+        return False
+
+async def safe_send_message(channel, content=None, embed=None, view=None):
+    """Safely send a message with rate limit protection"""
+    try:
+        return await rate_limited_action(
+            channel.send(content=content, embed=embed, view=view),
+            delay=0.3
+        )
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = e.retry_after if hasattr(e, 'retry_after') else 5
+            await asyncio.sleep(retry_after)
+            try:
+                return await channel.send(content=content, embed=embed, view=view)
+            except:
+                return None
+        return None
+    except:
+        return None
+
+async def safe_kick(member, reason=None):
+    """Safely kick a member with rate limit protection"""
+    try:
+        await rate_limited_action(member.kick(reason=reason), delay=BULK_OPERATION_DELAY)
+        return True
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = e.retry_after if hasattr(e, 'retry_after') else 5
+            await asyncio.sleep(retry_after)
+            try:
+                await member.kick(reason=reason)
+                return True
+            except:
+                return False
+        return False
+    except:
+        return False
+
+async def safe_create_channel(guild, name, category=None, overwrites=None):
+    """Safely create a channel with rate limit protection"""
+    try:
+        return await rate_limited_action(
+            guild.create_text_channel(name, category=category, overwrites=overwrites),
+            delay=BULK_OPERATION_DELAY
+        )
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry_after = e.retry_after if hasattr(e, 'retry_after') else 5
+            await asyncio.sleep(retry_after)
+            try:
+                return await guild.create_text_channel(name, category=category, overwrites=overwrites)
+            except:
+                return None
+        return None
+    except:
+        return None
+
+async def safe_delete_channel(channel):
+    """Safely delete a channel with rate limit protection"""
+    try:
+        await rate_limited_action(channel.delete(), delay=BULK_OPERATION_DELAY)
+        return True
+    except:
+        return False
+
 # Store cooldowns in memory (user_id: last_xp_time)
 xp_cooldowns = {
     "message": {},
@@ -2471,85 +2620,110 @@ class DuelRequestView(discord.ui.View):
     
     @discord.ui.button(label="Accept Duel", style=discord.ButtonStyle.success, emoji="⚔️")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.opponent.id:
-            return await interaction.response.send_message("❌ Only the challenged player can accept!", ephemeral=True)
-        
-        await interaction.response.defer()
-        
-        # Create duel ticket channel
-        guild = interaction.guild
-        category = discord.utils.get(guild.categories, name="DUELS") or discord.utils.get(guild.categories, name="TICKETS")
-        
-        if not category:
-            # Create category if it doesn't exist
-            category = await guild.create_category("DUELS")
-        
-        # Create the channel
-        channel_name = f"duel-{self.challenger.display_name[:10]}-vs-{self.opponent.display_name[:10]}"
-        
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            self.challenger: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            self.opponent: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
-        }
-        
-        # Add staff roles
-        for role_name in HIGH_STAFF_ROLES + [STAFF_ROLE_NAME]:
-            role = discord.utils.get(guild.roles, name=role_name)
-            if role:
-                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
-        
-        duel_channel = await guild.create_text_channel(channel_name, category=category, overwrites=overwrites)
-        
-        # Accept the duel
-        accept_duel(self.duel_id, duel_channel.id)
-        
-        # Get ELO info
-        challenger_elo = get_elo(self.challenger.id)
-        opponent_elo = get_elo(self.opponent.id)
-        challenger_tier, _ = get_elo_tier(challenger_elo)
-        opponent_tier, _ = get_elo_tier(opponent_elo)
-        
-        # Send duel embed to channel
-        embed = discord.Embed(
-            title="⚔️ DUEL MATCH ⚔️",
-            description=(
-                f"**{self.challenger.display_name}** vs **{self.opponent.display_name}**\n\n"
-                f"🎮 **Private Server Link:**\n{self.ps_link}\n\n"
-                f"**ELO Ratings:**\n"
-                f"• {self.challenger.mention}: **{challenger_elo}** {challenger_tier}\n"
-                f"• {self.opponent.mention}: **{opponent_elo}** {opponent_tier}\n\n"
-                f"*Join the private server and fight! Staff will report the winner.*"
-            ),
-            color=0xe74c3c
-        )
-        embed.set_footer(text=f"Duel ID: {self.duel_id}")
-        
-        await duel_channel.send(
-            f"{self.challenger.mention} {self.opponent.mention}",
-            embed=embed,
-            view=DuelStaffControlView(self.duel_id, self.challenger, self.opponent)
-        )
-        
-        # Update original message
-        await interaction.message.edit(
-            content=f"✅ Duel accepted! Go to {duel_channel.mention}",
-            embed=None,
-            view=None
-        )
+        try:
+            if interaction.user.id != self.opponent.id:
+                return await interaction.response.send_message("❌ Only the challenged player can accept!", ephemeral=True)
+            
+            # Defer immediately to prevent timeout
+            await interaction.response.defer()
+            
+            guild = interaction.guild
+            
+            # Create duel ticket channel
+            category = discord.utils.get(guild.categories, name="DUELS") or discord.utils.get(guild.categories, name="TICKETS")
+            
+            if not category:
+                try:
+                    category = await guild.create_category("DUELS")
+                except:
+                    category = None
+            
+            # Create the channel with truncated names
+            c_name = self.challenger.display_name[:8].replace(" ", "-")
+            o_name = self.opponent.display_name[:8].replace(" ", "-")
+            channel_name = f"duel-{c_name}-vs-{o_name}"
+            
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                self.challenger: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+                self.opponent: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+                guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
+            }
+            
+            # Add staff roles
+            for role_name in HIGH_STAFF_ROLES + [STAFF_ROLE_NAME]:
+                role = discord.utils.get(guild.roles, name=role_name)
+                if role:
+                    overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+            
+            duel_channel = await guild.create_text_channel(
+                channel_name, 
+                category=category, 
+                overwrites=overwrites
+            )
+            
+            # Accept the duel
+            accept_duel(self.duel_id, duel_channel.id)
+            
+            # Get ELO info
+            challenger_elo = get_elo(self.challenger.id)
+            opponent_elo = get_elo(self.opponent.id)
+            challenger_tier, _ = get_elo_tier(challenger_elo)
+            opponent_tier, _ = get_elo_tier(opponent_elo)
+            
+            # Send duel embed to channel
+            embed = discord.Embed(
+                title="⚔️ DUEL MATCH ⚔️",
+                description=(
+                    f"**{self.challenger.display_name}** vs **{self.opponent.display_name}**\n\n"
+                    f"🎮 **Private Server Link:**\n{self.ps_link}\n\n"
+                    f"**ELO Ratings:**\n"
+                    f"• {self.challenger.mention}: **{challenger_elo}** {challenger_tier}\n"
+                    f"• {self.opponent.mention}: **{opponent_elo}** {opponent_tier}\n\n"
+                    f"*Join the private server and fight! Staff will report the winner.*"
+                ),
+                color=0xe74c3c
+            )
+            embed.set_footer(text=f"Duel ID: {self.duel_id}")
+            
+            await duel_channel.send(
+                f"{self.challenger.mention} {self.opponent.mention}",
+                embed=embed,
+                view=DuelStaffControlView(self.duel_id, self.challenger, self.opponent)
+            )
+            
+            # Update original message
+            await interaction.followup.edit_message(
+                message_id=interaction.message.id,
+                content=f"✅ Duel accepted! Go to {duel_channel.mention}",
+                embed=None,
+                view=None
+            )
+        except Exception as e:
+            print(f"Duel accept error: {e}")
+            try:
+                await interaction.followup.send(f"❌ Error creating duel channel. Please try again.", ephemeral=True)
+            except:
+                pass
     
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.danger, emoji="❌")
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.opponent.id:
-            return await interaction.response.send_message("❌ Only the challenged player can decline!", ephemeral=True)
-        
+        try:
+            if interaction.user.id != self.opponent.id:
+                return await interaction.response.send_message("❌ Only the challenged player can decline!", ephemeral=True)
+            
+            decline_duel(self.duel_id)
+            await interaction.response.edit_message(
+                content=f"❌ {self.opponent.display_name} declined the duel.",
+                embed=None,
+                view=None
+            )
+        except Exception as e:
+            print(f"Duel decline error: {e}")
+    
+    async def on_timeout(self):
+        """Handle view timeout"""
         decline_duel(self.duel_id)
-        await interaction.response.edit_message(
-            content=f"❌ {self.opponent.display_name} declined the duel.",
-            embed=None,
-            view=None
-        )
 
 # Staff Control View for Duel Channel
 class DuelStaffControlView(discord.ui.View):
@@ -3798,14 +3972,14 @@ async def check_member_inactivity(member, guild):
         next_rank = get_next_demotion_rank(current_rank)
         
         if next_rank:
-            # Demote to next rank
+            # Demote to next rank using safe rate-limited functions
             try:
                 current_role = discord.utils.get(guild.roles, name=current_rank)
                 next_role = discord.utils.get(guild.roles, name=next_rank)
                 
                 if current_role and next_role:
-                    await member.remove_roles(current_role)
-                    await member.add_roles(next_role)
+                    await safe_remove_role(member, current_role)
+                    await safe_add_role(member, next_role)
                     result["action"] = "demoted"
                     result["new_rank"] = next_rank
                     await send_inactivity_strike_dm(member, new_strike_count, demoted=True, old_rank=current_rank, new_rank=next_rank)
@@ -3816,10 +3990,9 @@ async def check_member_inactivity(member, guild):
         elif new_strike_count >= MAX_INACTIVITY_STRIKES:
             result["action"] = "kicked"
             await send_inactivity_strike_dm(member, new_strike_count, kicked=True)
-            try:
-                await member.kick(reason=f"Inactivity: {MAX_INACTIVITY_STRIKES} strikes at lowest rank")
-            except Exception as e:
-                print(f"Failed to kick {member}: {e}")
+            kicked = await safe_kick(member, reason=f"Inactivity: {MAX_INACTIVITY_STRIKES} strikes at lowest rank")
+            if not kicked:
+                print(f"Failed to kick {member}")
                 result["action"] = "kick_failed"
     
     else:
@@ -3829,7 +4002,7 @@ async def check_member_inactivity(member, guild):
     return result
 
 async def run_inactivity_check(guild):
-    """Run inactivity check on all ranked members"""
+    """Run inactivity check on all ranked members with rate limit protection"""
     results = {
         "checked": 0,
         "strikes_given": 0,
@@ -3870,10 +4043,14 @@ async def run_inactivity_check(guild):
                 elif result["action"] == "kicked":
                     results["kicks"] += 1
                 
-                # Add delay between actions to avoid rate limits
-                await asyncio.sleep(1.5)
+                # Longer delay after actions that modify roles/kick
+                await asyncio.sleep(2.0)
+            else:
+                # Small delay even when no action taken
+                await asyncio.sleep(0.5)
         except Exception as e:
             print(f"Error checking {member}: {e}")
+            await asyncio.sleep(1.0)  # Delay on error too
             continue
     
     # Update last check time
@@ -4759,9 +4936,11 @@ class HelpSelect(discord.ui.Select):
                 "`/setlevel @user <lvl>` - Set level\n"
                 "`/importlevel @user <lvl>` - Import\n"
                 "`/addxp` `/addfcoins` @user amt\n\n"
-                "**⚠️ Inactivity**\n"
+                "**🛡️ Inactivity & Immunity**\n"
                 "`/inactivity_check` - Run check\n"
-                "`/inactive_list` - Striked members\n\n"
+                "`/immunity_add @user [reason]`\n"
+                "`/immunity_remove @user`\n"
+                "`/immunity_list` - View immune\n\n"
                 "**🔨 Moderation**\n"
                 "`/warn @user [reason]`\n"
                 "`/warnings @user`"
@@ -8243,6 +8422,7 @@ async def close_ticket(ctx):
 # ==========================================
 
 @bot.hybrid_command(name="serverstats", description="View server statistics")
+@commands.cooldown(1, 30, commands.BucketType.guild)  # Once per 30 seconds per server
 async def serverstats(ctx):
     """Display comprehensive server statistics with image"""
     # Try to generate image first
@@ -8352,6 +8532,7 @@ async def topactive(ctx, days: int = 7):
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="mystats", description="View your detailed activity stats")
+@commands.cooldown(1, 10, commands.BucketType.user)  # Once per 10 seconds per user
 async def mystats(ctx, member: discord.Member = None):
     """Display detailed personal statistics"""
     target = member or ctx.author
@@ -8465,6 +8646,7 @@ async def profile(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="rank", description="View your rank card")
+@commands.cooldown(1, 10, commands.BucketType.user)  # Once per 10 seconds per user
 async def rank_cmd(ctx, member: discord.Member = None):
     """Display your rank card (same as level command)"""
     target = member or ctx.author
@@ -8485,6 +8667,7 @@ async def rank_cmd(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="achievements", description="View your achievements")
+@commands.cooldown(1, 15, commands.BucketType.user)  # Once per 15 seconds per user
 async def achievements_cmd(ctx, member: discord.Member = None):
     """Display all achievements and progress"""
     target = member or ctx.author
