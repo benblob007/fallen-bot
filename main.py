@@ -107,9 +107,35 @@ LEVEL_CONFIG = {
     200: {"role": "Eternal Shadow Sovereign", "coins": 50000},
 }
 
-XP_TEXT_RANGE = (5, 15)      # XP per message (increased)
-XP_VOICE_RANGE = (15, 30)    # XP per 2 minutes in voice (increased)
-XP_REACTION_RANGE = (2, 8)   # XP per reaction (increased) 
+XP_TEXT_RANGE = (5, 15)      # XP per message
+XP_VOICE_RANGE = (15, 30)    # XP per 2 minutes in voice
+XP_REACTION_RANGE = (2, 8)   # XP per reaction
+
+# XP Cooldowns (in seconds) - prevents spam
+XP_MESSAGE_COOLDOWN = 60     # 1 minute between message XP
+XP_REACTION_COOLDOWN = 30    # 30 seconds between reaction XP
+
+# Store cooldowns in memory (user_id: last_xp_time)
+xp_cooldowns = {
+    "message": {},
+    "reaction": {}
+}
+
+def check_xp_cooldown(user_id, cooldown_type):
+    """Check if user is on XP cooldown. Returns True if they can earn XP."""
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    user_id = str(user_id)
+    
+    cooldown_time = XP_MESSAGE_COOLDOWN if cooldown_type == "message" else XP_REACTION_COOLDOWN
+    
+    if user_id in xp_cooldowns[cooldown_type]:
+        last_time = xp_cooldowns[cooldown_type][user_id]
+        if now - last_time < cooldown_time:
+            return False  # Still on cooldown
+    
+    # Update last XP time
+    xp_cooldowns[cooldown_type][user_id] = now
+    return True  # Can earn XP 
 COOLDOWN_SECONDS = 60 
 
 # --- SHOP CONFIG ---
@@ -5991,25 +6017,28 @@ async def on_member_join(member):
 @bot.event
 async def on_message(message):
     if not message.author.bot and message.guild:
-        xp = random.randint(*XP_TEXT_RANGE)
-        add_xp_to_user(message.author.id, xp)
+        # Check cooldown before giving XP
+        if check_xp_cooldown(message.author.id, "message"):
+            xp = random.randint(*XP_TEXT_RANGE)
+            add_xp_to_user(message.author.id, xp)
+            await check_level_up(message.author.id, message.guild)
         
-        # Update last_active timestamp for inactivity tracking
+        # Always update last_active timestamp for inactivity tracking
         update_user_data(message.author.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
         
-        await check_level_up(message.author.id, message.guild)
     await bot.process_commands(message)
 
 @bot.event
 async def on_reaction_add(reaction, user):
     if not user.bot and reaction.message.guild:
-        xp = random.randint(*XP_REACTION_RANGE)
-        add_xp_to_user(user.id, xp)
+        # Check cooldown before giving XP
+        if check_xp_cooldown(user.id, "reaction"):
+            xp = random.randint(*XP_REACTION_RANGE)
+            add_xp_to_user(user.id, xp)
+            await check_level_up(user.id, reaction.message.guild)
         
-        # Update last_active timestamp for inactivity tracking
+        # Always update last_active timestamp for inactivity tracking
         update_user_data(user.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
-        
-        await check_level_up(user.id, reaction.message.guild)
 
 # ============================================
 # COMMANDS - All work with both ! and /
