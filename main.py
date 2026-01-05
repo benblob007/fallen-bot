@@ -3253,6 +3253,9 @@ def log_attendance(event_id, attendee_ids, host_id):
         add_xp_to_user(int(uid), rewards["xp"])
         add_user_stat(int(uid), f"{event_type}_attendance", 1)
         
+        # Reset activity timestamp - prevents inactivity strikes
+        reset_member_activity(int(uid))
+        
         # Update streak
         streak = update_attendance_streak(uid)
         streak_bonus = get_streak_bonus(streak)
@@ -3273,6 +3276,7 @@ def log_attendance(event_id, attendee_ids, host_id):
     add_user_stat(int(host_id), "coins", host_rewards["coins"])
     add_xp_to_user(int(host_id), host_rewards["xp"])
     add_user_stat(int(host_id), "events_hosted", 1)
+    reset_member_activity(int(host_id))  # Reset host activity too
     
     # Update event status
     event["attendees"] = [str(uid) for uid in attendee_ids]
@@ -3557,6 +3561,7 @@ async def send_event_reminder(event, minutes):
 INACTIVITY_FILE = "inactivity_data.json"
 INACTIVITY_CHECK_DAYS = 3  # Days of inactivity before strike
 MAX_INACTIVITY_STRIKES = 5  # Strikes before kick
+INACTIVITY_IMMUNITY_ROLE = "Inactivity Immunity"  # Role that bypasses inactivity checks
 
 # Rank demotion order (highest to lowest) - Stage 0 is highest
 RANK_DEMOTION_ORDER = [
@@ -3570,6 +3575,15 @@ RANK_DEMOTION_ORDER = [
 
 # All member ranks that should be checked for inactivity
 MEMBER_RANKS = RANK_DEMOTION_ORDER.copy()
+
+def has_inactivity_immunity(member):
+    """Check if member has immunity role"""
+    immunity_role = discord.utils.get(member.roles, name=INACTIVITY_IMMUNITY_ROLE)
+    return immunity_role is not None
+
+def reset_member_activity(user_id):
+    """Reset a member's last_active timestamp to now (prevents inactivity strike)"""
+    update_user_data(user_id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
 
 def get_member_rank(member):
     """Get the member's current rank from the rank order"""
@@ -3733,6 +3747,10 @@ async def send_inactivity_strike_dm(member, strike_count, demoted=False, kicked=
 
 async def check_member_inactivity(member, guild):
     """Check if a member is inactive and apply strikes if needed"""
+    # Check if member has immunity role - skip if they do
+    if has_inactivity_immunity(member):
+        return None  # Has immunity, skip
+    
     # Check if member has any of the ranked roles
     current_rank = get_member_rank(member)
     
@@ -7905,6 +7923,9 @@ async def log_training(ctx):
         add_xp_to_user(m.id, rewards["xp"])
         add_user_stat(m.id, "training_attendance", 1)
         
+        # Reset activity timestamp - prevents inactivity strikes
+        reset_member_activity(m.id)
+        
         streak = update_attendance_streak(m.id)
         bonus = get_streak_bonus(streak)
         if bonus > 0:
@@ -7919,6 +7940,7 @@ async def log_training(ctx):
     add_user_stat(ctx.author.id, "coins", host_rewards["coins"])
     add_xp_to_user(ctx.author.id, host_rewards["xp"])
     add_user_stat(ctx.author.id, "events_hosted", 1)
+    reset_member_activity(ctx.author.id)  # Reset host activity too
     
     embed = discord.Embed(
         title="📚 Training Attendance Logged",
@@ -7950,6 +7972,9 @@ async def log_tryout(ctx):
         add_xp_to_user(m.id, rewards["xp"])
         add_user_stat(m.id, "tryout_attendance", 1)
         
+        # Reset activity timestamp - prevents inactivity strikes
+        reset_member_activity(m.id)
+        
         streak = update_attendance_streak(m.id)
         bonus = get_streak_bonus(streak)
         if bonus > 0:
@@ -7964,6 +7989,7 @@ async def log_tryout(ctx):
     add_user_stat(ctx.author.id, "coins", host_rewards["coins"])
     add_xp_to_user(ctx.author.id, host_rewards["xp"])
     add_user_stat(ctx.author.id, "events_hosted", 1)
+    reset_member_activity(ctx.author.id)  # Reset host activity too
     
     embed = discord.Embed(
         title="🎯 Tryout Attendance Logged",
@@ -9080,6 +9106,118 @@ async def set_inactivity_days(ctx, days: int):
     
     INACTIVITY_CHECK_DAYS = days
     await ctx.send(f"✅ Inactivity threshold set to **{days} days**.", ephemeral=True)
+
+@bot.hybrid_command(name="immunity_add", description="Staff: Give inactivity immunity to a member")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def immunity_add(ctx, member: discord.Member, *, reason: str = "No reason provided"):
+    """Give a member immunity from inactivity checks"""
+    immunity_role = discord.utils.get(ctx.guild.roles, name=INACTIVITY_IMMUNITY_ROLE)
+    
+    if not immunity_role:
+        return await ctx.send(
+            f"❌ Role **{INACTIVITY_IMMUNITY_ROLE}** not found!\n"
+            f"Please create a role named exactly `{INACTIVITY_IMMUNITY_ROLE}`",
+            ephemeral=True
+        )
+    
+    if immunity_role in member.roles:
+        return await ctx.send(f"❌ {member.mention} already has immunity!", ephemeral=True)
+    
+    try:
+        await member.add_roles(immunity_role)
+        
+        embed = discord.Embed(
+            title="🛡️ Inactivity Immunity Granted",
+            description=f"{member.mention} is now **immune** to inactivity checks.",
+            color=0x2ecc71
+        )
+        embed.add_field(name="📝 Reason", value=reason, inline=False)
+        embed.add_field(name="👤 Granted by", value=ctx.author.mention, inline=True)
+        embed.set_footer(text="Use /immunity_remove when they return")
+        
+        await ctx.send(embed=embed)
+        await log_action(ctx.guild, "🛡️ Immunity Granted", f"{member.mention} given immunity by {ctx.author.mention}\nReason: {reason}", 0x2ecc71)
+        
+        # DM the member
+        try:
+            dm_embed = discord.Embed(
+                title="🛡️ Inactivity Immunity Granted",
+                description=(
+                    f"You've been given **inactivity immunity** in **{ctx.guild.name}**.\n\n"
+                    f"**Reason:** {reason}\n\n"
+                    f"This means you won't receive inactivity strikes while you're away.\n"
+                    f"When you return, please let staff know so they can remove the immunity."
+                ),
+                color=0x2ecc71
+            )
+            await member.send(embed=dm_embed)
+        except:
+            pass  # DMs might be closed
+            
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to add that role.", ephemeral=True)
+
+@bot.hybrid_command(name="immunity_remove", description="Staff: Remove inactivity immunity from a member")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def immunity_remove(ctx, member: discord.Member):
+    """Remove immunity from a member"""
+    immunity_role = discord.utils.get(ctx.guild.roles, name=INACTIVITY_IMMUNITY_ROLE)
+    
+    if not immunity_role:
+        return await ctx.send(f"❌ Role **{INACTIVITY_IMMUNITY_ROLE}** not found!", ephemeral=True)
+    
+    if immunity_role not in member.roles:
+        return await ctx.send(f"❌ {member.mention} doesn't have immunity!", ephemeral=True)
+    
+    try:
+        await member.remove_roles(immunity_role)
+        
+        # Reset their activity timestamp so they don't get immediately striked
+        reset_member_activity(member.id)
+        
+        embed = discord.Embed(
+            title="🛡️ Inactivity Immunity Removed",
+            description=f"{member.mention}'s immunity has been **removed**.\n\nTheir activity timer has been reset.",
+            color=0xe74c3c
+        )
+        embed.add_field(name="👤 Removed by", value=ctx.author.mention, inline=True)
+        
+        await ctx.send(embed=embed)
+        await log_action(ctx.guild, "🛡️ Immunity Removed", f"{member.mention} immunity removed by {ctx.author.mention}", 0xe74c3c)
+        
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to remove that role.", ephemeral=True)
+
+@bot.hybrid_command(name="immunity_list", description="Staff: View all members with inactivity immunity")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def immunity_list(ctx):
+    """View all members with immunity"""
+    immunity_role = discord.utils.get(ctx.guild.roles, name=INACTIVITY_IMMUNITY_ROLE)
+    
+    if not immunity_role:
+        return await ctx.send(f"❌ Role **{INACTIVITY_IMMUNITY_ROLE}** not found!", ephemeral=True)
+    
+    members_with_immunity = [m for m in ctx.guild.members if immunity_role in m.roles]
+    
+    if not members_with_immunity:
+        embed = discord.Embed(
+            title="🛡️ Immunity List",
+            description="No members currently have inactivity immunity.",
+            color=0x95a5a6
+        )
+    else:
+        member_list = "\n".join([f"• {m.mention} ({m.display_name})" for m in members_with_immunity[:20]])
+        if len(members_with_immunity) > 20:
+            member_list += f"\n... and {len(members_with_immunity) - 20} more"
+        
+        embed = discord.Embed(
+            title="🛡️ Immunity List",
+            description=f"**{len(members_with_immunity)} members** have inactivity immunity:\n\n{member_list}",
+            color=0x3498db
+        )
+    
+    embed.set_footer(text="Use /immunity_remove @user to remove immunity")
+    await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="db_status", description="Admin: Check database status")
 @commands.has_permissions(administrator=True)
