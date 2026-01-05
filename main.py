@@ -89,20 +89,22 @@ MAX_COINS = 1000000
 
 # --- LEVELING SYSTEM CONFIG ---
 LEVEL_CONFIG = {
-    5: {"xp": 250, "role": "Faint Emberling", "coins": 50},
-    10: {"xp": 750, "role": "Initiate of Shadows", "coins": 100},
-    20: {"xp": 2000, "role": "Abysswalk Student", "coins": 200},
-    30: {"xp": 4500, "role": "Twilight Disciple", "coins": 400},
-    40: {"xp": 8000, "role": "Duskforged Aspirant", "coins": 600},
-    50: {"xp": 13000, "role": "Bearer of Abyssal Echo", "coins": 1000},
-    60: {"xp": 20000, "role": "Nightwoven Adept", "coins": 1500},
-    70: {"xp": 30000, "role": "Veilmarked Veteran", "coins": 2000},
-    80: {"xp": 45000, "role": "Shadowborn Ascendant", "coins": 2500},
-    100: {"xp": 75000, "role": "Abyssforged Warden", "coins": 5000},
-    120: {"xp": 120000, "role": "Eclipsed Oathbearer", "coins": 7500},
-    140: {"xp": 180000, "role": "Harbinger of Dusk", "coins": 10000},
-    160: {"xp": 260000, "role": "Ascended Dreadkeeper", "coins": 15000},
-    200: {"xp": 400000, "role": "Eternal Shadow Sovereign", "coins": 50000},
+    # Milestone levels with role and coin rewards
+    # XP is calculated dynamically: Level 5 = ~500 XP, Level 10 = ~1,625 XP, etc.
+    5: {"role": "Faint Emberling", "coins": 50},
+    10: {"role": "Initiate of Shadows", "coins": 100},
+    20: {"role": "Abysswalk Student", "coins": 200},
+    30: {"role": "Twilight Disciple", "coins": 400},
+    40: {"role": "Duskforged Aspirant", "coins": 600},
+    50: {"role": "Bearer of Abyssal Echo", "coins": 1000},
+    60: {"role": "Nightwoven Adept", "coins": 1500},
+    70: {"role": "Veilmarked Veteran", "coins": 2000},
+    80: {"role": "Shadowborn Ascendant", "coins": 2500},
+    100: {"role": "Abyssforged Warden", "coins": 5000},
+    120: {"role": "Eclipsed Oathbearer", "coins": 7500},
+    140: {"role": "Harbinger of Dusk", "coins": 10000},
+    160: {"role": "Ascended Dreadkeeper", "coins": 15000},
+    200: {"role": "Eternal Shadow Sovereign", "coins": 50000},
 }
 
 XP_TEXT_RANGE = (5, 15)      # XP per message (increased)
@@ -387,9 +389,35 @@ def add_xp_to_user(user_id, amount):
     return data["users"][uid]["xp"]
 
 def calculate_next_level_xp(level):
-    for lvl in sorted(LEVEL_CONFIG.keys()):
-        if lvl > level: return LEVEL_CONFIG[lvl]["xp"]
-    return (level + 1) * 5000 
+    """Calculate XP needed for the next level (continuous leveling like Arcane)"""
+    # Lower XP requirements - base 50, increases by 25 per level
+    # Level 1: 50 XP, Level 2: 75 XP, Level 3: 100 XP, etc.
+    base_xp = 50
+    increment = 25
+    return base_xp + (level * increment)
+
+def get_total_xp_for_level(level):
+    """Calculate total XP needed to reach a specific level"""
+    total = 0
+    for lvl in range(level):
+        total += calculate_next_level_xp(lvl)
+    return total
+
+def get_level_from_xp(total_xp):
+    """Calculate level from total XP"""
+    level = 0
+    xp_remaining = total_xp
+    while True:
+        xp_needed = calculate_next_level_xp(level)
+        if xp_remaining < xp_needed:
+            break
+        xp_remaining -= xp_needed
+        level += 1
+    return level, xp_remaining  # Returns level and XP progress into current level
+
+def get_milestone_reward(level):
+    """Get role and coin reward for milestone levels"""
+    return LEVEL_CONFIG.get(level)
 
 def get_level_rank(user_id):
     data = load_data()
@@ -505,13 +533,16 @@ async def generate_level_card_url(member, user_data, rank):
 
 def create_arcane_level_embed(member, user_data, rank):
     """Create a beautiful Fallen-themed level card embed"""
-    lvl = user_data['level']
-    xp = user_data['xp']
-    req = calculate_next_level_xp(lvl)
+    total_xp = user_data['xp']
+    
+    # Calculate level from total XP (continuous leveling)
+    lvl, xp_into_level = get_level_from_xp(total_xp)
+    xp_needed = calculate_next_level_xp(lvl)
+    
     coins = user_data.get('coins', 0)
     roblox = user_data.get('roblox_username', None)
     
-    progress_percent = min(100, int((xp / req) * 100)) if req > 0 else 0
+    progress_percent = min(100, int((xp_into_level / xp_needed) * 100)) if xp_needed > 0 else 0
     
     # Create visual progress bar with better characters
     bar_length = 12
@@ -551,9 +582,23 @@ def create_arcane_level_embed(member, user_data, rank):
     # XP Progress
     embed.add_field(
         name=f"✨ XP Progress ({progress_percent}%)",
-        value=f"{progress_bar}\n**{format_number(xp)}** / **{format_number(req)}**",
+        value=f"{progress_bar}\n**{format_number(xp_into_level)}** / **{format_number(xp_needed)}**",
         inline=False
     )
+    
+    # Next milestone
+    next_milestone = None
+    for mlvl in sorted(LEVEL_CONFIG.keys()):
+        if mlvl > lvl:
+            next_milestone = mlvl
+            break
+    if next_milestone:
+        milestone_data = LEVEL_CONFIG[next_milestone]
+        embed.add_field(
+            name="🎯 Next Milestone",
+            value=f"Level **{next_milestone}** → {milestone_data['role']}",
+            inline=False
+        )
     
     # Roblox if linked
     if roblox:
@@ -566,10 +611,9 @@ def create_arcane_level_embed(member, user_data, rank):
     if LEVEL_CARD_BACKGROUND:
         embed.set_image(url=LEVEL_CARD_BACKGROUND)
     
-    # Footer
-    embed.set_footer(text="✝ The Fallen ✝ • 落ちた")
+    # Footer with total XP
+    embed.set_footer(text=f"✝ The Fallen ✝ • Total XP: {total_xp:,}")
     
-    return embed
     return embed
 
 async def create_level_card_image(member, user_data, rank):
@@ -578,10 +622,11 @@ async def create_level_card_image(member, user_data, rank):
         print("PIL not available for level card")
         return None
     
-    lvl = user_data['level']
-    xp = user_data['xp']
-    req = calculate_next_level_xp(lvl)
-    progress = min(1.0, xp / req) if req > 0 else 0
+    total_xp = user_data['xp']
+    # Calculate level from total XP (continuous leveling)
+    lvl, xp_into_level = get_level_from_xp(total_xp)
+    xp_needed = calculate_next_level_xp(lvl)
+    progress = min(1.0, xp_into_level / xp_needed) if xp_needed > 0 else 0
     
     # Get rank border style
     border_style = get_rank_border(rank)
@@ -685,7 +730,7 @@ async def create_level_card_image(member, user_data, rank):
     draw.text((400, 185), f"#{rank}", font=font_large, fill=title_color)  # Rank colored
     
     draw.text((550, 160), f"XP", font=font_small, fill=(150, 150, 150))
-    draw.text((550, 185), f"{format_number(xp)} / {format_number(req)}", font=font_medium, fill=(255, 255, 255))
+    draw.text((550, 185), f"{format_number(xp_into_level)} / {format_number(xp_needed)}", font=font_medium, fill=(255, 255, 255))
     
     # Progress bar
     bar_x, bar_y = 260, 240
@@ -3385,45 +3430,73 @@ async def log_to_dashboard(guild, log_type, title, description, color=0x3498db, 
 
 # --- LEVELING CHECKER ---
 async def check_level_up(user_id, guild):
+    """Check if user leveled up - continuous leveling with milestone rewards"""
     data = load_data()
     uid = str(user_id)
     data = ensure_user_structure(data, uid) 
     user_data = data["users"][uid]
     
-    xp = user_data["xp"]
+    total_xp = user_data["xp"]
     current_level = user_data["level"]
     
-    next_milestone_level = None
-    for lvl in sorted(LEVEL_CONFIG.keys()):
-        if lvl > current_level:
-            next_milestone_level = lvl
-            break
-            
-    if not next_milestone_level: return 
-    req_xp = LEVEL_CONFIG[next_milestone_level]["xp"]
+    # Calculate what level they should be based on total XP
+    new_level, xp_into_level = get_level_from_xp(total_xp)
     
-    if xp >= req_xp:
-        update_user_data(user_id, "level", next_milestone_level)
-        reward_data = LEVEL_CONFIG[next_milestone_level]
-        coins = reward_data["coins"]
-        role_name = reward_data["role"]
-        add_user_stat(user_id, "coins", coins)
-        role_msg = ""
+    # Check if they leveled up
+    if new_level > current_level:
+        # Update their level
+        update_user_data(user_id, "level", new_level)
+        
         member = guild.get_member(user_id)
-        if member and role_name:
-            role = discord.utils.get(guild.roles, name=role_name)
-            if role:
-                try: 
-                    await member.add_roles(role)
-                    role_msg = f"\n🎭 **Role Unlocked:** {role.mention}"
-                except Exception as e:
-                    print(f"Role assign error: {e}")
-                    role_msg = "\n❌ Role assign failed (Hierarchy)."
         channel = discord.utils.get(guild.text_channels, name=LEVEL_UP_CHANNEL_NAME)
-        if channel:
-            embed = discord.Embed(title="✨ LEVEL UP!", description=f"<@{user_id}> has reached **Level {next_milestone_level}**!", color=0xDC143C)
-            embed.add_field(name="Rewards", value=f"💰 +{coins} Fallen Coins{role_msg}")
-            if member: embed.set_thumbnail(url=member.display_avatar.url)
+        
+        # Check each level they passed for milestone rewards
+        levels_gained = []
+        for lvl in range(current_level + 1, new_level + 1):
+            levels_gained.append(lvl)
+            
+            # Check if this is a milestone level
+            milestone = get_milestone_reward(lvl)
+            if milestone:
+                coins = milestone["coins"]
+                role_name = milestone["role"]
+                add_user_stat(user_id, "coins", coins)
+                
+                role_msg = ""
+                if member and role_name:
+                    role = discord.utils.get(guild.roles, name=role_name)
+                    if role:
+                        try: 
+                            await member.add_roles(role)
+                            role_msg = f"\n🎭 **Role Unlocked:** {role.mention}"
+                        except Exception as e:
+                            print(f"Role assign error: {e}")
+                            role_msg = "\n❌ Role assign failed (Hierarchy)."
+                
+                # Send milestone announcement
+                if channel:
+                    embed = discord.Embed(
+                        title="🌟 MILESTONE REACHED! 🌟", 
+                        description=f"<@{user_id}> has reached **Level {lvl}**!", 
+                        color=0xFFD700
+                    )
+                    embed.add_field(name="🎁 Rewards", value=f"💰 +{coins} Fallen Coins{role_msg}")
+                    if member: 
+                        embed.set_thumbnail(url=member.display_avatar.url)
+                    await channel.send(embed=embed)
+                    await asyncio.sleep(0.5)  # Small delay to avoid rate limits
+        
+        # Send regular level up for non-milestone levels (only if didn't hit milestone)
+        if channel and new_level not in LEVEL_CONFIG:
+            embed = discord.Embed(
+                title="✨ LEVEL UP!", 
+                description=f"<@{user_id}> is now **Level {new_level}**!", 
+                color=0xDC143C
+            )
+            xp_needed = calculate_next_level_xp(new_level)
+            embed.add_field(name="Next Level", value=f"{xp_into_level}/{xp_needed} XP")
+            if member: 
+                embed.set_thumbnail(url=member.display_avatar.url)
             await channel.send(embed=embed)
 
 # --- TOURNAMENT FUNCTIONS ---
