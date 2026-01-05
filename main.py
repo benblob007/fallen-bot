@@ -6130,55 +6130,6 @@ async def setlevelbackground(ctx, url: str = None):
         LEVEL_CARD_BACKGROUND = url
         await ctx.send(f"✅ Level card banner set! Test it with `/level`", ephemeral=True)
 
-@bot.hybrid_command(name="levelcard_debug", description="Admin: Debug level card system")
-@commands.has_permissions(administrator=True)
-async def levelcard_debug(ctx):
-    """Debug the level card system"""
-    debug_info = []
-    
-    # Check PIL
-    debug_info.append(f"**PIL Available:** {PIL_AVAILABLE}")
-    
-    # Check background URL
-    debug_info.append(f"**Background URL Set:** {LEVEL_CARD_BACKGROUND is not None}")
-    if LEVEL_CARD_BACKGROUND:
-        debug_info.append(f"**URL:** {LEVEL_CARD_BACKGROUND[:50]}...")
-    
-    # Check local files
-    debug_info.append(f"\n**Checking local paths:**")
-    for path in LEVEL_CARD_PATHS:
-        exists = os.path.exists(path)
-        debug_info.append(f"• `{path}`: {'✅ Found' if exists else '❌ Not found'}")
-    
-    # Try to load from URL
-    if PIL_AVAILABLE and LEVEL_CARD_BACKGROUND:
-        debug_info.append(f"\n**Testing URL download:**")
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(LEVEL_CARD_BACKGROUND) as resp:
-                    debug_info.append(f"• Status: {resp.status}")
-                    if resp.status == 200:
-                        img_data = await resp.read()
-                        debug_info.append(f"• Downloaded: {len(img_data)} bytes")
-                        try:
-                            from PIL import Image
-                            img = Image.open(BytesIO(img_data))
-                            debug_info.append(f"• Image size: {img.size}")
-                            debug_info.append(f"• ✅ Image loaded successfully!")
-                        except Exception as e:
-                            debug_info.append(f"• ❌ Image load error: {e}")
-                    else:
-                        debug_info.append(f"• ❌ Failed to download")
-        except Exception as e:
-            debug_info.append(f"• ❌ URL Error: {e}")
-    
-    embed = discord.Embed(
-        title="🔧 Level Card Debug",
-        description="\n".join(debug_info),
-        color=0x3498db
-    )
-    await ctx.send(embed=embed)
-
 @bot.hybrid_command(name="leaderboard", aliases=["lb"], description="View the XP leaderboard")
 @commands.cooldown(1, 15, commands.BucketType.user)  # 1 use per 15 seconds per user
 async def leaderboard(ctx):
@@ -6304,6 +6255,212 @@ async def removexp(ctx, member: discord.Member, amount: int):
     await ctx.send(f"✅ Removed **{amount:,} XP** from {member.mention}. Total: **{new_xp:,} XP**")
     await log_action(ctx.guild, "✨ XP Removed", f"{member.mention} lost -{amount:,} XP by {ctx.author.mention}", 0xe74c3c)
 
+@bot.hybrid_command(name="setlevel", description="Staff: Set a user's level directly")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def setlevel(ctx, member: discord.Member, level: int):
+    """Set a user's level directly (calculates required XP)"""
+    if level < 0 or level > 500:
+        return await ctx.send("❌ Level must be between 0 and 500.", ephemeral=True)
+    
+    # Calculate total XP needed for this level
+    total_xp = get_total_xp_for_level(level)
+    
+    # Set the user's XP and level
+    data = load_data()
+    uid = str(member.id)
+    data = ensure_user_structure(data, uid)
+    
+    old_level = data["users"][uid]["level"]
+    old_xp = data["users"][uid]["xp"]
+    
+    data["users"][uid]["xp"] = total_xp
+    data["users"][uid]["level"] = level
+    save_data(data)
+    
+    # Award milestone roles if applicable
+    milestone = get_milestone_reward(level)
+    role_msg = ""
+    if milestone:
+        role = discord.utils.get(ctx.guild.roles, name=milestone["role"])
+        if role:
+            try:
+                await member.add_roles(role)
+                role_msg = f"\n🎭 Role: {role.mention}"
+            except:
+                pass
+    
+    embed = discord.Embed(
+        title="📊 Level Set",
+        description=f"{member.mention}'s level has been updated!",
+        color=0x2ecc71
+    )
+    embed.add_field(name="Before", value=f"Level {old_level}\n{old_xp:,} XP", inline=True)
+    embed.add_field(name="After", value=f"Level {level}\n{total_xp:,} XP{role_msg}", inline=True)
+    
+    await ctx.send(embed=embed)
+    await log_action(ctx.guild, "📊 Level Set", f"{member.mention} set to Level {level} by {ctx.author.mention}", 0x2ecc71)
+
+@bot.hybrid_command(name="setxp", description="Staff: Set a user's total XP directly")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def setxp(ctx, member: discord.Member, total_xp: int):
+    """Set a user's total XP directly (level auto-calculates)"""
+    if total_xp < 0:
+        return await ctx.send("❌ XP cannot be negative.", ephemeral=True)
+    
+    # Calculate level from XP
+    new_level, xp_into_level = get_level_from_xp(total_xp)
+    
+    # Set the user's XP and level
+    data = load_data()
+    uid = str(member.id)
+    data = ensure_user_structure(data, uid)
+    
+    old_level = data["users"][uid]["level"]
+    old_xp = data["users"][uid]["xp"]
+    
+    data["users"][uid]["xp"] = total_xp
+    data["users"][uid]["level"] = new_level
+    save_data(data)
+    
+    # Award milestone roles if applicable
+    milestone = get_milestone_reward(new_level)
+    role_msg = ""
+    if milestone:
+        role = discord.utils.get(ctx.guild.roles, name=milestone["role"])
+        if role:
+            try:
+                await member.add_roles(role)
+                role_msg = f"\n🎭 Role: {role.mention}"
+            except:
+                pass
+    
+    embed = discord.Embed(
+        title="✨ XP Set",
+        description=f"{member.mention}'s XP has been updated!",
+        color=0x2ecc71
+    )
+    embed.add_field(name="Before", value=f"Level {old_level}\n{old_xp:,} XP", inline=True)
+    embed.add_field(name="After", value=f"Level {new_level}\n{total_xp:,} XP{role_msg}", inline=True)
+    
+    await ctx.send(embed=embed)
+    await log_action(ctx.guild, "✨ XP Set", f"{member.mention} set to {total_xp:,} XP (Level {new_level}) by {ctx.author.mention}", 0x2ecc71)
+
+@bot.hybrid_command(name="importlevel", description="Staff: Import level from Arcane bot")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def importlevel(ctx, member: discord.Member, arcane_level: int, arcane_xp: int = 0):
+    """
+    Import a user's level from Arcane bot.
+    
+    Usage: /importlevel @user <arcane_level> [arcane_xp]
+    Example: /importlevel @User 25 1500
+    
+    The arcane_xp is their XP progress into the current level (shown as X/Y in Arcane)
+    """
+    if arcane_level < 0 or arcane_level > 500:
+        return await ctx.send("❌ Level must be between 0 and 500.", ephemeral=True)
+    
+    # Calculate our equivalent total XP for their Arcane level
+    # Get base XP for reaching that level
+    total_xp = get_total_xp_for_level(arcane_level)
+    # Add their progress into current level
+    total_xp += arcane_xp
+    
+    # Calculate what level they'll be in our system
+    new_level, xp_into_level = get_level_from_xp(total_xp)
+    
+    # Set the user's data
+    data = load_data()
+    uid = str(member.id)
+    data = ensure_user_structure(data, uid)
+    
+    old_level = data["users"][uid]["level"]
+    old_xp = data["users"][uid]["xp"]
+    
+    data["users"][uid]["xp"] = total_xp
+    data["users"][uid]["level"] = new_level
+    save_data(data)
+    
+    # Award all milestone roles up to their level
+    roles_given = []
+    for milestone_level in sorted(LEVEL_CONFIG.keys()):
+        if milestone_level <= new_level:
+            milestone = LEVEL_CONFIG[milestone_level]
+            role = discord.utils.get(ctx.guild.roles, name=milestone["role"])
+            if role and role not in member.roles:
+                try:
+                    await member.add_roles(role)
+                    roles_given.append(role.mention)
+                    await asyncio.sleep(0.5)  # Rate limit protection
+                except:
+                    pass
+    
+    embed = discord.Embed(
+        title="📥 Arcane Import Complete",
+        description=f"{member.mention}'s level has been imported!",
+        color=0x9b59b6
+    )
+    embed.add_field(name="Arcane Stats", value=f"Level {arcane_level}\n+{arcane_xp} XP progress", inline=True)
+    embed.add_field(name="Fallen Stats", value=f"Level {new_level}\n{total_xp:,} Total XP", inline=True)
+    
+    if roles_given:
+        embed.add_field(name="🎭 Roles Given", value="\n".join(roles_given[:5]) + (f"\n+{len(roles_given)-5} more" if len(roles_given) > 5 else ""), inline=False)
+    
+    embed.set_footer(text=f"Imported by {ctx.author.display_name}")
+    
+    await ctx.send(embed=embed)
+    await log_action(ctx.guild, "📥 Arcane Import", f"{member.mention} imported from Arcane Level {arcane_level} → Fallen Level {new_level} by {ctx.author.mention}", 0x9b59b6)
+
+@bot.hybrid_command(name="bulkimport", description="Admin: Show bulk import instructions")
+@commands.has_permissions(administrator=True)
+async def bulkimport(ctx):
+    """Show instructions for bulk importing from Arcane"""
+    embed = discord.Embed(
+        title="📥 Bulk Import from Arcane",
+        description="How to migrate your members from Arcane to The Fallen bot:",
+        color=0x9b59b6
+    )
+    
+    embed.add_field(
+        name="Step 1: Get Arcane Data",
+        value=(
+            "Use Arcane's `/leaderboard` or `/rank @user` to see each member's:\n"
+            "• **Level** (e.g., Level 25)\n"
+            "• **XP Progress** (e.g., 1,500/3,000 XP)"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Step 2: Import Each User",
+        value=(
+            "Use this command for each member:\n"
+            "```/importlevel @user <level> <xp_progress>```\n"
+            "**Example:** `/importlevel @John 25 1500`"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Step 3: Verify",
+        value="Use `/level @user` to confirm their stats were imported correctly.",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📊 Level Conversion",
+        value=(
+            "Our system uses similar XP scaling to Arcane.\n"
+            "Members will be at approximately the same level.\n\n"
+            "**Commands Available:**\n"
+            "`/importlevel @user <level> [xp]` - Import from Arcane\n"
+            "`/setlevel @user <level>` - Set level directly\n"
+            "`/setxp @user <total_xp>` - Set total XP directly"
+        ),
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+
 @bot.hybrid_command(name="addfcoins", description="Staff: Add coins to a user")
 async def addfcoins(ctx, member: discord.Member, amount: int):
     """Add coins to a user"""
@@ -6333,34 +6490,6 @@ async def levelchange(ctx, member: discord.Member, level: int):
     update_user_data(member.id, "level", level)
     await ctx.send(f"✅ Set {member.mention}'s level to **{level}**")
     await log_action(ctx.guild, "📊 Level Changed", f"{member.mention}'s level set to {level} by {ctx.author.mention}", 0xF1C40F)
-
-@bot.hybrid_command(name="report_set", description="Staff: Report a set result")
-async def report_set(ctx, winner: discord.Member, loser: discord.Member):
-    """Report match results and update rankings"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    changed = process_rank_update(winner.id, loser.id)
-    desc = f"🏆 **Winner:** {winner.mention}\n💀 **Loser:** {loser.mention}"
-    if changed:
-        desc += "\n\n🚨 **RANK SWAP!**"
-    
-    await post_result(ctx.guild, SET_RESULTS_CHANNEL_NAME, "⚔️ Set Result", desc)
-    
-    embed = discord.Embed(title="✅ Set Reported", description=desc, color=0xF1C40F)
-    await ctx.send(embed=embed)
-    await log_action(ctx.guild, "⚔️ Set Reported", f"Reported by {ctx.author.mention}\n{desc}", 0xF1C40F)
-
-@bot.hybrid_command(name="tstart", description="Staff: Start a tournament")
-async def tstart(ctx, *, title: str = "Tournament"):
-    """Start a new tournament"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    if tournament_state["active"]:
-        return await ctx.send("❌ A tournament is already active. Cancel it first.", ephemeral=True)
-    
-    await ctx.send(f"⚙️ Setting up **{title}**...\nSelect tournament type:", view=TournamentTypeView(title, ctx.author))
 
 # --- ADMIN COMMANDS ---
 
@@ -6777,37 +6906,6 @@ async def stats(ctx, member: discord.Member = None):
     embed.add_field(name="🏴‍☠️ Raid W/L", value=f"{rw}W - {rl}L ({rwr}%)", inline=False)
     
     await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="link_roblox", description="Update your linked Roblox account (secure)")
-async def link_roblox(ctx):
-    """Start secure Roblox re-verification process"""
-    embed = discord.Embed(
-        title="🔄 Update Roblox Account",
-        description="To update your linked Roblox account, you'll need to verify ownership again.\n\nClick the button below to start!",
-        color=0x3498db
-    )
-    
-    user_data = get_user_data(ctx.author.id)
-    current = user_data.get('roblox_username', 'Not set')
-    embed.add_field(name="Current Account", value=current, inline=True)
-    
-    view = discord.ui.View(timeout=60)
-    btn = discord.ui.Button(label="🔄 Update Account", style=discord.ButtonStyle.primary)
-    
-    async def callback(interaction: discord.Interaction):
-        if interaction.user.id != ctx.author.id:
-            return await interaction.response.send_message("❌ Not your request!", ephemeral=True)
-        await interaction.response.send_modal(VerifyUsernameModal())
-    
-    btn.callback = callback
-    view.add_item(btn)
-    
-    await ctx.send(embed=embed, view=view, ephemeral=True)
-
-@bot.hybrid_command(name="update_roblox", description="Update your Roblox username (secure verification)")
-async def update_roblox(ctx):
-    """Update Roblox username via secure modal"""
-    await ctx.interaction.response.send_modal(VerifyUsernameModal())
 
 @bot.hybrid_command(name="daily", description="Claim your daily reward")
 async def daily(ctx):
