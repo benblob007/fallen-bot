@@ -6536,6 +6536,744 @@ class PersistentBot(commands.Bot):
 
 bot = PersistentBot()
 
+# ==========================================
+# SUBCOMMAND GROUPS (Saves command slots)
+# ==========================================
+
+class EloCommands(commands.GroupCog, name="elo"):
+    """ELO and Duel commands"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        super().__init__()
+    
+    @app_commands.command(name="view", description="Check ELO rating")
+    @app_commands.describe(member="Member to check (leave empty for yourself)")
+    async def elo_view(self, interaction: discord.Interaction, member: discord.Member = None):
+        """Check your or another player's ELO rating"""
+        target = member or interaction.user
+        
+        elo = get_elo(target.id)
+        tier, color = get_elo_tier(elo)
+        
+        history = get_duel_history(target.id, 100)
+        wins = sum(1 for d in history if d["winner"] == str(target.id))
+        losses = len(history) - wins
+        
+        embed = discord.Embed(
+            title=f"⚔️ {target.display_name}'s ELO",
+            color=discord.Color.from_rgb(*color)
+        )
+        embed.add_field(name="Rating", value=f"**{elo}**", inline=True)
+        embed.add_field(name="Rank", value=tier, inline=True)
+        embed.add_field(name="Record", value=f"{wins}W - {losses}L", inline=True)
+        embed.set_thumbnail(url=target.display_avatar.url)
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="leaderboard", description="View the ELO leaderboard")
+    async def elo_leaderboard(self, interaction: discord.Interaction):
+        """View the top ELO players"""
+        top_players = get_elo_leaderboard(10)
+        
+        if not top_players:
+            return await interaction.response.send_message("❌ No ELO data yet! Challenge someone with `/duel`")
+        
+        embed = discord.Embed(title="🏆 ELO Leaderboard", color=0xFFD700)
+        
+        desc = ""
+        for i, (uid, elo) in enumerate(top_players):
+            member = interaction.guild.get_member(int(uid))
+            name = member.display_name if member else f"User {uid[:8]}"
+            tier, _ = get_elo_tier(elo)
+            
+            medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i+1}"
+            desc += f"{medal} **{name}** - {elo} {tier}\n"
+        
+        embed.description = desc
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="history", description="View duel history")
+    @app_commands.describe(member="Member to check (leave empty for yourself)")
+    async def elo_history(self, interaction: discord.Interaction, member: discord.Member = None):
+        """View your duel history"""
+        target = member or interaction.user
+        history = get_duel_history(target.id, 10)
+        
+        if not history:
+            return await interaction.response.send_message(f"❌ {target.display_name} has no duel history yet!")
+        
+        embed = discord.Embed(
+            title=f"📜 {target.display_name}'s Duel History",
+            color=0x3498db
+        )
+        
+        desc = ""
+        for duel in history:
+            is_winner = duel["winner"] == str(target.id)
+            result = "🏆 WIN" if is_winner else "💀 LOSS"
+            
+            opponent_id = duel["loser"] if is_winner else duel["winner"]
+            opponent = interaction.guild.get_member(int(opponent_id))
+            opponent_name = opponent.display_name if opponent else f"User"
+            
+            if is_winner:
+                elo_change = f"+{duel['winner_elo_after'] - duel['winner_elo_before']}"
+            else:
+                elo_change = f"{duel['loser_elo_after'] - duel['loser_elo_before']}"
+            
+            desc += f"{result} vs **{opponent_name}** ({elo_change})\n"
+        
+        embed.description = desc
+        embed.set_thumbnail(url=target.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="reset", description="Admin: Reset all ELO ratings")
+    @app_commands.describe(confirm="Type 'confirm' to reset all ELO")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def elo_reset(self, interaction: discord.Interaction, confirm: str = None):
+        """Reset all ELO ratings - Admin only"""
+        if confirm != "confirm":
+            return await interaction.response.send_message(
+                "⚠️ This will reset ALL ELO ratings!\nUse `/elo reset confirm` to confirm.",
+                ephemeral=True
+            )
+        
+        data = load_duels_data()
+        data["elo"] = {}
+        data["duel_history"] = []
+        save_duels_data(data)
+        
+        await interaction.response.send_message("✅ All ELO ratings have been reset!")
+
+
+class InactivityCommands(commands.GroupCog, name="inactivity"):
+    """Inactivity management commands"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        super().__init__()
+    
+    @app_commands.command(name="check", description="Staff: Run inactivity check on all ranked members")
+    async def inactivity_check(self, interaction: discord.Interaction):
+        """Run inactivity check on all ranked members"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        await interaction.response.defer()
+        
+        results = await run_inactivity_check(interaction.guild)
+        
+        embed = discord.Embed(
+            title="📋 Inactivity Check Complete",
+            color=0xe74c3c if results["strikes_given"] > 0 else 0x2ecc71
+        )
+        embed.add_field(name="👥 Checked", value=str(results["checked"]), inline=True)
+        embed.add_field(name="⚠️ Strikes", value=str(results["strikes_given"]), inline=True)
+        embed.add_field(name="⬇️ Demotions", value=str(results["demotions"]), inline=True)
+        embed.add_field(name="🚪 Kicks", value=str(results["kicks"]), inline=True)
+        
+        await interaction.followup.send(embed=embed)
+    
+    @app_commands.command(name="strikes", description="Check inactivity strikes for a user")
+    @app_commands.describe(member="Member to check (leave empty for yourself)")
+    async def inactivity_strikes(self, interaction: discord.Interaction, member: discord.Member = None):
+        """Check inactivity strikes for a user"""
+        target = member or interaction.user
+        
+        strike_info = get_inactivity_strikes(target.id)
+        current_rank = get_member_rank(target)
+        
+        embed = discord.Embed(
+            title=f"⚠️ Inactivity Strikes - {target.display_name}",
+            color=0xe74c3c if strike_info["count"] > 0 else 0x2ecc71
+        )
+        
+        strike_bar = "🔴" * strike_info["count"] + "⚪" * (MAX_INACTIVITY_STRIKES - strike_info["count"])
+        embed.add_field(name="Strikes", value=f"{strike_bar}\n**{strike_info['count']}/{MAX_INACTIVITY_STRIKES}**", inline=False)
+        
+        if current_rank:
+            embed.add_field(name="Current Rank", value=current_rank, inline=True)
+        
+        if strike_info["history"]:
+            recent = strike_info["history"][-3:]
+            history_text = "\n".join([f"• {s['reason']} ({s['date'][:10]})" for s in recent])
+            embed.add_field(name="Recent Strikes", value=history_text, inline=False)
+        
+        embed.set_thumbnail(url=target.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="add", description="Staff: Add an inactivity strike to a user")
+    @app_commands.describe(member="Member to strike", reason="Reason for strike")
+    async def inactivity_add(self, interaction: discord.Interaction, member: discord.Member, reason: str = "Manual strike by staff"):
+        """Add an inactivity strike to a user"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        new_count = add_inactivity_strike(member.id, reason)
+        
+        embed = discord.Embed(
+            title="⚠️ Inactivity Strike Added",
+            description=f"{member.mention} now has **{new_count}** strikes.",
+            color=0xe74c3c
+        )
+        embed.add_field(name="Reason", value=reason, inline=False)
+        embed.add_field(name="Added by", value=interaction.user.mention, inline=True)
+        
+        await interaction.response.send_message(embed=embed)
+        await send_inactivity_strike_dm(member, new_count)
+    
+    @app_commands.command(name="remove", description="Staff: Remove an inactivity strike from a user")
+    @app_commands.describe(member="Member to remove strike from")
+    async def inactivity_remove(self, interaction: discord.Interaction, member: discord.Member):
+        """Remove an inactivity strike from a user"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        new_count = remove_inactivity_strike(member.id)
+        
+        embed = discord.Embed(
+            title="✅ Inactivity Strike Removed",
+            description=f"{member.mention} now has **{new_count}** strikes.",
+            color=0x2ecc71
+        )
+        embed.add_field(name="Removed by", value=interaction.user.mention, inline=True)
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="clear", description="Admin: Clear all inactivity strikes from a user")
+    @app_commands.describe(member="Member to clear strikes from")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def inactivity_clear(self, interaction: discord.Interaction, member: discord.Member):
+        """Clear all inactivity strikes from a user"""
+        clear_inactivity_strikes(member.id)
+        
+        embed = discord.Embed(
+            title="✅ Strikes Cleared",
+            description=f"All inactivity strikes cleared for {member.mention}.",
+            color=0x2ecc71
+        )
+        embed.add_field(name="Cleared by", value=interaction.user.mention, inline=True)
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="list", description="Staff: Show all members with inactivity strikes")
+    async def inactivity_list(self, interaction: discord.Interaction):
+        """Show all members with inactivity strikes"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        data = load_inactivity_data()
+        striked_members = []
+        
+        for uid, info in data.get("strikes", {}).items():
+            if info.get("count", 0) > 0:
+                member = interaction.guild.get_member(int(uid))
+                if member:
+                    striked_members.append((member, info["count"]))
+        
+        striked_members.sort(key=lambda x: x[1], reverse=True)
+        
+        if not striked_members:
+            return await interaction.response.send_message("✅ No members currently have inactivity strikes!")
+        
+        embed = discord.Embed(
+            title="⚠️ Members with Inactivity Strikes",
+            color=0xe74c3c
+        )
+        
+        desc = ""
+        for member, count in striked_members[:20]:
+            strike_bar = "🔴" * count + "⚪" * (MAX_INACTIVITY_STRIKES - count)
+            desc += f"{member.mention} - {strike_bar} ({count})\n"
+        
+        embed.description = desc
+        embed.set_footer(text=f"Total: {len(striked_members)} members with strikes")
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="setdays", description="Admin: Set days of inactivity before strike")
+    @app_commands.describe(days="Number of days (1-90)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def inactivity_setdays(self, interaction: discord.Interaction, days: int):
+        """Set the number of days before inactivity strike"""
+        global INACTIVITY_CHECK_DAYS
+        
+        if days < 1 or days > 90:
+            return await interaction.response.send_message("❌ Days must be between 1 and 90.", ephemeral=True)
+        
+        INACTIVITY_CHECK_DAYS = days
+        await interaction.response.send_message(f"✅ Inactivity threshold set to **{days} days**.")
+
+
+class ImmunityCommands(commands.GroupCog, name="immunity"):
+    """Inactivity immunity commands"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        super().__init__()
+    
+    @app_commands.command(name="add", description="Staff: Give inactivity immunity to a member")
+    @app_commands.describe(member="Member to give immunity", reason="Reason for immunity")
+    async def immunity_add(self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"):
+        """Give a member immunity from inactivity checks"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        immunity_role = discord.utils.get(interaction.guild.roles, name=INACTIVITY_IMMUNITY_ROLE)
+        
+        if not immunity_role:
+            return await interaction.response.send_message(
+                f"❌ Role **{INACTIVITY_IMMUNITY_ROLE}** not found!\nPlease create it first.",
+                ephemeral=True
+            )
+        
+        if immunity_role in member.roles:
+            return await interaction.response.send_message(f"❌ {member.mention} already has immunity!", ephemeral=True)
+        
+        await safe_add_role(member, immunity_role)
+        
+        embed = discord.Embed(
+            title="🛡️ Inactivity Immunity Granted",
+            description=f"{member.mention} is now **immune** to inactivity checks.",
+            color=0x2ecc71
+        )
+        embed.add_field(name="📝 Reason", value=reason, inline=False)
+        embed.add_field(name="👤 Granted by", value=interaction.user.mention, inline=True)
+        
+        await interaction.response.send_message(embed=embed)
+        
+        try:
+            dm_embed = discord.Embed(
+                title="🛡️ Inactivity Immunity Granted",
+                description=f"You've been given **inactivity immunity** in **{interaction.guild.name}**.\n\n**Reason:** {reason}",
+                color=0x2ecc71
+            )
+            await member.send(embed=dm_embed)
+        except:
+            pass
+    
+    @app_commands.command(name="remove", description="Staff: Remove inactivity immunity from a member")
+    @app_commands.describe(member="Member to remove immunity from")
+    async def immunity_remove(self, interaction: discord.Interaction, member: discord.Member):
+        """Remove immunity from a member"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        immunity_role = discord.utils.get(interaction.guild.roles, name=INACTIVITY_IMMUNITY_ROLE)
+        
+        if not immunity_role:
+            return await interaction.response.send_message(f"❌ Role **{INACTIVITY_IMMUNITY_ROLE}** not found!", ephemeral=True)
+        
+        if immunity_role not in member.roles:
+            return await interaction.response.send_message(f"❌ {member.mention} doesn't have immunity!", ephemeral=True)
+        
+        await safe_remove_role(member, immunity_role)
+        reset_member_activity(member.id)
+        
+        embed = discord.Embed(
+            title="🛡️ Inactivity Immunity Removed",
+            description=f"{member.mention}'s immunity has been **removed**.\nActivity timer reset.",
+            color=0xe74c3c
+        )
+        embed.add_field(name="👤 Removed by", value=interaction.user.mention, inline=True)
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="list", description="Staff: View all members with inactivity immunity")
+    async def immunity_list(self, interaction: discord.Interaction):
+        """View all members with immunity"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        immunity_role = discord.utils.get(interaction.guild.roles, name=INACTIVITY_IMMUNITY_ROLE)
+        
+        if not immunity_role:
+            return await interaction.response.send_message(f"❌ Role **{INACTIVITY_IMMUNITY_ROLE}** not found!", ephemeral=True)
+        
+        members_with_immunity = [m for m in interaction.guild.members if immunity_role in m.roles]
+        
+        if not members_with_immunity:
+            embed = discord.Embed(
+                title="🛡️ Immunity List",
+                description="No members currently have inactivity immunity.",
+                color=0x95a5a6
+            )
+        else:
+            member_list = "\n".join([f"• {m.mention}" for m in members_with_immunity[:20]])
+            embed = discord.Embed(
+                title="🛡️ Immunity List",
+                description=f"**{len(members_with_immunity)} members** have immunity:\n\n{member_list}",
+                color=0x3498db
+            )
+        
+        await interaction.response.send_message(embed=embed)
+
+
+class EventCommands(commands.GroupCog, name="event"):
+    """Event management commands"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        super().__init__()
+    
+    @app_commands.command(name="create", description="Staff: Create a training or tryout event")
+    @app_commands.describe(event_type="Type of event", title="Event title", time="When it starts (e.g., 6PM GMT)")
+    @app_commands.choices(event_type=[
+        app_commands.Choice(name="Training", value="training"),
+        app_commands.Choice(name="Tryout", value="tryout"),
+    ])
+    async def event_create(self, interaction: discord.Interaction, event_type: str, title: str, time: str):
+        """Create a scheduled event with RSVP and reminders"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+        
+        event = create_event(
+            event_type=event_type.lower(),
+            title=title,
+            scheduled_time=scheduled_time.isoformat(),
+            host_id=interaction.user.id,
+            channel_id=interaction.channel.id
+        )
+        
+        ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
+        ping_role = discord.utils.get(interaction.guild.roles, name=ping_role_name)
+        
+        embed = await create_event_embed(event, interaction.guild)
+        
+        ping_text = ping_role.mention if ping_role else ""
+        await interaction.response.send_message(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
+    
+    @app_commands.command(name="list", description="View upcoming events")
+    async def event_list(self, interaction: discord.Interaction):
+        """View all upcoming scheduled events"""
+        events = get_upcoming_events(10)
+        
+        if not events:
+            embed = discord.Embed(
+                title="📅 Upcoming Events",
+                description="No events scheduled!",
+                color=0x95a5a6
+            )
+            return await interaction.response.send_message(embed=embed)
+        
+        embed = discord.Embed(title="📅 Upcoming Events", color=0x3498db)
+        
+        for event in events:
+            emoji = "📚" if event["type"] == "training" else "🎯"
+            host = interaction.guild.get_member(int(event["host_id"]))
+            host_name = host.display_name if host else "Unknown"
+            rsvp_count = len(event.get("rsvp_yes", []))
+            
+            embed.add_field(
+                name=f"{emoji} {event['title']}",
+                value=f"**Host:** {host_name}\n**RSVPs:** {rsvp_count}",
+                inline=False
+            )
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="cancel", description="Staff: Cancel a scheduled event")
+    @app_commands.describe(event_id="Event ID to cancel")
+    async def event_cancel(self, interaction: discord.Interaction, event_id: str):
+        """Cancel a scheduled event"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        event = cancel_event(event_id)
+        
+        if not event:
+            return await interaction.response.send_message("❌ Event not found!", ephemeral=True)
+        
+        await interaction.response.send_message(f"✅ Event **{event['title']}** has been cancelled.")
+
+
+class RosterCommands(commands.GroupCog, name="roster"):
+    """Clan roster commands"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        super().__init__()
+    
+    @app_commands.command(name="setup", description="Admin: Set up the clan roster panel")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roster_setup(self, interaction: discord.Interaction):
+        """Set up the clan roster panel"""
+        await update_roster_panel(interaction.guild, interaction.channel)
+        await interaction.response.send_message("✅ Roster panel created/updated!", ephemeral=True)
+    
+    @app_commands.command(name="add", description="Admin: Add member to clan roster")
+    @app_commands.describe(member="Member to add", rank="Their rank/role")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roster_add(self, interaction: discord.Interaction, member: discord.Member, rank: str):
+        """Add a member to the roster"""
+        data = load_data()
+        if "roster" not in data:
+            data["roster"] = {"members": [], "title": "THE FALLEN", "description": "Official Clan Roster"}
+        
+        for m in data["roster"]["members"]:
+            if m["id"] == str(member.id):
+                return await interaction.response.send_message("❌ Member already in roster!", ephemeral=True)
+        
+        data["roster"]["members"].append({
+            "id": str(member.id),
+            "name": member.display_name,
+            "rank": rank,
+            "added": datetime.datetime.now().isoformat()
+        })
+        save_data(data)
+        
+        await interaction.response.send_message(f"✅ Added **{member.display_name}** to roster as **{rank}**")
+    
+    @app_commands.command(name="remove", description="Admin: Remove member from clan roster")
+    @app_commands.describe(member="Member to remove")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def roster_remove(self, interaction: discord.Interaction, member: discord.Member):
+        """Remove a member from the roster"""
+        data = load_data()
+        if "roster" not in data:
+            return await interaction.response.send_message("❌ No roster exists!", ephemeral=True)
+        
+        data["roster"]["members"] = [m for m in data["roster"]["members"] if m["id"] != str(member.id)]
+        save_data(data)
+        
+        await interaction.response.send_message(f"✅ Removed **{member.display_name}** from roster")
+    
+    @app_commands.command(name="list", description="View all roster members")
+    async def roster_list(self, interaction: discord.Interaction):
+        """View all roster members"""
+        data = load_data()
+        roster = data.get("roster", {}).get("members", [])
+        
+        if not roster:
+            return await interaction.response.send_message("❌ Roster is empty!")
+        
+        embed = discord.Embed(
+            title=data.get("roster", {}).get("title", "Clan Roster"),
+            color=0x8B0000
+        )
+        
+        desc = ""
+        for m in roster[:25]:
+            member = interaction.guild.get_member(int(m["id"]))
+            name = member.display_name if member else m.get("name", "Unknown")
+            desc += f"• **{name}** - {m.get('rank', 'Member')}\n"
+        
+        embed.description = desc
+        embed.set_footer(text=f"Total: {len(roster)} members")
+        
+        await interaction.response.send_message(embed=embed)
+
+
+class TournamentCommands(commands.GroupCog, name="tournament"):
+    """Tournament management commands"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        super().__init__()
+    
+    @app_commands.command(name="create", description="Admin: Create a new tournament")
+    @app_commands.describe(name="Tournament name", channel="Channel to post panel (optional)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def tournament_create(self, interaction: discord.Interaction, name: str, channel: discord.TextChannel = None):
+        """Create a new tournament with panel"""
+        target_channel = channel or interaction.channel
+        
+        data = load_tournaments_data()
+        
+        if data.get("active") and data["active"].get("status") == "active":
+            return await interaction.response.send_message("❌ A tournament is already active!", ephemeral=True)
+        
+        tournament_id = f"tournament_{int(datetime.datetime.now().timestamp())}"
+        
+        data["active"] = {
+            "id": tournament_id,
+            "name": name,
+            "participants": [],
+            "bracket": None,
+            "status": "registration",
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "winner": None
+        }
+        save_tournaments_data(data)
+        
+        embed = discord.Embed(
+            title=f"🏆 {name.upper()}",
+            description="**Registration is OPEN!**\n\nClick the buttons below to join or leave.\nStaff can manage the tournament with the Staff button.",
+            color=0xFFD700
+        )
+        embed.add_field(name="📊 Status", value="Registration Open", inline=True)
+        embed.add_field(name="👥 Participants", value="0", inline=True)
+        embed.set_footer(text=f"Tournament ID: {tournament_id}")
+        
+        await target_channel.send(embed=embed, view=TournamentPanelView())
+        await interaction.response.send_message(f"✅ Tournament **{name}** created in {target_channel.mention}!", ephemeral=True)
+    
+    @app_commands.command(name="panel", description="Admin: Re-post the tournament panel")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def tournament_panel(self, interaction: discord.Interaction):
+        """Re-post the tournament panel"""
+        data = load_tournaments_data()
+        
+        if not data.get("active"):
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        tournament = data["active"]
+        
+        embed = discord.Embed(
+            title=f"🏆 {tournament['name'].upper()}",
+            description="Click the buttons below to interact with the tournament.",
+            color=0xFFD700
+        )
+        embed.add_field(name="📊 Status", value=tournament["status"].title(), inline=True)
+        embed.add_field(name="👥 Participants", value=str(len(tournament["participants"])), inline=True)
+        
+        await interaction.response.send_message(embed=embed, view=TournamentPanelView())
+    
+    @app_commands.command(name="end", description="Admin: End the current tournament")
+    @app_commands.describe(confirm="Type 'confirm' to end")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def tournament_end(self, interaction: discord.Interaction, confirm: str = None):
+        """End the current tournament"""
+        if confirm != "confirm":
+            return await interaction.response.send_message(
+                "⚠️ This will end the tournament!\nUse `/tournament end confirm` to confirm.",
+                ephemeral=True
+            )
+        
+        data = load_tournaments_data()
+        
+        if not data.get("active"):
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        # Archive
+        if "history" not in data:
+            data["history"] = []
+        data["history"].append(data["active"])
+        data["active"] = None
+        save_tournaments_data(data)
+        
+        await interaction.response.send_message("✅ Tournament ended and archived!")
+
+
+class LevelCommands(commands.GroupCog, name="lvl"):
+    """Level management commands for staff"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        super().__init__()
+    
+    @app_commands.command(name="set", description="Staff: Set a user's level directly")
+    @app_commands.describe(member="Member to set level for", level="Level to set (0-500)")
+    async def level_set(self, interaction: discord.Interaction, member: discord.Member, level: int):
+        """Set a user's level directly"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        if level < 0 or level > 500:
+            return await interaction.response.send_message("❌ Level must be between 0 and 500.", ephemeral=True)
+        
+        total_xp = get_total_xp_for_level(level)
+        
+        data = load_data()
+        uid = str(member.id)
+        data = ensure_user_structure(data, uid)
+        
+        old_level = data["users"][uid]["level"]
+        
+        data["users"][uid]["xp"] = total_xp
+        data["users"][uid]["level"] = level
+        save_data(data)
+        
+        embed = discord.Embed(
+            title="📊 Level Set",
+            description=f"{member.mention}: Level {old_level} → Level **{level}**",
+            color=0x2ecc71
+        )
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="setxp", description="Staff: Set a user's total XP directly")
+    @app_commands.describe(member="Member to set XP for", total_xp="Total XP to set")
+    async def level_setxp(self, interaction: discord.Interaction, member: discord.Member, total_xp: int):
+        """Set a user's total XP directly"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        if total_xp < 0:
+            return await interaction.response.send_message("❌ XP cannot be negative.", ephemeral=True)
+        
+        new_level, _ = get_level_from_xp(total_xp)
+        
+        data = load_data()
+        uid = str(member.id)
+        data = ensure_user_structure(data, uid)
+        
+        old_level = data["users"][uid]["level"]
+        
+        data["users"][uid]["xp"] = total_xp
+        data["users"][uid]["level"] = new_level
+        save_data(data)
+        
+        embed = discord.Embed(
+            title="✨ XP Set",
+            description=f"{member.mention}: {total_xp:,} XP → Level **{new_level}**",
+            color=0x2ecc71
+        )
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="import", description="Staff: Import level from Arcane bot")
+    @app_commands.describe(member="Member to import", arcane_level="Their Arcane level", arcane_xp="XP into current level (optional)")
+    async def level_import(self, interaction: discord.Interaction, member: discord.Member, arcane_level: int, arcane_xp: int = 0):
+        """Import a user's level from Arcane bot"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        total_xp = get_total_xp_for_level(arcane_level) + arcane_xp
+        new_level, _ = get_level_from_xp(total_xp)
+        
+        data = load_data()
+        uid = str(member.id)
+        data = ensure_user_structure(data, uid)
+        
+        data["users"][uid]["xp"] = total_xp
+        data["users"][uid]["level"] = new_level
+        save_data(data)
+        
+        embed = discord.Embed(
+            title="📥 Arcane Import Complete",
+            description=f"{member.mention}: Arcane Level {arcane_level} → Fallen Level **{new_level}**",
+            color=0x9b59b6
+        )
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="add", description="Staff: Add XP to a user")
+    @app_commands.describe(member="Member to add XP to", amount="Amount of XP to add")
+    async def level_addxp(self, interaction: discord.Interaction, member: discord.Member, amount: int):
+        """Add XP to a user"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        new_xp = add_xp_to_user(member.id, amount)
+        await check_level_up(member.id, interaction.guild)
+        
+        await interaction.response.send_message(f"✅ Added **{amount:,} XP** to {member.mention}. Total: **{new_xp:,} XP**")
+
+
+# Add cogs to bot
+async def setup_cogs():
+    await bot.add_cog(EloCommands(bot))
+    await bot.add_cog(InactivityCommands(bot))
+    await bot.add_cog(ImmunityCommands(bot))
+    await bot.add_cog(EventCommands(bot))
+    await bot.add_cog(RosterCommands(bot))
+    await bot.add_cog(TournamentCommands(bot))
+    await bot.add_cog(LevelCommands(bot))
+
 @bot.event
 async def on_ready():
     print("=" * 50)
@@ -6563,6 +7301,12 @@ async def on_ready():
     if fixed_count > 0:
         save_data(data)
         print(f"✅ Repaired {fixed_count} user profiles.")
+    
+    # Setup subcommand cogs
+    if not hasattr(bot, 'cogs_loaded'):
+        await setup_cogs()
+        bot.cogs_loaded = True
+        print("✅ Subcommand groups loaded!")
     
     # Auto-sync slash commands on startup
     try:
