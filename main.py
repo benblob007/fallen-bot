@@ -3110,6 +3110,447 @@ class TournamentReportModal(discord.ui.Modal, title="Report Tournament Match"):
             await interaction.response.send_message("❌ Invalid input!", ephemeral=True)
 
 # ==========================================
+# EVENT SCHEDULING SYSTEM (Trainings, Tryouts)
+# ==========================================
+
+EVENTS_FILE = "events_data.json"
+TRAINING_PING_ROLE = "Training Ping"
+TRYOUT_PING_ROLE = "Tryout Ping"
+
+# Attendance Rewards
+ATTENDANCE_REWARDS = {
+    "training": {"coins": 100, "xp": 50},
+    "tryout": {"coins": 150, "xp": 75},
+    "host": {"coins": 300, "xp": 100}
+}
+
+# Streak Bonuses (attendance streak -> bonus coins)
+STREAK_BONUSES = {
+    3: 50,    # 3 events in a row = +50 bonus
+    5: 100,   # 5 events = +100 bonus
+    7: 200,   # 7 events = +200 bonus
+    10: 500,  # 10 events = +500 bonus
+}
+
+def load_events_data():
+    try:
+        with open(EVENTS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"scheduled_events": [], "attendance_streaks": {}, "attendance_history": {}}
+
+def save_events_data(data):
+    with open(EVENTS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def create_event(event_type, title, scheduled_time, host_id, ping_role=None, channel_id=None):
+    """Create a new scheduled event"""
+    data = load_events_data()
+    
+    event_id = f"event_{int(datetime.datetime.now().timestamp())}"
+    
+    event = {
+        "id": event_id,
+        "type": event_type,  # "training" or "tryout"
+        "title": title,
+        "scheduled_time": scheduled_time,  # ISO format datetime
+        "host_id": str(host_id),
+        "ping_role": ping_role,
+        "channel_id": str(channel_id) if channel_id else None,
+        "message_id": None,  # Will store the announcement message ID
+        "rsvp_yes": [],
+        "rsvp_maybe": [],
+        "attendees": [],  # Logged after event
+        "status": "scheduled",  # scheduled, active, completed, cancelled
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "reminder_30_sent": False,
+        "reminder_5_sent": False
+    }
+    
+    data["scheduled_events"].append(event)
+    save_events_data(data)
+    return event
+
+def get_event(event_id):
+    """Get an event by ID"""
+    data = load_events_data()
+    for event in data["scheduled_events"]:
+        if event["id"] == event_id:
+            return event
+    return None
+
+def update_event(event_id, updates):
+    """Update an event"""
+    data = load_events_data()
+    for i, event in enumerate(data["scheduled_events"]):
+        if event["id"] == event_id:
+            data["scheduled_events"][i].update(updates)
+            save_events_data(data)
+            return True
+    return False
+
+def add_rsvp(event_id, user_id, response):
+    """Add RSVP response (yes/maybe)"""
+    data = load_events_data()
+    uid = str(user_id)
+    
+    for event in data["scheduled_events"]:
+        if event["id"] == event_id:
+            # Remove from other list if exists
+            if uid in event["rsvp_yes"]:
+                event["rsvp_yes"].remove(uid)
+            if uid in event["rsvp_maybe"]:
+                event["rsvp_maybe"].remove(uid)
+            
+            # Add to appropriate list
+            if response == "yes":
+                event["rsvp_yes"].append(uid)
+            elif response == "maybe":
+                event["rsvp_maybe"].append(uid)
+            
+            save_events_data(data)
+            return True
+    return False
+
+def remove_rsvp(event_id, user_id):
+    """Remove RSVP"""
+    data = load_events_data()
+    uid = str(user_id)
+    
+    for event in data["scheduled_events"]:
+        if event["id"] == event_id:
+            if uid in event["rsvp_yes"]:
+                event["rsvp_yes"].remove(uid)
+            if uid in event["rsvp_maybe"]:
+                event["rsvp_maybe"].remove(uid)
+            save_events_data(data)
+            return True
+    return False
+
+def log_attendance(event_id, attendee_ids, host_id):
+    """Log attendance for an event and award rewards"""
+    data = load_events_data()
+    
+    event = None
+    for e in data["scheduled_events"]:
+        if e["id"] == event_id:
+            event = e
+            break
+    
+    if not event:
+        return None
+    
+    event_type = event["type"]
+    rewards_given = []
+    
+    # Award attendees
+    for uid in attendee_ids:
+        uid = str(uid)
+        rewards = ATTENDANCE_REWARDS.get(event_type, {"coins": 50, "xp": 25})
+        
+        # Add base rewards
+        add_user_stat(int(uid), "coins", rewards["coins"])
+        add_xp_to_user(int(uid), rewards["xp"])
+        add_user_stat(int(uid), f"{event_type}_attendance", 1)
+        
+        # Update streak
+        streak = update_attendance_streak(uid)
+        streak_bonus = get_streak_bonus(streak)
+        
+        if streak_bonus > 0:
+            add_user_stat(int(uid), "coins", streak_bonus)
+        
+        rewards_given.append({
+            "user_id": uid,
+            "coins": rewards["coins"] + streak_bonus,
+            "xp": rewards["xp"],
+            "streak": streak,
+            "streak_bonus": streak_bonus
+        })
+    
+    # Award host
+    host_rewards = ATTENDANCE_REWARDS.get("host", {"coins": 300, "xp": 100})
+    add_user_stat(int(host_id), "coins", host_rewards["coins"])
+    add_xp_to_user(int(host_id), host_rewards["xp"])
+    add_user_stat(int(host_id), "events_hosted", 1)
+    
+    # Update event status
+    event["attendees"] = [str(uid) for uid in attendee_ids]
+    event["status"] = "completed"
+    save_events_data(data)
+    
+    return {
+        "event": event,
+        "attendees": rewards_given,
+        "host_rewards": host_rewards
+    }
+
+def update_attendance_streak(user_id):
+    """Update user's attendance streak"""
+    data = load_events_data()
+    uid = str(user_id)
+    
+    if "attendance_streaks" not in data:
+        data["attendance_streaks"] = {}
+    
+    if uid not in data["attendance_streaks"]:
+        data["attendance_streaks"][uid] = {"current": 0, "best": 0, "last_event": None}
+    
+    streak_data = data["attendance_streaks"][uid]
+    streak_data["current"] += 1
+    
+    if streak_data["current"] > streak_data["best"]:
+        streak_data["best"] = streak_data["current"]
+    
+    streak_data["last_event"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    save_events_data(data)
+    
+    return streak_data["current"]
+
+def break_attendance_streak(user_id):
+    """Break user's attendance streak (missed event)"""
+    data = load_events_data()
+    uid = str(user_id)
+    
+    if "attendance_streaks" not in data:
+        data["attendance_streaks"] = {}
+    
+    if uid in data["attendance_streaks"]:
+        data["attendance_streaks"][uid]["current"] = 0
+        save_events_data(data)
+
+def get_attendance_streak(user_id):
+    """Get user's current attendance streak"""
+    data = load_events_data()
+    uid = str(user_id)
+    
+    if "attendance_streaks" not in data:
+        return {"current": 0, "best": 0}
+    
+    return data["attendance_streaks"].get(uid, {"current": 0, "best": 0})
+
+def get_streak_bonus(streak):
+    """Get bonus coins for streak milestone"""
+    bonus = 0
+    for milestone, coins in STREAK_BONUSES.items():
+        if streak == milestone:
+            bonus = coins
+            break
+    return bonus
+
+def get_upcoming_events(limit=10):
+    """Get upcoming scheduled events"""
+    data = load_events_data()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    
+    upcoming = []
+    for event in data["scheduled_events"]:
+        if event["status"] == "scheduled":
+            try:
+                event_time = datetime.datetime.fromisoformat(event["scheduled_time"])
+                if event_time.tzinfo is None:
+                    event_time = event_time.replace(tzinfo=datetime.timezone.utc)
+                if event_time > now:
+                    upcoming.append(event)
+            except:
+                pass
+    
+    # Sort by time
+    upcoming.sort(key=lambda x: x["scheduled_time"])
+    return upcoming[:limit]
+
+def get_events_needing_reminder():
+    """Get events that need reminders sent"""
+    data = load_events_data()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    
+    needs_30 = []
+    needs_5 = []
+    
+    for event in data["scheduled_events"]:
+        if event["status"] != "scheduled":
+            continue
+        
+        try:
+            event_time = datetime.datetime.fromisoformat(event["scheduled_time"])
+            if event_time.tzinfo is None:
+                event_time = event_time.replace(tzinfo=datetime.timezone.utc)
+            
+            time_until = (event_time - now).total_seconds() / 60  # minutes
+            
+            if 25 <= time_until <= 35 and not event.get("reminder_30_sent"):
+                needs_30.append(event)
+            elif 3 <= time_until <= 7 and not event.get("reminder_5_sent"):
+                needs_5.append(event)
+        except:
+            pass
+    
+    return needs_30, needs_5
+
+def cancel_event(event_id):
+    """Cancel an event"""
+    data = load_events_data()
+    for event in data["scheduled_events"]:
+        if event["id"] == event_id:
+            event["status"] = "cancelled"
+            save_events_data(data)
+            return event
+    return None
+
+# Event RSVP View
+class EventRSVPView(discord.ui.View):
+    def __init__(self, event_id):
+        super().__init__(timeout=None)
+        self.event_id = event_id
+    
+    @discord.ui.button(label="✅ Attending", style=discord.ButtonStyle.success, custom_id="event_rsvp_yes")
+    async def rsvp_yes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        add_rsvp(self.event_id, interaction.user.id, "yes")
+        await interaction.response.send_message("✅ You're marked as **attending**!", ephemeral=True)
+        await self.update_embed(interaction)
+    
+    @discord.ui.button(label="❓ Maybe", style=discord.ButtonStyle.secondary, custom_id="event_rsvp_maybe")
+    async def rsvp_maybe(self, interaction: discord.Interaction, button: discord.ui.Button):
+        add_rsvp(self.event_id, interaction.user.id, "maybe")
+        await interaction.response.send_message("❓ You're marked as **maybe**.", ephemeral=True)
+        await self.update_embed(interaction)
+    
+    @discord.ui.button(label="❌ Can't Attend", style=discord.ButtonStyle.danger, custom_id="event_rsvp_no")
+    async def rsvp_no(self, interaction: discord.Interaction, button: discord.ui.Button):
+        remove_rsvp(self.event_id, interaction.user.id)
+        await interaction.response.send_message("❌ Your RSVP has been removed.", ephemeral=True)
+        await self.update_embed(interaction)
+    
+    async def update_embed(self, interaction):
+        """Update the event embed with current RSVPs"""
+        event = get_event(self.event_id)
+        if not event:
+            return
+        
+        embed = await create_event_embed(event, interaction.guild)
+        try:
+            await interaction.message.edit(embed=embed)
+        except:
+            pass
+
+async def create_event_embed(event, guild):
+    """Create embed for an event"""
+    event_type = event["type"]
+    emoji = "📚" if event_type == "training" else "🎯"
+    color = 0x3498db if event_type == "training" else 0xF1C40F
+    
+    # Parse time
+    try:
+        event_time = datetime.datetime.fromisoformat(event["scheduled_time"])
+        time_str = f"<t:{int(event_time.timestamp())}:F>"  # Discord timestamp
+        relative_str = f"<t:{int(event_time.timestamp())}:R>"  # Relative time
+    except:
+        time_str = event["scheduled_time"]
+        relative_str = ""
+    
+    # Get host
+    host = guild.get_member(int(event["host_id"]))
+    host_str = host.mention if host else "Unknown"
+    
+    # Get rewards
+    rewards = ATTENDANCE_REWARDS.get(event_type, {"coins": 50, "xp": 25})
+    
+    embed = discord.Embed(
+        title=f"{emoji} {event['title'].upper()}",
+        description=(
+            f"**📅 When:** {time_str}\n"
+            f"**⏰ Starts:** {relative_str}\n"
+            f"**👑 Host:** {host_str}\n\n"
+            f"**💰 Rewards:**\n"
+            f"• {rewards['coins']} Fallen Coins\n"
+            f"• {rewards['xp']} XP\n"
+            f"• Attendance streak bonus!"
+        ),
+        color=color
+    )
+    
+    # RSVP counts
+    yes_count = len(event.get("rsvp_yes", []))
+    maybe_count = len(event.get("rsvp_maybe", []))
+    
+    rsvp_text = f"✅ **Attending:** {yes_count}\n❓ **Maybe:** {maybe_count}"
+    
+    # Show names if not too many
+    if yes_count > 0 and yes_count <= 10:
+        names = []
+        for uid in event["rsvp_yes"][:10]:
+            member = guild.get_member(int(uid))
+            if member:
+                names.append(member.display_name)
+        if names:
+            rsvp_text += f"\n\n**Confirmed:** {', '.join(names)}"
+    
+    embed.add_field(name="📋 RSVPs", value=rsvp_text, inline=False)
+    embed.set_footer(text=f"Event ID: {event['id']} • Click a button to RSVP!")
+    
+    return embed
+
+# Background task for event reminders
+async def check_event_reminders():
+    """Check and send event reminders"""
+    await bot.wait_until_ready()
+    await asyncio.sleep(60)  # Wait 1 minute after startup
+    
+    while not bot.is_closed():
+        try:
+            needs_30, needs_5 = get_events_needing_reminder()
+            
+            for event in needs_30:
+                await send_event_reminder(event, 30)
+                update_event(event["id"], {"reminder_30_sent": True})
+                await asyncio.sleep(1)
+            
+            for event in needs_5:
+                await send_event_reminder(event, 5)
+                update_event(event["id"], {"reminder_5_sent": True})
+                await asyncio.sleep(1)
+        except Exception as e:
+            print(f"Event reminder error: {e}")
+        
+        await asyncio.sleep(60)  # Check every minute
+
+async def send_event_reminder(event, minutes):
+    """Send a reminder for an event"""
+    for guild in bot.guilds:
+        if event.get("channel_id"):
+            channel = guild.get_channel(int(event["channel_id"]))
+        else:
+            channel = discord.utils.get(guild.text_channels, name="trainings") or \
+                     discord.utils.get(guild.text_channels, name="events") or \
+                     discord.utils.get(guild.text_channels, name="general")
+        
+        if not channel:
+            continue
+        
+        event_type = event["type"]
+        emoji = "📚" if event_type == "training" else "🎯"
+        ping_role_name = TRAINING_PING_ROLE if event_type == "training" else TRYOUT_PING_ROLE
+        ping_role = discord.utils.get(guild.roles, name=ping_role_name)
+        
+        if minutes == 30:
+            title = f"⏰ {emoji} {event['title']} - 30 MINUTES!"
+            desc = f"**{event['title']}** starts in **30 minutes**!\n\nMake sure you're ready!"
+        else:
+            title = f"🚨 {emoji} {event['title']} - STARTING NOW!"
+            desc = f"**{event['title']}** is starting **NOW**!\n\n**Join the voice channel!**"
+        
+        embed = discord.Embed(title=title, description=desc, color=0xff6b6b)
+        
+        # Show who RSVPd
+        if event.get("rsvp_yes"):
+            mentions = " ".join([f"<@{uid}>" for uid in event["rsvp_yes"][:15]])
+            embed.add_field(name="📋 Expected Attendees", value=mentions, inline=False)
+        
+        ping_text = ping_role.mention if ping_role else ""
+        await channel.send(content=ping_text, embed=embed)
+        break  # Only send to first guild found
+
+# ==========================================
 # INACTIVITY STRIKE SYSTEM
 # ==========================================
 
@@ -4150,13 +4591,12 @@ class HelpSelect(discord.ui.Select):
         options = [
             discord.SelectOption(label="Member", emoji="👤", description="Basic commands"),
             discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
+            discord.SelectOption(label="Events", emoji="📅", description="Trainings & tryouts"),
             discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
-            discord.SelectOption(label="Achievements", emoji="🎖️", description="Achievements & rewards"),
             discord.SelectOption(label="Economy", emoji="💰", description="Coins & rewards"),
-            discord.SelectOption(label="Tickets", emoji="🎫", description="Support tickets"),
             discord.SelectOption(label="Raids & Wars", emoji="🏴‍☠️", description="Clan battles"),
-            discord.SelectOption(label="Staff", emoji="🛡️", description="Moderation"),
+            discord.SelectOption(label="Staff", emoji="🛡️", description="Staff commands"),
             discord.SelectOption(label="Admin", emoji="⚙️", description="Setup & management"),
         ]
         super().__init__(placeholder="Select a category...", min_values=1, max_values=1, options=options)
@@ -4175,7 +4615,8 @@ class HelpSelect(discord.ui.Select):
                 "`/fcoins` - Check coin balance\n\n"
                 "**🎁 Daily**\n"
                 "`/daily` - Claim daily reward\n"
-                "`/schedule` - View events"
+                "`/schedule` - View upcoming events\n"
+                "`/attendance_streak` - View your streak"
             )
             
         elif self.values[0] == "Profile & Stats":
@@ -4243,33 +4684,37 @@ class HelpSelect(discord.ui.Select):
                 "• Verify your Roblox account"
             )
             
+        elif self.values[0] == "Events":
+            e.title="📅 Events (Trainings & Tryouts)"
+            e.description=(
+                "**👤 Member Commands**\n"
+                "`/schedule` - View upcoming events\n"
+                "`/event_list` - See all scheduled events\n"
+                "`/attendance_streak` - Check your streak\n\n"
+                "**💰 Attendance Rewards**\n"
+                "• Training: 100 coins + 50 XP\n"
+                "• Tryout: 150 coins + 75 XP\n"
+                "• Streak bonuses at 3, 5, 7, 10!\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`/event_create <type> <title> <time>`\n"
+                "`/quick_training` `/quick_tryout`\n"
+                "`/log_training` `/log_tryout` @users"
+            )
+            
         elif self.values[0] == "Economy": 
             e.title="💰 Economy"
             e.description=(
                 "**💵 Earning Coins**\n"
                 "• Chat and be active\n"
+                "• Attend trainings/tryouts\n"
                 "• Join voice channels\n"
                 "• Claim daily rewards\n"
-                "• Level up milestones\n"
                 "• Win raids & duels\n\n"
                 "**📜 Commands**\n"
                 "`/fcoins` - Check balance\n"
                 "`/daily` - Claim daily (streak bonus!)\n\n"
                 "**🛒 Shop**\n"
                 "Visit the shop channel to spend coins!"
-            )
-            
-        elif self.values[0] == "Tickets":
-            e.title="🎫 Support Tickets"
-            e.description=(
-                "**📝 Create a Ticket**\n"
-                "Go to tickets channel and click:\n"
-                "🎫 **Support** - General help\n"
-                "🚨 **Report** - Report rule breaker\n"
-                "💡 **Suggestion** - Submit idea\n\n"
-                "**📜 Commands**\n"
-                "`/close_ticket` - Close your ticket\n\n"
-                "*One open ticket at a time*"
             )
             
         elif self.values[0] == "Raids & Wars":
@@ -4289,41 +4734,39 @@ class HelpSelect(discord.ui.Select):
         elif self.values[0] == "Staff": 
             e.title="🛡️ Staff Commands"
             e.description=(
-                "**📊 XP & Economy**\n"
-                "`/addxp @user amount` - Add XP\n"
-                "`/addfcoins @user amount` - Add coins\n"
-                "`/checklevel @user` - View stats\n\n"
-                "**⚠️ Inactivity System**\n"
-                "`/inactivity_check` - Run check on ranked\n"
-                "`/inactivity_strikes @user` - View strikes\n"
-                "`/add_inactivity_strike @user` - Add strike\n"
-                "`/inactive_list` - All striked members\n\n"
-                "**⚔️ ELO Admin**\n"
-                "`/elo_reset confirm` - Reset all ELO\n\n"
+                "**📅 Events**\n"
+                "`/event_create <type> <title> <time>`\n"
+                "`/log_training` `/log_tryout` @users\n\n"
+                "**📊 Levels & Economy**\n"
+                "`/setlevel @user <lvl>` - Set level\n"
+                "`/importlevel @user <lvl>` - Import\n"
+                "`/addxp` `/addfcoins` @user amt\n\n"
+                "**⚠️ Inactivity**\n"
+                "`/inactivity_check` - Run check\n"
+                "`/inactive_list` - Striked members\n\n"
                 "**🔨 Moderation**\n"
-                "`/warn @user [reason]` - Warn user\n"
-                "`/warnings @user` - View warnings"
+                "`/warn @user [reason]`\n"
+                "`/warnings @user`"
             )
             
         elif self.values[0] == "Admin":
             e.title="⚙️ Admin Commands"
             e.description=(
                 "**📋 Setup Panels**\n"
-                "`/setup_verify` - Verification panel\n"
-                "`/setup_tickets` - Tickets panel\n"
-                "`/setup_shop` - Shop panel\n"
-                "`/tournament_create <name>` - Tournament\n"
-                "`/setup_logs` - Logging dashboard\n\n"
-                "**⚠️ Inactivity Admin**\n"
-                "`/clear_inactivity_strikes @user` - Clear\n"
-                "`/set_inactivity_days [days]` - Threshold\n\n"
-                "**🔄 Resets**\n"
-                "`/reset_weekly` - Reset weekly XP\n"
-                "`/reset_monthly` - Reset monthly XP\n"
+                "`/setup_verify` - Verification\n"
+                "`/setup_tickets` - Tickets\n"
+                "`/setup_shop` - Shop\n"
+                "`/tournament_create <n>`\n"
+                "`/setup_logs` - Logging\n\n"
+                "**📊 Level Management**\n"
+                "`/bulkimport` - Import guide\n"
+                "`/setlevel` `/setxp`\n\n"
+                "**🔄 Resets & Admin**\n"
+                "`/reset_weekly` `/reset_monthly`\n"
+                "`/elo_reset confirm`\n"
                 "`!sync` - Sync commands"
             )
         
-        # Add footer to all
         e.set_footer(text="The Fallen Bot • Use / for slash commands")
         await interaction.response.edit_message(embed=e)
 
@@ -5931,6 +6374,12 @@ async def on_ready():
     except Exception as e:
         print(f"❌ Failed to sync commands: {e}")
     
+    # Start event reminder background task
+    if not hasattr(bot, 'event_reminder_task_started'):
+        bot.loop.create_task(check_event_reminders())
+        bot.event_reminder_task_started = True
+        print("✅ Event reminder task started!")
+    
     print("=" * 50)
     print("🚀 Bot is ready!")
     print("=" * 50)
@@ -6978,23 +7427,8 @@ async def daily(ctx):
 
 @bot.hybrid_command(name="schedule", description="View upcoming events")
 async def schedule(ctx):
-    """View scheduled trainings, tryouts, and raids"""
-    data = load_data()
-    embed = discord.Embed(title="📅 Upcoming Events", color=0x3498db)
-    
-    raids = data.get("raids", [])[-5:]
-    raid_text = "\n".join([f"• **{r.get('target', 'Unknown')}** - {r.get('time', 'TBD')}" for r in raids]) or "None scheduled"
-    embed.add_field(name="🏴‍☠️ Raids", value=raid_text, inline=False)
-    
-    trainings = data.get("trainings", [])[-5:]
-    training_text = "\n".join([f"• **{t.get('type', 'Training')}** - {t.get('time', 'TBD')}" for t in trainings]) or "None scheduled"
-    embed.add_field(name="📚 Trainings", value=training_text, inline=False)
-    
-    tryouts = data.get("tryouts", [])[-5:]
-    tryout_text = "\n".join([f"• **{t.get('type', 'Tryout')}** - {t.get('time', 'TBD')}" for t in tryouts]) or "None scheduled"
-    embed.add_field(name="🎯 Tryouts", value=tryout_text, inline=False)
-    
-    await ctx.send(embed=embed)
+    """View scheduled events (alias for /event_list)"""
+    await event_list(ctx)
 
 # ==========================================
 # RAID & WAR COMMANDS
@@ -7167,79 +7601,382 @@ async def scrim(ctx, opponent: str, time: str, *, details: str = ""):
 # TRAINING & TRYOUT COMMANDS
 # ==========================================
 
-@bot.hybrid_command(name="schedule_training", description="Staff: Schedule a training session")
-async def schedule_training(ctx, training_type: str, time: str):
-    """Schedule a training session"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
+@bot.hybrid_command(name="event_create", description="Staff: Create a training or tryout event")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def event_create(ctx, event_type: str, title: str, time: str):
+    """
+    Create a scheduled event with RSVP and reminders.
     
-    data = load_data()
-    if "trainings" not in data:
-        data["trainings"] = []
+    event_type: 'training' or 'tryout'
+    title: Name of the event
+    time: When it starts (e.g., '6PM GMT', '18:00', 'tomorrow 5pm')
+    """
+    if event_type.lower() not in ["training", "tryout"]:
+        return await ctx.send("❌ Event type must be `training` or `tryout`", ephemeral=True)
     
-    data["trainings"].append({
-        "type": training_type, "time": time,
-        "host": ctx.author.display_name, "participants": []
-    })
-    save_data(data)
+    # Parse the time - try to make it a proper datetime
+    # For now, store the raw time and let staff use Discord timestamps
+    try:
+        # Try to parse common formats
+        now = datetime.datetime.now(datetime.timezone.utc)
+        scheduled_time = now + datetime.timedelta(hours=1)  # Default 1 hour from now
+        
+        # Check if they used a Discord timestamp like <t:1234567890:F>
+        if "<t:" in time:
+            import re
+            match = re.search(r'<t:(\d+)', time)
+            if match:
+                timestamp = int(match.group(1))
+                scheduled_time = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+        else:
+            # Store raw time string and use current time + 1 hour as placeholder
+            # Staff should use Discord timestamps for accurate times
+            pass
+    except:
+        scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
     
-    embed = discord.Embed(title="📚 TRAINING SCHEDULED", description=f"**Type:** {training_type}\n**Time:** {time}\n**Host:** {ctx.author.mention}", color=0x3498db)
-    await ctx.send(embed=embed)
-    await log_action(ctx.guild, "📚 Training Scheduled", f"Type: {training_type}\nTime: {time}", 0x3498db)
+    # Create the event
+    event = create_event(
+        event_type=event_type.lower(),
+        title=title,
+        scheduled_time=scheduled_time.isoformat(),
+        host_id=ctx.author.id,
+        channel_id=ctx.channel.id
+    )
+    
+    # Get ping role
+    ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
+    ping_role = discord.utils.get(ctx.guild.roles, name=ping_role_name)
+    
+    # Create embed
+    embed = await create_event_embed(event, ctx.guild)
+    
+    # Send announcement
+    ping_text = ping_role.mention if ping_role else ""
+    msg = await ctx.send(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
+    
+    # Store message ID for later updates
+    update_event(event["id"], {"message_id": str(msg.id)})
+    
+    await log_action(ctx.guild, f"📅 Event Created", f"**{title}**\nType: {event_type}\nHost: {ctx.author.mention}", 0x3498db)
 
-@bot.hybrid_command(name="training_log", description="Staff: Log training attendance")
-async def training_log(ctx):
-    """Log training attendance - mention attendees"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
+@bot.hybrid_command(name="event_list", description="View upcoming events")
+async def event_list(ctx):
+    """View all upcoming scheduled events"""
+    events = get_upcoming_events(10)
     
-    mentioned = ctx.message.mentions if hasattr(ctx, 'message') else []
+    if not events:
+        embed = discord.Embed(
+            title="📅 Upcoming Events",
+            description="No events scheduled!\n\nStaff can create events with `/event_create`",
+            color=0x95a5a6
+        )
+        return await ctx.send(embed=embed)
+    
+    embed = discord.Embed(title="📅 Upcoming Events", color=0x3498db)
+    
+    for event in events:
+        emoji = "📚" if event["type"] == "training" else "🎯"
+        
+        try:
+            event_time = datetime.datetime.fromisoformat(event["scheduled_time"])
+            time_str = f"<t:{int(event_time.timestamp())}:F>"
+        except:
+            time_str = event["scheduled_time"]
+        
+        host = ctx.guild.get_member(int(event["host_id"]))
+        host_name = host.display_name if host else "Unknown"
+        
+        rsvp_count = len(event.get("rsvp_yes", []))
+        
+        embed.add_field(
+            name=f"{emoji} {event['title']}",
+            value=f"**Time:** {time_str}\n**Host:** {host_name}\n**RSVPs:** {rsvp_count} attending",
+            inline=False
+        )
+    
+    embed.set_footer(text="React to event announcements to RSVP!")
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="event_cancel", description="Staff: Cancel a scheduled event")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def event_cancel(ctx, event_id: str):
+    """Cancel a scheduled event"""
+    event = cancel_event(event_id)
+    
+    if not event:
+        return await ctx.send("❌ Event not found!", ephemeral=True)
+    
+    await ctx.send(f"✅ Event **{event['title']}** has been cancelled.")
+    await log_action(ctx.guild, "❌ Event Cancelled", f"**{event['title']}** cancelled by {ctx.author.mention}", 0xe74c3c)
+
+@bot.hybrid_command(name="event_log", description="Staff: Log attendance and give rewards")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def event_log(ctx, event_id: str):
+    """
+    Log attendance for an event. Mention all attendees.
+    
+    Usage: /event_log <event_id> @user1 @user2 @user3
+    """
+    # Get mentioned users
+    mentioned = ctx.message.mentions if hasattr(ctx, 'message') and ctx.message else []
+    
     if not mentioned:
-        return await ctx.send("❌ Please mention the attendees", ephemeral=True)
+        return await ctx.send(
+            "❌ Please mention the attendees!\n"
+            "Usage: `/event_log <event_id>` then mention users\n"
+            "Example: `/event_log event_123456` @user1 @user2",
+            ephemeral=True
+        )
+    
+    # Log attendance
+    attendee_ids = [m.id for m in mentioned]
+    result = log_attendance(event_id, attendee_ids, ctx.author.id)
+    
+    if not result:
+        return await ctx.send("❌ Event not found!", ephemeral=True)
+    
+    event = result["event"]
+    
+    # Build results embed
+    embed = discord.Embed(
+        title=f"✅ Attendance Logged - {event['title']}",
+        description=f"**{len(attendee_ids)} attendees** rewarded!",
+        color=0x2ecc71
+    )
+    
+    # Show rewards
+    rewards = ATTENDANCE_REWARDS.get(event["type"], {"coins": 50, "xp": 25})
+    embed.add_field(
+        name="💰 Rewards Given",
+        value=f"• {rewards['coins']} coins each\n• {rewards['xp']} XP each",
+        inline=True
+    )
+    
+    # Show host rewards
+    host_rewards = result["host_rewards"]
+    embed.add_field(
+        name="👑 Host Rewards",
+        value=f"• {host_rewards['coins']} coins\n• {host_rewards['xp']} XP",
+        inline=True
+    )
+    
+    # Show streaks
+    streak_info = []
+    for r in result["attendees"]:
+        if r["streak_bonus"] > 0:
+            member = ctx.guild.get_member(int(r["user_id"]))
+            name = member.display_name if member else f"User {r['user_id'][:8]}"
+            streak_info.append(f"🔥 **{name}**: {r['streak']} streak! (+{r['streak_bonus']} bonus)")
+    
+    if streak_info:
+        embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_info[:5]), inline=False)
+    
+    # Show attendees
+    attendee_names = [m.display_name for m in mentioned[:10]]
+    embed.add_field(
+        name=f"📋 Attendees ({len(mentioned)})",
+        value=", ".join(attendee_names) + ("..." if len(mentioned) > 10 else ""),
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+    
+    # Level up checks
+    for uid in attendee_ids:
+        await check_level_up(uid, ctx.guild)
+    await check_level_up(ctx.author.id, ctx.guild)
+    
+    await log_action(
+        ctx.guild, "📋 Attendance Logged",
+        f"**{event['title']}**\nAttendees: {len(attendee_ids)}\nHost: {ctx.author.mention}",
+        0x2ecc71
+    )
+
+@bot.hybrid_command(name="attendance_streak", description="Check your attendance streak")
+async def attendance_streak(ctx, member: discord.Member = None):
+    """Check attendance streak"""
+    target = member or ctx.author
+    
+    streak = get_attendance_streak(target.id)
+    user_data = get_user_data(target.id)
+    
+    training_count = user_data.get("training_attendance", 0)
+    tryout_count = user_data.get("tryout_attendance", 0)
+    events_hosted = user_data.get("events_hosted", 0)
+    
+    embed = discord.Embed(
+        title=f"🔥 {target.display_name}'s Attendance",
+        color=0xff6b6b
+    )
+    
+    # Current streak
+    current = streak.get("current", 0)
+    best = streak.get("best", 0)
+    
+    streak_bar = "🔥" * min(current, 10) + "⬜" * max(0, 10 - current)
+    
+    embed.add_field(
+        name="📊 Current Streak",
+        value=f"{streak_bar}\n**{current}** events in a row\n(Best: {best})",
+        inline=False
+    )
+    
+    # Next bonus
+    next_bonus = None
+    for milestone in sorted(STREAK_BONUSES.keys()):
+        if current < milestone:
+            next_bonus = (milestone, STREAK_BONUSES[milestone])
+            break
+    
+    if next_bonus:
+        embed.add_field(
+            name="🎁 Next Bonus",
+            value=f"{next_bonus[1]} coins at {next_bonus[0]} streak ({next_bonus[0] - current} more!)",
+            inline=True
+        )
+    
+    # Total attendance
+    embed.add_field(
+        name="📋 Total Attendance",
+        value=f"📚 Trainings: **{training_count}**\n🎯 Tryouts: **{tryout_count}**\n👑 Hosted: **{events_hosted}**",
+        inline=True
+    )
+    
+    embed.set_thumbnail(url=target.display_avatar.url)
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="quick_training", description="Staff: Quick announce training (no RSVP)")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def quick_training(ctx, time: str, *, description: str = ""):
+    """Quick training announcement without full event system"""
+    ping_role = discord.utils.get(ctx.guild.roles, name=TRAINING_PING_ROLE)
+    
+    embed = discord.Embed(
+        title="📚 TRAINING ANNOUNCEMENT",
+        description=(
+            f"**⏰ Time:** {time}\n"
+            f"**👑 Host:** {ctx.author.mention}\n\n"
+            f"{description if description else 'Join voice when ready!'}\n\n"
+            f"**💰 Rewards:** 100 coins + 50 XP"
+        ),
+        color=0x3498db
+    )
+    embed.set_footer(text="Be there or break your streak!")
+    
+    ping_text = ping_role.mention if ping_role else ""
+    await ctx.send(content=ping_text, embed=embed)
+
+@bot.hybrid_command(name="quick_tryout", description="Staff: Quick announce tryout (no RSVP)")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def quick_tryout(ctx, time: str, *, description: str = ""):
+    """Quick tryout announcement without full event system"""
+    ping_role = discord.utils.get(ctx.guild.roles, name=TRYOUT_PING_ROLE)
+    
+    embed = discord.Embed(
+        title="🎯 TRYOUT ANNOUNCEMENT",
+        description=(
+            f"**⏰ Time:** {time}\n"
+            f"**👑 Host:** {ctx.author.mention}\n\n"
+            f"{description if description else 'DM to sign up!'}\n\n"
+            f"**💰 Rewards:** 150 coins + 75 XP"
+        ),
+        color=0xF1C40F
+    )
+    embed.set_footer(text="Good luck to all participants!")
+    
+    ping_text = ping_role.mention if ping_role else ""
+    await ctx.send(content=ping_text, embed=embed)
+
+@bot.hybrid_command(name="log_training", description="Staff: Quick log training attendance")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def log_training(ctx):
+    """Quick log training attendance - mention attendees"""
+    mentioned = ctx.message.mentions if hasattr(ctx, 'message') and ctx.message else []
+    
+    if not mentioned:
+        return await ctx.send("❌ Please mention the attendees!", ephemeral=True)
+    
+    rewards = ATTENDANCE_REWARDS["training"]
+    streak_bonuses = []
     
     for m in mentioned:
+        add_user_stat(m.id, "coins", rewards["coins"])
+        add_xp_to_user(m.id, rewards["xp"])
         add_user_stat(m.id, "training_attendance", 1)
-        add_xp_to_user(m.id, 50)
+        
+        streak = update_attendance_streak(m.id)
+        bonus = get_streak_bonus(streak)
+        if bonus > 0:
+            add_user_stat(m.id, "coins", bonus)
+            streak_bonuses.append(f"🔥 {m.display_name}: {streak} streak (+{bonus})")
+        
         await check_level_up(m.id, ctx.guild)
+        await asyncio.sleep(0.5)
     
-    embed = discord.Embed(title="📚 Training Logged", description=f"**Attendees:** {len(mentioned)}\n**XP Awarded:** 50 each", color=0x2ecc71)
+    # Host rewards
+    host_rewards = ATTENDANCE_REWARDS["host"]
+    add_user_stat(ctx.author.id, "coins", host_rewards["coins"])
+    add_xp_to_user(ctx.author.id, host_rewards["xp"])
+    add_user_stat(ctx.author.id, "events_hosted", 1)
+    
+    embed = discord.Embed(
+        title="📚 Training Attendance Logged",
+        description=f"**{len(mentioned)} attendees** rewarded!",
+        color=0x2ecc71
+    )
+    embed.add_field(name="💰 Each Received", value=f"{rewards['coins']} coins + {rewards['xp']} XP", inline=True)
+    embed.add_field(name="👑 Host Received", value=f"{host_rewards['coins']} coins + {host_rewards['xp']} XP", inline=True)
+    
+    if streak_bonuses:
+        embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_bonuses[:5]), inline=False)
+    
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="schedule_tryout", description="Staff: Schedule a tryout")
-async def schedule_tryout(ctx, tryout_type: str, time: str):
-    """Schedule a tryout"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
+@bot.hybrid_command(name="log_tryout", description="Staff: Quick log tryout attendance")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def log_tryout(ctx):
+    """Quick log tryout attendance - mention attendees"""
+    mentioned = ctx.message.mentions if hasattr(ctx, 'message') and ctx.message else []
     
-    data = load_data()
-    if "tryouts" not in data:
-        data["tryouts"] = []
+    if not mentioned:
+        return await ctx.send("❌ Please mention the attendees!", ephemeral=True)
     
-    data["tryouts"].append({
-        "type": tryout_type, "time": time,
-        "host": ctx.author.display_name, "participants": []
-    })
-    save_data(data)
+    rewards = ATTENDANCE_REWARDS["tryout"]
+    streak_bonuses = []
     
-    embed = discord.Embed(title="🎯 TRYOUT SCHEDULED", description=f"**Type:** {tryout_type}\n**Time:** {time}\n**Host:** {ctx.author.mention}", color=0xF1C40F)
+    for m in mentioned:
+        add_user_stat(m.id, "coins", rewards["coins"])
+        add_xp_to_user(m.id, rewards["xp"])
+        add_user_stat(m.id, "tryout_attendance", 1)
+        
+        streak = update_attendance_streak(m.id)
+        bonus = get_streak_bonus(streak)
+        if bonus > 0:
+            add_user_stat(m.id, "coins", bonus)
+            streak_bonuses.append(f"🔥 {m.display_name}: {streak} streak (+{bonus})")
+        
+        await check_level_up(m.id, ctx.guild)
+        await asyncio.sleep(0.5)
+    
+    # Host rewards
+    host_rewards = ATTENDANCE_REWARDS["host"]
+    add_user_stat(ctx.author.id, "coins", host_rewards["coins"])
+    add_xp_to_user(ctx.author.id, host_rewards["xp"])
+    add_user_stat(ctx.author.id, "events_hosted", 1)
+    
+    embed = discord.Embed(
+        title="🎯 Tryout Attendance Logged",
+        description=f"**{len(mentioned)} attendees** rewarded!",
+        color=0x2ecc71
+    )
+    embed.add_field(name="💰 Each Received", value=f"{rewards['coins']} coins + {rewards['xp']} XP", inline=True)
+    embed.add_field(name="👑 Host Received", value=f"{host_rewards['coins']} coins + {host_rewards['xp']} XP", inline=True)
+    
+    if streak_bonuses:
+        embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_bonuses[:5]), inline=False)
+    
     await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="tryout_result", description="Staff: Log tryout result")
-async def tryout_result(ctx, member: discord.Member, result: str):
-    """Log tryout result (pass/fail)"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    if result.lower() not in ['pass', 'p', 'fail', 'f']:
-        return await ctx.send("❌ Result must be `pass` or `fail`", ephemeral=True)
-    
-    passed = result.lower() in ['pass', 'p']
-    add_user_stat(member.id, "tryout_passes" if passed else "tryout_fails", 1)
-    
-    result_text = "✅ PASSED" if passed else "❌ FAILED"
-    embed = discord.Embed(title=f"🎯 Tryout Result: {result_text}", description=member.mention, color=0x2ecc71 if passed else 0xe74c3c)
-    await ctx.send(embed=embed)
-    await log_action(ctx.guild, f"🎯 Tryout Result", f"{member.mention}: {result_text}", 0x2ecc71 if passed else 0xe74c3c)
 
 # ==========================================
 # WARNING & MODERATION COMMANDS
