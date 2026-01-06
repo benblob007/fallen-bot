@@ -9000,7 +9000,7 @@ async def level(ctx, member: discord.Member = None):
     embed = create_arcane_level_embed(target, user_data, rank)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="setlevelbackground", description="Admin: Set the level card banner image")
+@bot.command(name="setlevelbackground", description="Admin: Set the level card banner image")
 @commands.has_permissions(administrator=True)
 async def setlevelbackground(ctx, url: str = None):
     """Set the level card banner image URL (shown at bottom of card)"""
@@ -9176,7 +9176,7 @@ async def help_cmd(ctx):
 
 # --- STAFF COMMANDS ---
 
-@bot.hybrid_command(name="checklevel", description="Staff: Check another user's level")
+@bot.command(name="checklevel", description="Staff: Check another user's level")
 async def checklevel(ctx, member: discord.Member):
     """Staff command to check another user's stats"""
     if not is_staff(ctx.author):
@@ -9201,7 +9201,7 @@ async def checklevel(ctx, member: discord.Member):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="addxp", description="Staff: Add XP to a user")
+@bot.command(name="addxp", description="Staff: Add XP to a user")
 async def addxp(ctx, member: discord.Member, amount: int):
     """Add XP to a user"""
     if not is_staff(ctx.author):
@@ -9212,7 +9212,7 @@ async def addxp(ctx, member: discord.Member, amount: int):
     await log_action(ctx.guild, "✨ XP Added", f"{member.mention} received +{amount:,} XP from {ctx.author.mention}", 0xF1C40F)
     await check_level_up(member.id, ctx.guild)
 
-@bot.hybrid_command(name="removexp", description="Staff: Remove XP from a user")
+@bot.command(name="removexp", description="Staff: Remove XP from a user")
 async def removexp(ctx, member: discord.Member, amount: int):
     """Remove XP from a user"""
     if not is_staff(ctx.author):
@@ -9222,7 +9222,7 @@ async def removexp(ctx, member: discord.Member, amount: int):
     await ctx.send(f"✅ Removed **{amount:,} XP** from {member.mention}. Total: **{new_xp:,} XP**")
     await log_action(ctx.guild, "✨ XP Removed", f"{member.mention} lost -{amount:,} XP by {ctx.author.mention}", 0xe74c3c)
 
-@bot.hybrid_command(name="setlevel", description="Staff: Set a user's level directly")
+@bot.command(name="setlevel", description="Staff: Set a user's level directly")
 @commands.has_any_role(*HIGH_STAFF_ROLES)
 async def setlevel(ctx, member: discord.Member, level: int):
     """Set a user's level directly (calculates required XP)"""
@@ -9267,7 +9267,7 @@ async def setlevel(ctx, member: discord.Member, level: int):
     await ctx.send(embed=embed)
     await log_action(ctx.guild, "📊 Level Set", f"{member.mention} set to Level {level} by {ctx.author.mention}", 0x2ecc71)
 
-@bot.hybrid_command(name="setxp", description="Staff: Set a user's total XP directly")
+@bot.command(name="setxp", description="Staff: Set a user's total XP directly")
 @commands.has_any_role(*HIGH_STAFF_ROLES)
 async def setxp(ctx, member: discord.Member, total_xp: int):
     """Set a user's total XP directly (level auto-calculates)"""
@@ -9312,7 +9312,7 @@ async def setxp(ctx, member: discord.Member, total_xp: int):
     await ctx.send(embed=embed)
     await log_action(ctx.guild, "✨ XP Set", f"{member.mention} set to {total_xp:,} XP (Level {new_level}) by {ctx.author.mention}", 0x2ecc71)
 
-@bot.hybrid_command(name="importlevel", description="Staff: Import level from Arcane bot")
+@bot.command(name="importlevel", description="Staff: Import level from Arcane bot")
 @commands.has_any_role(*HIGH_STAFF_ROLES)
 async def importlevel(ctx, member: discord.Member, arcane_level: int, arcane_xp: int = 0):
     """
@@ -9377,7 +9377,7 @@ async def importlevel(ctx, member: discord.Member, arcane_level: int, arcane_xp:
     await ctx.send(embed=embed)
     await log_action(ctx.guild, "📥 Arcane Import", f"{member.mention} imported from Arcane Level {arcane_level} → Fallen Level {new_level} by {ctx.author.mention}", 0x9b59b6)
 
-@bot.hybrid_command(name="bulkimport", description="Admin: Show bulk import instructions")
+@bot.command(name="bulkimport", description="Admin: Show bulk import instructions")
 @commands.has_permissions(administrator=True)
 async def bulkimport(ctx):
     """Show instructions for bulk importing from Arcane"""
@@ -9428,7 +9428,7 @@ async def bulkimport(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="addfcoins", description="Staff: Add coins to a user")
+@bot.command(name="addfcoins", description="Staff: Add coins to a user")
 async def addfcoins(ctx, member: discord.Member, amount: int):
     """Add coins to a user"""
     if not is_staff(ctx.author):
@@ -9438,7 +9438,7 @@ async def addfcoins(ctx, member: discord.Member, amount: int):
     await ctx.send(f"✅ Added **{amount:,} coins** to {member.mention}. Total: **{new_coins:,}**")
     await log_action(ctx.guild, "💰 Coins Added", f"{member.mention} received +{amount:,} coins from {ctx.author.mention}", 0xF1C40F)
 
-@bot.hybrid_command(name="removefcoins", description="Staff: Remove coins from a user")
+@bot.command(name="removefcoins", description="Staff: Remove coins from a user")
 async def removefcoins(ctx, member: discord.Member, amount: int):
     """Remove coins from a user"""
     if not is_staff(ctx.author):
@@ -9448,7 +9448,7 @@ async def removefcoins(ctx, member: discord.Member, amount: int):
     await ctx.send(f"✅ Removed **{amount:,} coins** from {member.mention}. Total: **{new_coins:,}**")
     await log_action(ctx.guild, "💰 Coins Removed", f"{member.mention} lost -{amount:,} coins by {ctx.author.mention}", 0xe74c3c)
 
-@bot.hybrid_command(name="levelchange", description="Staff: Set a user's level")
+@bot.command(name="levelchange", description="Staff: Set a user's level")
 async def levelchange(ctx, member: discord.Member, level: int):
     """Set a user's level directly"""
     if not is_staff(ctx.author):
@@ -9460,7 +9460,7 @@ async def levelchange(ctx, member: discord.Member, level: int):
 
 # --- ADMIN COMMANDS ---
 
-@bot.hybrid_command(name="wipedata", description="Owner: Complete data wipe")
+@bot.command(name="wipedata", description="Owner: Complete data wipe")
 async def wipedata(ctx):
     """Complete data wipe - Owner only"""
     if not (ctx.author.id == ctx.guild.owner_id or is_high_staff(ctx.author)):
@@ -9479,7 +9479,7 @@ async def wipedata(ctx):
     
     await ctx.send(embed=embed, view=DataWipeConfirmView(ctx.author), ephemeral=True)
 
-@bot.hybrid_command(name="setup_verify", description="Admin: Set up the verification panel")
+@bot.command(name="setup_verify", description="Admin: Set up the verification panel")
 @commands.has_permissions(administrator=True)
 async def setup_verify(ctx, channel: discord.TextChannel = None):
     """Create a verification panel in the specified channel"""
@@ -9509,7 +9509,7 @@ async def setup_verify(ctx, channel: discord.TextChannel = None):
     await ctx.send(f"✅ Verification panel posted in {target_channel.mention}", ephemeral=True)
     await log_action(ctx.guild, "📋 Verify Panel", f"Posted in {target_channel.mention} by {ctx.author.mention}", 0x2ecc71)
 
-@bot.hybrid_command(name="set_bloxlink_role", description="Admin: Set the Bloxlink verified role name")
+@bot.command(name="set_bloxlink_role", description="Admin: Set the Bloxlink verified role name")
 @commands.has_permissions(administrator=True)
 async def set_bloxlink_role(ctx, role: discord.Role):
     """Set which role Bloxlink gives when users verify"""
@@ -9517,7 +9517,7 @@ async def set_bloxlink_role(ctx, role: discord.Role):
     BLOXLINK_VERIFIED_ROLE = role.name
     await ctx.send(f"✅ Bloxlink verified role set to **{role.name}**\n\nUsers with this role can now click the verify button to get Fallen access.", ephemeral=True)
 
-@bot.hybrid_command(name="setup_shop", description="Admin: Set up the shop panel")
+@bot.command(name="setup_shop", description="Admin: Set up the shop panel")
 @commands.has_permissions(administrator=True)
 async def setup_shop(ctx):
     """Create the shop panel in the shop channel with image"""
@@ -9574,7 +9574,7 @@ async def setup_shop(ctx):
     await ch.send(embed=embed, view=ShopSelectView())
     await ctx.send(f"✅ Shop panel posted in {ch.mention}", ephemeral=True)
 
-@bot.hybrid_command(name="setup_transfer", description="Admin: Set up stage transfer panel")
+@bot.command(name="setup_transfer", description="Admin: Set up stage transfer panel")
 @commands.has_permissions(administrator=True)
 async def setup_transfer(ctx):
     """Set up the stage transfer request panel"""
@@ -9781,7 +9781,7 @@ async def result_transfer(ctx, member: discord.Member, stage: str, rank_level: s
     
     await log_action(ctx.guild, "✅ Result Assigned", f"{member.mention}\n{old_str} → **{result_str}**\nBy: {ctx.author.mention}", 0x2ecc71)
 
-@bot.hybrid_command(name="voicetop", description="View voice time leaderboard")
+@bot.command(name="voicetop", description="View voice time leaderboard")
 async def voicetop(ctx):
     """Display voice time leaderboard"""
     if PIL_AVAILABLE:
@@ -9812,7 +9812,7 @@ async def voicetop(ctx):
     embed.description = desc or "No voice data yet!"
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="top10_setup", description="Admin: Set up the Top 10 ranked leaderboard panel")
+@bot.command(name="top10_setup", description="Admin: Set up the Top 10 ranked leaderboard panel")
 @commands.has_permissions(administrator=True)
 async def top10_setup(ctx):
     """Create the Top 10 ranked leaderboard panel"""
@@ -9893,7 +9893,7 @@ class ClanRosterView(discord.ui.View):
         embed = create_clan_roster_embed(interaction.guild)
         await interaction.response.edit_message(embed=embed)
 
-@bot.hybrid_command(name="setup_roster", description="Admin: Set up the clan roster panel (EU Roster style)")
+@bot.command(name="setup_roster", description="Admin: Set up the clan roster panel (EU Roster style)")
 @commands.has_permissions(administrator=True)
 async def setup_roster(ctx, channel: discord.TextChannel = None):
     """Create the clan roster panel"""
@@ -9903,7 +9903,7 @@ async def setup_roster(ctx, channel: discord.TextChannel = None):
     await target_channel.send(embed=embed, view=ClanRosterView())
     await ctx.send(f"✅ Clan roster posted in {target_channel.mention}", ephemeral=True)
 
-@bot.hybrid_command(name="roster_add", description="Admin: Add member to clan roster")
+@bot.command(name="roster_add", description="Admin: Add member to clan roster")
 @commands.has_permissions(administrator=True)
 async def roster_add_clan(ctx, member: discord.Member, roblox_name: str, position: int = None):
     """Add a member to the clan roster"""
@@ -9931,7 +9931,7 @@ async def roster_add_clan(ctx, member: discord.Member, roblox_name: str, positio
     await ctx.send(f"✅ Added **{roblox_name}** ({member.mention}) to the roster at position {new_position}!", ephemeral=True)
     await log_action(ctx.guild, "📝 Roster Added", f"**{roblox_name}** ({member.mention}) added by {ctx.author.mention}", 0x2ecc71)
 
-@bot.hybrid_command(name="roster_remove", description="Admin: Remove member from clan roster")
+@bot.command(name="roster_remove", description="Admin: Remove member from clan roster")
 @commands.has_permissions(administrator=True)
 async def roster_remove_clan(ctx, member: discord.Member):
     """Remove a member from the clan roster"""
@@ -9947,7 +9947,7 @@ async def roster_remove_clan(ctx, member: discord.Member):
     
     await ctx.send(f"❌ {member.mention} is not on the roster.", ephemeral=True)
 
-@bot.hybrid_command(name="roster_set_title", description="Admin: Set roster title")
+@bot.command(name="roster_set_title", description="Admin: Set roster title")
 @commands.has_permissions(administrator=True)
 async def roster_set_title(ctx, *, title: str):
     """Set the clan roster title"""
@@ -9956,7 +9956,7 @@ async def roster_set_title(ctx, *, title: str):
     save_clan_roster(roster_data)
     await ctx.send(f"✅ Roster title set to: **{title}**", ephemeral=True)
 
-@bot.hybrid_command(name="roster_set_description", description="Admin: Set roster description")
+@bot.command(name="roster_set_description", description="Admin: Set roster description")
 @commands.has_permissions(administrator=True)
 async def roster_set_description(ctx, *, description: str):
     """Set the clan roster description (use \\n for new lines)"""
@@ -9965,7 +9965,7 @@ async def roster_set_description(ctx, *, description: str):
     save_clan_roster(roster_data)
     await ctx.send(f"✅ Roster description updated!", ephemeral=True)
 
-@bot.hybrid_command(name="roster_set_image", description="Admin: Set roster banner image URL")
+@bot.command(name="roster_set_image", description="Admin: Set roster banner image URL")
 @commands.has_permissions(administrator=True)
 async def roster_set_image(ctx, url: str):
     """Set the clan roster banner image"""
@@ -9974,7 +9974,7 @@ async def roster_set_image(ctx, url: str):
     save_clan_roster(roster_data)
     await ctx.send(f"✅ Roster image set!", ephemeral=True)
 
-@bot.hybrid_command(name="roster_set_role", description="Admin: Set the roster role name")
+@bot.command(name="roster_set_role", description="Admin: Set the roster role name")
 @commands.has_permissions(administrator=True)
 async def roster_set_role(ctx, role_name: str):
     """Set the role shown on the roster"""
@@ -9983,13 +9983,13 @@ async def roster_set_role(ctx, role_name: str):
     save_clan_roster(roster_data)
     await ctx.send(f"✅ Roster role set to: **{role_name}**", ephemeral=True)
 
-@bot.hybrid_command(name="roster_list", description="View all roster members")
+@bot.command(name="roster_list", description="View all roster members")
 async def roster_list(ctx):
     """View the current clan roster"""
     embed = create_clan_roster_embed(ctx.guild)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="ticket_panel", description="Admin: Set up the challenge ticket panel")
+@bot.command(name="ticket_panel", description="Admin: Set up the challenge ticket panel")
 @commands.has_permissions(administrator=True)
 async def ticket_panel(ctx):
     """Create the challenge request panel"""
@@ -10003,7 +10003,7 @@ async def ticket_panel(ctx):
     )
     await ctx.send(embed=embed, view=ChallengeRequestView())
 
-@bot.hybrid_command(name="apply_panel", description="Admin: Set up the application panel")
+@bot.command(name="apply_panel", description="Admin: Set up the application panel")
 @commands.has_permissions(administrator=True)
 async def apply_panel(ctx, channel: discord.TextChannel = None):
     """Create the comprehensive application panel"""
@@ -10032,7 +10032,7 @@ async def apply_panel(ctx, channel: discord.TextChannel = None):
     await target_channel.send(embed=embed, view=ApplicationPanelView())
     await ctx.send(f"✅ Application panel posted in {target_channel.mention}", ephemeral=True)
 
-@bot.hybrid_command(name="app_status", description="Check your application status")
+@bot.command(name="app_status", description="Check your application status")
 async def app_status(ctx):
     """Check your current application status"""
     if ctx.author.id not in applications_data:
@@ -10152,7 +10152,7 @@ async def schedule(ctx):
 # RAID & WAR COMMANDS
 # ==========================================
 
-@bot.hybrid_command(name="raid_lb", description="View raid leaderboard")
+@bot.command(name="raid_lb", description="View raid leaderboard")
 async def raid_lb(ctx):
     """Display raid leaderboard"""
     users = load_data()["users"]
@@ -10189,7 +10189,7 @@ async def wars(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="war_record", description="View record against a specific clan")
+@bot.command(name="war_record", description="View record against a specific clan")
 async def war_record(ctx, clan_name: str):
     """View war record against specific clan"""
     wars = load_data().get("wars", {})
@@ -10213,7 +10213,7 @@ async def war_record(ctx, clan_name: str):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="raid_call", description="Staff: Call a raid")
+@bot.command(name="raid_call", description="Staff: Call a raid")
 async def raid_call(ctx, target: str, time: str, *, requirements: str = "None"):
     """Call a raid"""
     if not is_staff(ctx.author):
@@ -10238,7 +10238,7 @@ async def raid_call(ctx, target: str, time: str, *, requirements: str = "None"):
     await ctx.send(embed=embed)
     await log_action(ctx.guild, "🏴‍☠️ Raid Called", f"Target: {target}\nTime: {time}\nHost: {ctx.author.mention}", 0xFF4500)
 
-@bot.hybrid_command(name="raid_log", description="Staff: Log raid results")
+@bot.command(name="raid_log", description="Staff: Log raid results")
 async def raid_log(ctx, result: str):
     """Log raid results (win/loss) - mention participants"""
     if not is_staff(ctx.author):
@@ -10259,7 +10259,7 @@ async def raid_log(ctx, result: str):
     await ctx.send(embed=embed)
     await log_action(ctx.guild, f"🏴‍☠️ Raid {result_text}", f"Participants: {len(mentioned)}", 0xFF4500)
 
-@bot.hybrid_command(name="war_declare", description="Staff: Declare war on a clan")
+@bot.command(name="war_declare", description="Staff: Declare war on a clan")
 async def war_declare(ctx, clan_name: str):
     """Declare war on another clan"""
     if not is_high_staff(ctx.author):
@@ -10279,7 +10279,7 @@ async def war_declare(ctx, clan_name: str):
     await ctx.send(embed=embed)
     await log_action(ctx.guild, "⚔️ War Declared", f"vs {clan_name} by {ctx.author.mention}", 0xFF0000)
 
-@bot.hybrid_command(name="war_result", description="Staff: Log a war result")
+@bot.command(name="war_result", description="Staff: Log a war result")
 async def war_result(ctx, clan_name: str, result: str):
     """Log war result"""
     if not is_staff(ctx.author):
@@ -10303,7 +10303,7 @@ async def war_result(ctx, clan_name: str, result: str):
     embed = discord.Embed(title=f"⚔️ vs {clan_name}: {result_text}", description=f"**Record:** {r['wins']}W - {r['losses']}L", color=0x2ecc71 if is_win else 0xe74c3c)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="scrim", description="Staff: Schedule a scrim")
+@bot.command(name="scrim", description="Staff: Schedule a scrim")
 async def scrim(ctx, opponent: str, time: str, *, details: str = ""):
     """Schedule a scrim"""
     if not is_staff(ctx.author):
@@ -10316,241 +10316,6 @@ async def scrim(ctx, opponent: str, time: str, *, details: str = ""):
     await ctx.send(embed=embed)
 
 # ==========================================
-# TRAINING & TRYOUT COMMANDS
-# ==========================================
-
-@bot.hybrid_command(name="event_create", description="Staff: Create a training or tryout event")
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def event_create(ctx, event_type: str, title: str, minutes_from_now: int):
-    """
-    Create a scheduled event with RSVP and reminders.
-    
-    event_type: 'training' or 'tryout'
-    title: Name of the event
-    minutes_from_now: How many minutes until the event starts (e.g., 30 = in 30 mins)
-    """
-    if event_type.lower() not in ["training", "tryout"]:
-        return await ctx.send("❌ Event type must be `training` or `tryout`", ephemeral=True)
-    
-    if minutes_from_now < 1:
-        return await ctx.send("❌ Time must be at least 1 minute from now.", ephemeral=True)
-    
-    if minutes_from_now > 10080:  # 7 days max
-        return await ctx.send("❌ Time must be within 7 days.", ephemeral=True)
-    
-    # Calculate the actual scheduled time
-    scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes_from_now)
-    
-    # Create the event
-    event = create_event(
-        event_type=event_type.lower(),
-        title=title,
-        scheduled_time=scheduled_time.isoformat(),
-        host_id=ctx.author.id,
-        channel_id=ctx.channel.id
-    )
-    
-    # Get ping role
-    ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
-    ping_role = discord.utils.get(ctx.guild.roles, name=ping_role_name)
-    
-    # Create embed
-    embed = await create_event_embed(event, ctx.guild)
-    
-    # Send announcement
-    ping_text = ping_role.mention if ping_role else ""
-    msg = await ctx.send(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
-    
-    # Store message ID for later updates
-    update_event(event["id"], {"message_id": str(msg.id)})
-    
-    await log_action(ctx.guild, f"📅 Event Created", f"**{title}**\nType: {event_type}\nStarts: <t:{int(scheduled_time.timestamp())}:R>\nHost: {ctx.author.mention}", 0x3498db)
-
-@bot.hybrid_command(name="event_schedule", description="Staff: Schedule event at specific UTC time")
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def event_schedule_cmd(ctx, event_type: str, title: str, hour: int, minute: int = 0):
-    """
-    Schedule event at a specific UTC time today or tomorrow.
-    
-    event_type: 'training' or 'tryout'
-    title: Name of the event
-    hour: Hour in UTC (0-23)
-    minute: Minute (0-59)
-    """
-    if event_type.lower() not in ["training", "tryout"]:
-        return await ctx.send("❌ Event type must be `training` or `tryout`", ephemeral=True)
-    
-    if hour < 0 or hour > 23:
-        return await ctx.send("❌ Hour must be 0-23.", ephemeral=True)
-    if minute < 0 or minute > 59:
-        return await ctx.send("❌ Minute must be 0-59.", ephemeral=True)
-    
-    # Calculate scheduled time
-    now = datetime.datetime.now(datetime.timezone.utc)
-    scheduled_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    
-    # If time has passed today, schedule for tomorrow
-    if scheduled_time <= now:
-        scheduled_time += datetime.timedelta(days=1)
-    
-    # Create the event
-    event = create_event(
-        event_type=event_type.lower(),
-        title=title,
-        scheduled_time=scheduled_time.isoformat(),
-        host_id=ctx.author.id,
-        channel_id=ctx.channel.id
-    )
-    
-    # Get ping role
-    ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
-    ping_role = discord.utils.get(ctx.guild.roles, name=ping_role_name)
-    
-    # Create embed
-    embed = await create_event_embed(event, ctx.guild)
-    
-    # Send announcement
-    ping_text = ping_role.mention if ping_role else ""
-    msg = await ctx.send(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
-    
-    # Store message ID
-    update_event(event["id"], {"message_id": str(msg.id)})
-    
-    await log_action(ctx.guild, f"📅 Event Scheduled", f"**{title}**\nType: {event_type}\nTime: <t:{int(scheduled_time.timestamp())}:F>\nHost: {ctx.author.mention}", 0x3498db)
-
-@bot.hybrid_command(name="event_list", description="View upcoming events")
-async def event_list(ctx):
-    """View all upcoming scheduled events"""
-    events = get_upcoming_events(10)
-    
-    if not events:
-        embed = discord.Embed(
-            title="📅 Upcoming Events",
-            description="No events scheduled!\n\nStaff can create events with `/event_create`",
-            color=0x95a5a6
-        )
-        return await ctx.send(embed=embed)
-    
-    embed = discord.Embed(title="📅 Upcoming Events", color=0x3498db)
-    
-    for event in events:
-        emoji = "📚" if event["type"] == "training" else "🎯"
-        
-        try:
-            event_time = datetime.datetime.fromisoformat(event["scheduled_time"])
-            time_str = f"<t:{int(event_time.timestamp())}:F>"
-        except:
-            time_str = event["scheduled_time"]
-        
-        host = ctx.guild.get_member(int(event["host_id"]))
-        host_name = host.display_name if host else "Unknown"
-        
-        rsvp_count = len(event.get("rsvp_yes", []))
-        
-        embed.add_field(
-            name=f"{emoji} {event['title']}",
-            value=f"**Time:** {time_str}\n**Host:** {host_name}\n**RSVPs:** {rsvp_count} attending",
-            inline=False
-        )
-    
-    embed.set_footer(text="React to event announcements to RSVP!")
-    await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="event_cancel", description="Staff: Cancel a scheduled event")
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def event_cancel(ctx, event_id: str):
-    """Cancel a scheduled event"""
-    event = cancel_event(event_id)
-    
-    if not event:
-        return await ctx.send("❌ Event not found!", ephemeral=True)
-    
-    await ctx.send(f"✅ Event **{event['title']}** has been cancelled.")
-    await log_action(ctx.guild, "❌ Event Cancelled", f"**{event['title']}** cancelled by {ctx.author.mention}", 0xe74c3c)
-
-@bot.hybrid_command(name="event_log", description="Staff: Log attendance and give rewards")
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def event_log(ctx, event_id: str):
-    """
-    Log attendance for an event. Mention all attendees.
-    
-    Usage: /event_log <event_id> @user1 @user2 @user3
-    """
-    # Get mentioned users
-    mentioned = ctx.message.mentions if hasattr(ctx, 'message') and ctx.message else []
-    
-    if not mentioned:
-        return await ctx.send(
-            "❌ Please mention the attendees!\n"
-            "Usage: `/event_log <event_id>` then mention users\n"
-            "Example: `/event_log event_123456` @user1 @user2",
-            ephemeral=True
-        )
-    
-    # Log attendance
-    attendee_ids = [m.id for m in mentioned]
-    result = log_attendance(event_id, attendee_ids, ctx.author.id)
-    
-    if not result:
-        return await ctx.send("❌ Event not found!", ephemeral=True)
-    
-    event = result["event"]
-    
-    # Build results embed
-    embed = discord.Embed(
-        title=f"✅ Attendance Logged - {event['title']}",
-        description=f"**{len(attendee_ids)} attendees** rewarded!",
-        color=0x2ecc71
-    )
-    
-    # Show rewards
-    rewards = ATTENDANCE_REWARDS.get(event["type"], {"coins": 50, "xp": 25})
-    embed.add_field(
-        name="💰 Rewards Given",
-        value=f"• {rewards['coins']} coins each\n• {rewards['xp']} XP each",
-        inline=True
-    )
-    
-    # Show host rewards
-    host_rewards = result["host_rewards"]
-    embed.add_field(
-        name="👑 Host Rewards",
-        value=f"• {host_rewards['coins']} coins\n• {host_rewards['xp']} XP",
-        inline=True
-    )
-    
-    # Show streaks
-    streak_info = []
-    for r in result["attendees"]:
-        if r["streak_bonus"] > 0:
-            member = ctx.guild.get_member(int(r["user_id"]))
-            name = member.display_name if member else f"User {r['user_id'][:8]}"
-            streak_info.append(f"🔥 **{name}**: {r['streak']} streak! (+{r['streak_bonus']} bonus)")
-    
-    if streak_info:
-        embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_info[:5]), inline=False)
-    
-    # Show attendees
-    attendee_names = [m.display_name for m in mentioned[:10]]
-    embed.add_field(
-        name=f"📋 Attendees ({len(mentioned)})",
-        value=", ".join(attendee_names) + ("..." if len(mentioned) > 10 else ""),
-        inline=False
-    )
-    
-    await ctx.send(embed=embed)
-    
-    # Level up checks
-    for uid in attendee_ids:
-        await check_level_up(uid, ctx.guild)
-    await check_level_up(ctx.author.id, ctx.guild)
-    
-    await log_action(
-        ctx.guild, "📋 Attendance Logged",
-        f"**{event['title']}**\nAttendees: {len(attendee_ids)}\nHost: {ctx.author.mention}",
-        0x2ecc71
-    )
-
 @bot.hybrid_command(name="attendance_streak", description="Check your attendance streak")
 async def attendance_streak(ctx, member: discord.Member = None):
     """Check attendance streak"""
@@ -10604,7 +10369,7 @@ async def attendance_streak(ctx, member: discord.Member = None):
     embed.set_thumbnail(url=target.display_avatar.url)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="quick_training", description="Staff: Quick announce training (no RSVP)")
+@bot.command(name="quick_training", description="Staff: Quick announce training (no RSVP)")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def quick_training(ctx, time: str, *, description: str = ""):
     """Quick training announcement without full event system"""
@@ -10625,7 +10390,7 @@ async def quick_training(ctx, time: str, *, description: str = ""):
     ping_text = ping_role.mention if ping_role else ""
     await ctx.send(content=ping_text, embed=embed)
 
-@bot.hybrid_command(name="quick_tryout", description="Staff: Quick announce tryout (no RSVP)")
+@bot.command(name="quick_tryout", description="Staff: Quick announce tryout (no RSVP)")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def quick_tryout(ctx, time: str, *, description: str = ""):
     """Quick tryout announcement without full event system"""
@@ -10922,7 +10687,7 @@ async def clearwarnings(ctx, member: discord.Member):
     await ctx.send(f"✅ Cleared all warnings for {member.mention}")
     await log_action(ctx.guild, "⚠️ Warnings Cleared", f"{member.mention} by {ctx.author.mention}", 0x2ecc71)
 
-@bot.hybrid_command(name="promote", description="Staff: Promote a user")
+@bot.command(name="promote", description="Staff: Promote a user")
 async def promote(ctx, member: discord.Member, role: discord.Role):
     """Promote a user"""
     if not is_high_staff(ctx.author):
@@ -10935,7 +10700,7 @@ async def promote(ctx, member: discord.Member, role: discord.Role):
     except discord.Forbidden:
         await ctx.send("❌ Cannot assign that role.", ephemeral=True)
 
-@bot.hybrid_command(name="demote", description="Staff: Demote a user")
+@bot.command(name="demote", description="Staff: Demote a user")
 async def demote(ctx, member: discord.Member, role: discord.Role):
     """Demote a user"""
     if not is_high_staff(ctx.author):
@@ -10948,7 +10713,7 @@ async def demote(ctx, member: discord.Member, role: discord.Role):
     except discord.Forbidden:
         await ctx.send("❌ Cannot remove that role.", ephemeral=True)
 
-@bot.hybrid_command(name="announce", description="Staff: Send an announcement")
+@bot.command(name="announce", description="Staff: Send an announcement")
 async def announce(ctx, channel: discord.TextChannel, *, message: str):
     """Send formatted announcement"""
     if not is_staff(ctx.author):
@@ -10959,7 +10724,7 @@ async def announce(ctx, channel: discord.TextChannel, *, message: str):
     await channel.send(embed=embed)
     await ctx.send(f"✅ Sent to {channel.mention}", ephemeral=True)
 
-@bot.hybrid_command(name="top10_add", description="Admin: Add to Top 10 leaderboard")
+@bot.command(name="top10_add", description="Admin: Add to Top 10 leaderboard")
 @commands.has_permissions(administrator=True)
 async def top10_add(ctx, member: discord.Member, position: int):
     """Add user to Top 10 roster at position (1-10)"""
@@ -10973,7 +10738,7 @@ async def top10_add(ctx, member: discord.Member, position: int):
     await ctx.send(f"✅ Added {member.mention} to Top 10 at position **{position}**")
     await log_action(ctx.guild, "📝 Top 10 Updated", f"{member.mention} at #{position} by {ctx.author.mention}", 0xF1C40F)
 
-@bot.hybrid_command(name="top10_remove", description="Admin: Remove from Top 10 leaderboard")
+@bot.command(name="top10_remove", description="Admin: Remove from Top 10 leaderboard")
 @commands.has_permissions(administrator=True)
 async def top10_remove(ctx, position: int):
     """Remove user from Top 10 position (1-10)"""
@@ -10987,7 +10752,7 @@ async def top10_remove(ctx, position: int):
     await ctx.send(f"✅ Top 10 position **{position}** cleared")
     await log_action(ctx.guild, "📝 Top 10 Updated", f"Position {position} cleared by {ctx.author.mention}", 0xF1C40F)
 
-@bot.hybrid_command(name="reset_weekly", description="Admin: Reset weekly XP")
+@bot.command(name="reset_weekly", description="Admin: Reset weekly XP")
 @commands.has_permissions(administrator=True)
 async def reset_weekly(ctx):
     """Reset weekly XP for all users"""
@@ -10998,7 +10763,7 @@ async def reset_weekly(ctx):
     await ctx.send("✅ Weekly XP reset!")
     await log_action(ctx.guild, "🔄 Weekly Reset", f"By {ctx.author.mention}", 0x3498db)
 
-@bot.hybrid_command(name="reset_monthly", description="Admin: Reset monthly XP")
+@bot.command(name="reset_monthly", description="Admin: Reset monthly XP")
 @commands.has_permissions(administrator=True)
 async def reset_monthly(ctx):
     """Reset monthly XP for all users"""
@@ -11013,7 +10778,7 @@ async def reset_monthly(ctx):
 # SUPPORT TICKET COMMANDS
 # ==========================================
 
-@bot.hybrid_command(name="setup_tickets", description="Admin: Setup the support ticket panel")
+@bot.command(name="setup_tickets", description="Admin: Setup the support ticket panel")
 @commands.has_permissions(administrator=True)
 async def setup_tickets(ctx, channel: discord.TextChannel = None):
     """Create the support ticket panel"""
@@ -11036,7 +10801,7 @@ async def setup_tickets(ctx, channel: discord.TextChannel = None):
     await ctx.send(f"✅ Ticket panel posted in {target_channel.mention}", ephemeral=True)
     await log_action(ctx.guild, "🎫 Ticket Panel", f"Posted in {target_channel.mention} by {ctx.author.mention}", 0x3498db)
 
-@bot.hybrid_command(name="ticket_stats", description="Staff: View ticket statistics")
+@bot.command(name="ticket_stats", description="Staff: View ticket statistics")
 async def ticket_stats(ctx):
     """View ticket statistics"""
     if not is_staff(ctx.author):
@@ -11061,7 +10826,7 @@ async def ticket_stats(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="close_ticket", description="Close the current ticket")
+@bot.command(name="close_ticket", description="Close the current ticket")
 async def close_ticket(ctx):
     """Close the current ticket channel"""
     if ctx.channel.id not in support_tickets:
@@ -11106,7 +10871,7 @@ async def close_ticket(ctx):
 # ADVANCED STATS COMMANDS
 # ==========================================
 
-@bot.hybrid_command(name="serverstats", description="View server statistics")
+@bot.command(name="serverstats", description="View server statistics")
 @commands.cooldown(1, 30, commands.BucketType.guild)  # Once per 30 seconds per server
 async def serverstats(ctx):
     """Display comprehensive server statistics with image"""
@@ -11188,7 +10953,7 @@ async def serverstats(ctx):
     embed.set_footer(text=f"Server ID: {ctx.guild.id}")
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="topactive", description="View most active members this week")
+@bot.command(name="topactive", description="View most active members this week")
 async def topactive(ctx, days: int = 7):
     """Show most active members"""
     if days not in [7, 30]:
@@ -11351,7 +11116,7 @@ async def rank_cmd(ctx, member: discord.Member = None):
     embed = create_arcane_level_embed(target, user_data, rank)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="achievements", description="View your achievements")
+@bot.command(name="achievements", description="View your achievements")
 @commands.cooldown(1, 15, commands.BucketType.user)  # Once per 15 seconds per user
 async def achievements_cmd(ctx, member: discord.Member = None):
     """Display all achievements and progress"""
@@ -11381,7 +11146,7 @@ async def achievements_cmd(ctx, member: discord.Member = None):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="activity", description="View your activity graph")
+@bot.command(name="activity", description="View your activity graph")
 async def activity_cmd(ctx, member: discord.Member = None):
     """Display an activity graph"""
     target = member or ctx.author
@@ -11407,7 +11172,7 @@ async def activity_cmd(ctx, member: discord.Member = None):
     embed.add_field(name="Monthly XP", value=format_number(user_data.get('monthly_xp', 0)), inline=True)
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="raid_history", description="View raid history")
+@bot.command(name="raid_history", description="View raid history")
 async def raid_history_cmd(ctx):
     """Display recent raid history"""
     history = load_raid_history()
@@ -11533,7 +11298,7 @@ async def elo_cmd(ctx, member: discord.Member = None):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="elo_leaderboard", description="View the ELO leaderboard")
+@bot.command(name="elo_leaderboard", description="View the ELO leaderboard")
 @commands.cooldown(1, 15, commands.BucketType.user)
 async def elo_leaderboard_cmd(ctx):
     """View the top ELO players"""
@@ -11561,7 +11326,7 @@ async def elo_leaderboard_cmd(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="duel_history", description="View your duel history")
+@bot.command(name="duel_history", description="View your duel history")
 @commands.cooldown(1, 10, commands.BucketType.user)
 async def duel_history_cmd(ctx, member: discord.Member = None):
     """View duel history"""
@@ -11594,7 +11359,7 @@ async def duel_history_cmd(ctx, member: discord.Member = None):
     embed.description = desc
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="elo_reset", description="Admin: Reset all ELO ratings")
+@bot.command(name="elo_reset", description="Admin: Reset all ELO ratings")
 @commands.has_permissions(administrator=True)
 async def elo_reset_cmd(ctx, confirm: str = None):
     """Reset all ELO ratings"""
@@ -11611,7 +11376,7 @@ async def elo_reset_cmd(ctx, confirm: str = None):
 # TOURNAMENT COMMANDS (Panel-based)
 # ==========================================
 
-@bot.hybrid_command(name="tournament_create", description="Admin: Create a new tournament")
+@bot.command(name="tournament_create", description="Admin: Create a new tournament")
 @commands.has_permissions(administrator=True)
 async def tournament_create_cmd(ctx, name: str, channel: discord.TextChannel = None):
     """Create a new tournament with signup panel"""
@@ -11636,7 +11401,7 @@ async def tournament_create_cmd(ctx, name: str, channel: discord.TextChannel = N
     await target_channel.send(embed=embed, view=TournamentPanelView())
     await ctx.send(f"✅ Tournament **{name}** created in {target_channel.mention}!", ephemeral=True)
 
-@bot.hybrid_command(name="tournament_panel", description="Admin: Post tournament panel")
+@bot.command(name="tournament_panel", description="Admin: Post tournament panel")
 @commands.has_permissions(administrator=True)
 async def tournament_panel_cmd(ctx):
     """Post the tournament panel"""
@@ -11665,7 +11430,7 @@ async def tournament_panel_cmd(ctx):
     
     await ctx.send(embed=embed, view=TournamentPanelView())
 
-@bot.hybrid_command(name="tournament_end", description="Admin: End the current tournament")
+@bot.command(name="tournament_end", description="Admin: End the current tournament")
 @commands.has_permissions(administrator=True)
 async def tournament_end_cmd(ctx, confirm: str = None):
     """End the current tournament"""
@@ -11681,7 +11446,7 @@ async def tournament_end_cmd(ctx, confirm: str = None):
 # INACTIVITY COMMANDS
 # ==========================================
 
-@bot.hybrid_command(name="inactivity_check", description="Staff: Run inactivity check on all ranked members")
+@bot.command(name="inactivity_check", description="Staff: Run inactivity check on all ranked members")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 @commands.cooldown(1, 300, commands.BucketType.guild)  # Once per 5 minutes per server
 async def inactivity_check_cmd(ctx):
@@ -11724,7 +11489,7 @@ async def inactivity_check_cmd(ctx):
         fields={"Demotions": str(results["demotions"]), "Kicks": str(results["kicks"]), "By": ctx.author.mention}
     )
 
-@bot.hybrid_command(name="inactivity_strikes", description="Check inactivity strikes for a user")
+@bot.command(name="inactivity_strikes", description="Check inactivity strikes for a user")
 async def inactivity_strikes_cmd(ctx, member: discord.Member = None):
     """Check inactivity strikes for a user"""
     target = member or ctx.author
@@ -11803,7 +11568,7 @@ async def inactivity_strikes_cmd(ctx, member: discord.Member = None):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="add_inactivity_strike", description="Staff: Add an inactivity strike to a user")
+@bot.command(name="add_inactivity_strike", description="Staff: Add an inactivity strike to a user")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def add_inactivity_strike_cmd(ctx, member: discord.Member, reason: str = "Manual strike by staff"):
     """Manually add an inactivity strike"""
@@ -11864,7 +11629,7 @@ async def add_inactivity_strike_cmd(ctx, member: discord.Member, reason: str = "
         fields={"By": ctx.author.mention, "Action": action_text or "None"}
     )
 
-@bot.hybrid_command(name="remove_inactivity_strike", description="Staff: Remove an inactivity strike from a user")
+@bot.command(name="remove_inactivity_strike", description="Staff: Remove an inactivity strike from a user")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def remove_inactivity_strike_cmd(ctx, member: discord.Member):
     """Remove one inactivity strike from a user"""
@@ -11891,7 +11656,7 @@ async def remove_inactivity_strike_cmd(ctx, member: discord.Member):
     except:
         pass
 
-@bot.hybrid_command(name="clear_inactivity_strikes", description="Admin: Clear all inactivity strikes from a user")
+@bot.command(name="clear_inactivity_strikes", description="Admin: Clear all inactivity strikes from a user")
 @commands.has_any_role(*HIGH_STAFF_ROLES)
 async def clear_inactivity_strikes_cmd(ctx, member: discord.Member):
     """Clear all inactivity strikes from a user"""
@@ -11926,7 +11691,7 @@ async def clear_inactivity_strikes_cmd(ctx, member: discord.Member):
         fields={"By": ctx.author.mention}
     )
 
-@bot.hybrid_command(name="inactive_list", description="Staff: Show all members with inactivity strikes")
+@bot.command(name="inactive_list", description="Staff: Show all members with inactivity strikes")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def inactive_list_cmd(ctx):
     """Show all members with inactivity strikes"""
@@ -11963,7 +11728,7 @@ async def inactive_list_cmd(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="set_inactivity_days", description="Admin: Set days of inactivity before strike")
+@bot.command(name="set_inactivity_days", description="Admin: Set days of inactivity before strike")
 @commands.has_permissions(administrator=True)
 async def set_inactivity_days(ctx, days: int):
     """Set the number of days before inactivity strike"""
@@ -11975,7 +11740,7 @@ async def set_inactivity_days(ctx, days: int):
     INACTIVITY_CHECK_DAYS = days
     await ctx.send(f"✅ Inactivity threshold set to **{days} days**.", ephemeral=True)
 
-@bot.hybrid_command(name="immunity_add", description="Staff: Give inactivity immunity to a member")
+@bot.command(name="immunity_add", description="Staff: Give inactivity immunity to a member")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def immunity_add(ctx, member: discord.Member, *, reason: str = "No reason provided"):
     """Give a member immunity from inactivity checks"""
@@ -12025,7 +11790,7 @@ async def immunity_add(ctx, member: discord.Member, *, reason: str = "No reason 
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to add that role.", ephemeral=True)
 
-@bot.hybrid_command(name="immunity_remove", description="Staff: Remove inactivity immunity from a member")
+@bot.command(name="immunity_remove", description="Staff: Remove inactivity immunity from a member")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def immunity_remove(ctx, member: discord.Member):
     """Remove immunity from a member"""
@@ -12056,7 +11821,7 @@ async def immunity_remove(ctx, member: discord.Member):
     except discord.Forbidden:
         await ctx.send("❌ I don't have permission to remove that role.", ephemeral=True)
 
-@bot.hybrid_command(name="immunity_list", description="Staff: View all members with inactivity immunity")
+@bot.command(name="immunity_list", description="Staff: View all members with inactivity immunity")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def immunity_list(ctx):
     """View all members with immunity"""
@@ -12087,7 +11852,7 @@ async def immunity_list(ctx):
     embed.set_footer(text="Use /immunity_remove @user to remove immunity")
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="db_status", description="Admin: Check database status")
+@bot.command(name="db_status", description="Admin: Check database status")
 @commands.has_permissions(administrator=True)
 async def db_status(ctx):
     """Check database connection status"""
@@ -12116,7 +11881,7 @@ async def db_status(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="setup_logs", description="Admin: Setup the logging dashboard channel")
+@bot.command(name="setup_logs", description="Admin: Setup the logging dashboard channel")
 @commands.has_permissions(administrator=True)
 async def setup_logs(ctx):
     """Create the logging dashboard channel"""
@@ -12156,7 +11921,7 @@ async def setup_logs(ctx):
     await channel.send(embed=embed)
     await ctx.send(f"✅ Created logging channel: {channel.mention}", ephemeral=True)
 
-@bot.hybrid_command(name="compare", description="Compare stats with another member")
+@bot.command(name="compare", description="Compare stats with another member")
 async def compare(ctx, member: discord.Member):
     """Compare your stats with another member"""
     if member.id == ctx.author.id:
@@ -12217,7 +11982,7 @@ async def compare(ctx, member: discord.Member):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="leaderboards", description="View various leaderboards")
+@bot.command(name="leaderboards", description="View various leaderboards")
 async def leaderboards(ctx):
     """Show all available leaderboards"""
     embed = discord.Embed(
