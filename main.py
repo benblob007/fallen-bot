@@ -5342,11 +5342,13 @@ STAGE_TRANSFER_RANKS = [
     "Stage 3〢FORSAKEN WARRIOR",
     "Stage 4〢ABYSS-TOUCHED",
     "Stage 5〢BROKEN INITIATE",
-    "High",
-    "Mid", 
-    "Low",
-    "Stable",
 ]
+
+# Rank levels for further detail
+RANK_LEVELS = ["High", "Mid", "Low"]
+
+# Strength evaluations
+STRENGTH_LEVELS = ["Strong", "Stable", "Weak"]
 
 # Clans that are accepted for proof
 ACCEPTED_CLANS = ["TSBCC", "VALHALLA", "TSBER"]
@@ -5480,31 +5482,90 @@ class StageTransferControlView(discord.ui.View):
 
 
 class RankSelectView(discord.ui.View):
-    """View for selecting rank to assign"""
+    """View for selecting rank to assign - Stage, Rank Level, Strength"""
     def __init__(self, ticket_channel):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.ticket_channel = ticket_channel
+        self.selected_stage = None
+        self.selected_rank = None
+        self.selected_strength = None
         
-        # Create dropdown with ranks
-        options = [
-            discord.SelectOption(label=rank.split("〢")[0] if "〢" in rank else rank, value=rank, description=rank)
-            for rank in STAGE_TRANSFER_RANKS
+        # Stage dropdown
+        stage_options = [
+            discord.SelectOption(label="Stage 0", value="Stage 0〢FALLEN DEITY", description="FALLEN DEITY"),
+            discord.SelectOption(label="Stage 1", value="Stage 1〢FALLEN APEX", description="FALLEN APEX"),
+            discord.SelectOption(label="Stage 2", value="Stage 2〢FALLEN ASCENDANT", description="FALLEN ASCENDANT"),
+            discord.SelectOption(label="Stage 3", value="Stage 3〢FORSAKEN WARRIOR", description="FORSAKEN WARRIOR"),
+            discord.SelectOption(label="Stage 4", value="Stage 4〢ABYSS-TOUCHED", description="ABYSS-TOUCHED"),
+            discord.SelectOption(label="Stage 5", value="Stage 5〢BROKEN INITIATE", description="BROKEN INITIATE"),
+        ]
+        
+        self.stage_select = discord.ui.Select(
+            placeholder="1️⃣ Select Stage (Required)...",
+            options=stage_options,
+            custom_id="stage_select_dropdown",
+            row=0
+        )
+        self.stage_select.callback = self.select_stage
+        self.add_item(self.stage_select)
+        
+        # Rank Level dropdown
+        rank_options = [
+            discord.SelectOption(label="High", value="High", description="High rank level"),
+            discord.SelectOption(label="Mid", value="Mid", description="Mid rank level"),
+            discord.SelectOption(label="Low", value="Low", description="Low rank level"),
+            discord.SelectOption(label="Skip", value="skip", description="Don't assign rank level"),
         ]
         
         self.rank_select = discord.ui.Select(
-            placeholder="Select rank to assign...",
-            options=options,
-            custom_id="rank_select_dropdown"
+            placeholder="2️⃣ Select Rank Level (Optional)...",
+            options=rank_options,
+            custom_id="rank_level_select_dropdown",
+            row=1
         )
-        self.rank_select.callback = self.select_rank
+        self.rank_select.callback = self.select_rank_level
         self.add_item(self.rank_select)
+        
+        # Strength dropdown
+        strength_options = [
+            discord.SelectOption(label="Strong", value="Strong", description="Strong evaluation"),
+            discord.SelectOption(label="Stable", value="Stable", description="Stable evaluation"),
+            discord.SelectOption(label="Weak", value="Weak", description="Weak evaluation"),
+            discord.SelectOption(label="Skip", value="skip", description="Don't assign strength"),
+        ]
+        
+        self.strength_select = discord.ui.Select(
+            placeholder="3️⃣ Select Strength (Optional)...",
+            options=strength_options,
+            custom_id="strength_select_dropdown",
+            row=2
+        )
+        self.strength_select.callback = self.select_strength
+        self.add_item(self.strength_select)
     
-    async def select_rank(self, interaction: discord.Interaction):
-        """Handle rank selection"""
-        selected_rank = self.rank_select.values[0]
+    async def select_stage(self, interaction: discord.Interaction):
+        self.selected_stage = self.stage_select.values[0]
+        await interaction.response.send_message(f"✅ Stage selected: **{self.selected_stage.split('〢')[0]}**\nNow select Rank Level and Strength, then click Confirm.", ephemeral=True)
+    
+    async def select_rank_level(self, interaction: discord.Interaction):
+        value = self.rank_select.values[0]
+        self.selected_rank = None if value == "skip" else value
+        msg = f"✅ Rank Level: **{value}**" if value != "skip" else "✅ Rank Level: Skipped"
+        await interaction.response.send_message(msg, ephemeral=True)
+    
+    async def select_strength(self, interaction: discord.Interaction):
+        value = self.strength_select.values[0]
+        self.selected_strength = None if value == "skip" else value
+        msg = f"✅ Strength: **{value}**" if value != "skip" else "✅ Strength: Skipped"
+        await interaction.response.send_message(msg, ephemeral=True)
+    
+    @discord.ui.button(label="✅ Confirm & Assign", style=discord.ButtonStyle.success, row=3)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Confirm and assign the selected roles"""
+        if not self.selected_stage:
+            return await interaction.response.send_message("❌ Please select a Stage first!", ephemeral=True)
         
         # Find the user who opened the ticket
-        # Get from channel name or first message mention
         target_user = None
         async for message in self.ticket_channel.history(limit=5, oldest_first=True):
             if message.mentions:
@@ -5516,63 +5577,104 @@ class RankSelectView(discord.ui.View):
                 break
         
         if not target_user:
-            return await interaction.response.edit_message(
-                content="❌ Could not find the user who requested the transfer.",
-                view=None
-            )
+            return await interaction.response.send_message("❌ Could not find the user who requested the transfer.", ephemeral=True)
         
-        # Remove all current stage ranks
-        for rank_name in STAGE_TRANSFER_RANKS:
-            role = discord.utils.get(interaction.guild.roles, name=rank_name)
+        # All roles to potentially remove
+        ALL_RESULT_ROLES = [
+            "Stage 0〢FALLEN DEITY", "Stage 1〢FALLEN APEX", "Stage 2〢FALLEN ASCENDANT",
+            "Stage 3〢FORSAKEN WARRIOR", "Stage 4〢ABYSS-TOUCHED", "Stage 5〢BROKEN INITIATE",
+            "High", "Mid", "Low", "Strong", "Stable", "Weak"
+        ]
+        
+        # Remove all current result roles
+        roles_to_remove = []
+        for role_name in ALL_RESULT_ROLES:
+            role = discord.utils.get(interaction.guild.roles, name=role_name)
             if role and role in target_user.roles:
-                try:
-                    await target_user.remove_roles(role)
-                    await asyncio.sleep(0.5)
-                except:
-                    pass
+                roles_to_remove.append(role)
         
-        # Add new rank
-        new_role = discord.utils.get(interaction.guild.roles, name=selected_rank)
-        if not new_role:
-            return await interaction.response.edit_message(
-                content=f"❌ Role `{selected_rank}` not found!",
-                view=None
-            )
+        if roles_to_remove:
+            try:
+                await target_user.remove_roles(*roles_to_remove)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                print(f"Error removing roles: {e}")
         
+        # Add new roles
+        roles_to_add = []
+        result_parts = []
+        
+        # Stage role (required)
+        stage_role = discord.utils.get(interaction.guild.roles, name=self.selected_stage)
+        if stage_role:
+            roles_to_add.append(stage_role)
+            result_parts.append(self.selected_stage.split("〢")[0])
+        else:
+            return await interaction.response.send_message(f"❌ Role `{self.selected_stage}` not found!", ephemeral=True)
+        
+        # Rank level (optional)
+        if self.selected_rank:
+            rank_role = discord.utils.get(interaction.guild.roles, name=self.selected_rank)
+            if rank_role:
+                roles_to_add.append(rank_role)
+                result_parts.append(self.selected_rank)
+        
+        # Strength (optional)
+        if self.selected_strength:
+            strength_role = discord.utils.get(interaction.guild.roles, name=self.selected_strength)
+            if strength_role:
+                roles_to_add.append(strength_role)
+                result_parts.append(self.selected_strength)
+        
+        # Add all roles
         try:
-            await target_user.add_roles(new_role)
+            await target_user.add_roles(*roles_to_add)
         except Exception as e:
-            return await interaction.response.edit_message(
-                content=f"❌ Failed to add role: {e}",
-                view=None
-            )
+            return await interaction.response.send_message(f"❌ Failed to add roles: {e}", ephemeral=True)
+        
+        result_str = ", ".join(result_parts)
         
         # Send approval message
         embed = discord.Embed(
             title="✅ Transfer Approved!",
             description=(
                 f"**User:** {target_user.mention}\n"
-                f"**New Rank:** {selected_rank}\n"
+                f"**Result:** {result_str}\n"
                 f"**Approved by:** {interaction.user.mention}"
             ),
             color=0x2ecc71
         )
+        embed.add_field(name="📊 Stage", value=self.selected_stage, inline=True)
+        if self.selected_rank:
+            embed.add_field(name="📈 Rank Level", value=self.selected_rank, inline=True)
+        if self.selected_strength:
+            embed.add_field(name="💪 Strength", value=self.selected_strength, inline=True)
         
         await self.ticket_channel.send(embed=embed)
-        await interaction.response.edit_message(content=f"✅ Assigned **{selected_rank}** to {target_user.display_name}", view=None)
+        await interaction.response.send_message(f"✅ Assigned **{result_str}** to {target_user.display_name}", ephemeral=True)
+        
+        # Disable this view
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
         
         # Try to DM user
         try:
             dm_embed = discord.Embed(
                 title="✅ Stage Transfer Approved!",
-                description=f"Your transfer request has been approved!\n\n**New Rank:** {selected_rank}",
+                description=f"Your transfer request has been approved!\n\n**Result:** {result_str}",
                 color=0x2ecc71
             )
             await target_user.send(embed=dm_embed)
         except:
             pass
         
-        await log_action(interaction.guild, "✅ Transfer Approved", f"{target_user.mention} → **{selected_rank}**\nApproved by: {interaction.user.mention}", 0x2ecc71)
+        await log_action(interaction.guild, "✅ Transfer Approved", f"{target_user.mention} → **{result_str}**\nApproved by: {interaction.user.mention}", 0x2ecc71)
+    
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary, row=3)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Cancelled.", ephemeral=True)
+        await interaction.message.delete()
 
 
 class TransferDenyModal(discord.ui.Modal, title="Deny Transfer Request"):
@@ -9640,33 +9742,110 @@ async def setup_transfer(ctx):
 @bot.hybrid_command(name="result", description="Staff: Assign tryout/transfer result with stage, rank, and strength")
 @app_commands.describe(
     member="Member to give the rank to",
-    stage="The stage rank to assign",
-    rank_level="Rank level (High/Mid/Low/Stable)",
-    strength="Strength rating (Strong/Moderate/Weak)"
+    stage="Stage (0-5 or 'stage 2')",
+    rank_level="Rank level (High/Mid/Low)",
+    strength="Strength (Strong/Stable/Weak)"
 )
-@app_commands.choices(stage=[
-    app_commands.Choice(name="Stage 0 (FALLEN DEITY)", value="Stage 0〢FALLEN DEITY"),
-    app_commands.Choice(name="Stage 1 (FALLEN APEX)", value="Stage 1〢FALLEN APEX"),
-    app_commands.Choice(name="Stage 2 (FALLEN ASCENDANT)", value="Stage 2〢FALLEN ASCENDANT"),
-    app_commands.Choice(name="Stage 3 (FORSAKEN WARRIOR)", value="Stage 3〢FORSAKEN WARRIOR"),
-    app_commands.Choice(name="Stage 4 (ABYSS-TOUCHED)", value="Stage 4〢ABYSS-TOUCHED"),
-    app_commands.Choice(name="Stage 5 (BROKEN INITIATE)", value="Stage 5〢BROKEN INITIATE"),
-])
-@app_commands.choices(rank_level=[
-    app_commands.Choice(name="High", value="High"),
-    app_commands.Choice(name="Mid", value="Mid"),
-    app_commands.Choice(name="Low", value="Low"),
-    app_commands.Choice(name="Stable", value="Stable"),
-])
-@app_commands.choices(strength=[
-    app_commands.Choice(name="Strong", value="Strong"),
-    app_commands.Choice(name="Moderate", value="Moderate"),
-    app_commands.Choice(name="Weak", value="Weak"),
-])
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME, TRYOUT_HOST_ROLE)
 async def result_transfer(ctx, member: discord.Member, stage: str, rank_level: str = None, strength: str = None):
-    """Assign tryout/transfer result - stage required, rank and strength optional"""
+    """Assign tryout/transfer result - stage required, rank and strength optional
+    
+    Examples:
+    /result @user stage 2
+    /result @user 3 high strong
+    /result @user stage 0 high stable
+    """
     await ctx.defer()
+    
+    # Stage mapping - convert simple input to full role name
+    STAGE_MAP = {
+        "0": "Stage 0〢FALLEN DEITY",
+        "stage 0": "Stage 0〢FALLEN DEITY",
+        "stage0": "Stage 0〢FALLEN DEITY",
+        "deity": "Stage 0〢FALLEN DEITY",
+        "1": "Stage 1〢FALLEN APEX",
+        "stage 1": "Stage 1〢FALLEN APEX",
+        "stage1": "Stage 1〢FALLEN APEX",
+        "apex": "Stage 1〢FALLEN APEX",
+        "2": "Stage 2〢FALLEN ASCENDANT",
+        "stage 2": "Stage 2〢FALLEN ASCENDANT",
+        "stage2": "Stage 2〢FALLEN ASCENDANT",
+        "ascendant": "Stage 2〢FALLEN ASCENDANT",
+        "3": "Stage 3〢FORSAKEN WARRIOR",
+        "stage 3": "Stage 3〢FORSAKEN WARRIOR",
+        "stage3": "Stage 3〢FORSAKEN WARRIOR",
+        "warrior": "Stage 3〢FORSAKEN WARRIOR",
+        "forsaken": "Stage 3〢FORSAKEN WARRIOR",
+        "4": "Stage 4〢ABYSS-TOUCHED",
+        "stage 4": "Stage 4〢ABYSS-TOUCHED",
+        "stage4": "Stage 4〢ABYSS-TOUCHED",
+        "abyss": "Stage 4〢ABYSS-TOUCHED",
+        "5": "Stage 5〢BROKEN INITIATE",
+        "stage 5": "Stage 5〢BROKEN INITIATE",
+        "stage5": "Stage 5〢BROKEN INITIATE",
+        "initiate": "Stage 5〢BROKEN INITIATE",
+        "broken": "Stage 5〢BROKEN INITIATE",
+    }
+    
+    # Rank level mapping
+    RANK_MAP = {
+        "high": "High",
+        "h": "High",
+        "mid": "Mid",
+        "m": "Mid",
+        "medium": "Mid",
+        "low": "Low",
+        "l": "Low",
+    }
+    
+    # Strength mapping
+    STRENGTH_MAP = {
+        "strong": "Strong",
+        "s": "Strong",
+        "stable": "Stable",
+        "st": "Stable",
+        "weak": "Weak",
+        "w": "Weak",
+    }
+    
+    # Parse stage input
+    stage_lower = stage.lower().strip()
+    stage_role_name = STAGE_MAP.get(stage_lower)
+    
+    if not stage_role_name:
+        # Try to find partial match
+        for key, value in STAGE_MAP.items():
+            if key in stage_lower or stage_lower in key:
+                stage_role_name = value
+                break
+    
+    if not stage_role_name:
+        return await ctx.send(
+            f"❌ Invalid stage: `{stage}`\n\n"
+            f"**Valid options:**\n"
+            f"• `0` or `stage 0` → Stage 0〢FALLEN DEITY\n"
+            f"• `1` or `stage 1` → Stage 1〢FALLEN APEX\n"
+            f"• `2` or `stage 2` → Stage 2〢FALLEN ASCENDANT\n"
+            f"• `3` or `stage 3` → Stage 3〢FORSAKEN WARRIOR\n"
+            f"• `4` or `stage 4` → Stage 4〢ABYSS-TOUCHED\n"
+            f"• `5` or `stage 5` → Stage 5〢BROKEN INITIATE"
+        )
+    
+    # Parse rank level if provided
+    rank_role_name = None
+    if rank_level:
+        rank_lower = rank_level.lower().strip()
+        rank_role_name = RANK_MAP.get(rank_lower, rank_level.capitalize())
+        if rank_role_name not in ["High", "Mid", "Low"]:
+            return await ctx.send(f"❌ Invalid rank level: `{rank_level}`\n**Valid:** High, Mid, Low")
+    
+    # Parse strength if provided
+    strength_role_name = None
+    if strength:
+        strength_lower = strength.lower().strip()
+        strength_role_name = STRENGTH_MAP.get(strength_lower, strength.capitalize())
+        if strength_role_name not in ["Strong", "Stable", "Weak"]:
+            return await ctx.send(f"❌ Invalid strength: `{strength}`\n**Valid:** Strong, Stable, Weak")
     
     # All possible stage/rank roles to remove
     ALL_RESULT_ROLES = [
@@ -9676,8 +9855,8 @@ async def result_transfer(ctx, member: discord.Member, stage: str, rank_level: s
         "Stage 3〢FORSAKEN WARRIOR",
         "Stage 4〢ABYSS-TOUCHED",
         "Stage 5〢BROKEN INITIATE",
-        "High", "Mid", "Low", "Stable",
-        "Strong", "Moderate", "Weak"
+        "High", "Mid", "Low",
+        "Strong", "Stable", "Weak"
     ]
     
     # Get their current roles
@@ -9692,13 +9871,13 @@ async def result_transfer(ctx, member: discord.Member, stage: str, rank_level: s
             old_stage = role_name
             break
     
-    for role_name in ["High", "Mid", "Low", "Stable"]:
+    for role_name in ["High", "Mid", "Low"]:
         role = discord.utils.get(member.roles, name=role_name)
         if role:
             old_rank = role_name
             break
     
-    for role_name in ["Strong", "Moderate", "Weak"]:
+    for role_name in ["Strong", "Stable", "Weak"]:
         role = discord.utils.get(member.roles, name=role_name)
         if role:
             old_strength = role_name
@@ -9723,30 +9902,30 @@ async def result_transfer(ctx, member: discord.Member, stage: str, rank_level: s
     roles_added = []
     
     # Stage role (required)
-    stage_role = discord.utils.get(ctx.guild.roles, name=stage)
+    stage_role = discord.utils.get(ctx.guild.roles, name=stage_role_name)
     if stage_role:
         roles_to_add.append(stage_role)
-        roles_added.append(stage)
+        roles_added.append(stage_role_name)
     else:
-        return await ctx.send(f"❌ Role `{stage}` not found! Please create it first.")
+        return await ctx.send(f"❌ Role `{stage_role_name}` not found! Please create it first.")
     
     # Rank level role (optional)
-    if rank_level:
-        rank_role = discord.utils.get(ctx.guild.roles, name=rank_level)
+    if rank_role_name:
+        rank_role = discord.utils.get(ctx.guild.roles, name=rank_role_name)
         if rank_role:
             roles_to_add.append(rank_role)
-            roles_added.append(rank_level)
+            roles_added.append(rank_role_name)
         else:
-            await ctx.send(f"⚠️ Role `{rank_level}` not found, skipping...")
+            await ctx.send(f"⚠️ Role `{rank_role_name}` not found, skipping...")
     
     # Strength role (optional)
-    if strength:
-        strength_role = discord.utils.get(ctx.guild.roles, name=strength)
+    if strength_role_name:
+        strength_role = discord.utils.get(ctx.guild.roles, name=strength_role_name)
         if strength_role:
             roles_to_add.append(strength_role)
-            roles_added.append(strength)
+            roles_added.append(strength_role_name)
         else:
-            await ctx.send(f"⚠️ Role `{strength}` not found, skipping...")
+            await ctx.send(f"⚠️ Role `{strength_role_name}` not found, skipping...")
     
     # Add all roles at once
     try:
@@ -9755,11 +9934,11 @@ async def result_transfer(ctx, member: discord.Member, stage: str, rank_level: s
         return await ctx.send(f"❌ Failed to add roles: {e}")
     
     # Build result string
-    result_parts = [stage.split("〢")[0] if "〢" in stage else stage]
-    if rank_level:
-        result_parts.append(rank_level)
-    if strength:
-        result_parts.append(strength)
+    result_parts = [stage_role_name.split("〢")[0] if "〢" in stage_role_name else stage_role_name]
+    if rank_role_name:
+        result_parts.append(rank_role_name)
+    if strength_role_name:
+        result_parts.append(strength_role_name)
     result_str = ", ".join(result_parts)
     
     # Build old rank string
@@ -9785,11 +9964,11 @@ async def result_transfer(ctx, member: discord.Member, stage: str, rank_level: s
     )
     
     # Add breakdown
-    embed.add_field(name="📊 Stage", value=stage, inline=True)
-    if rank_level:
-        embed.add_field(name="📈 Rank Level", value=rank_level, inline=True)
-    if strength:
-        embed.add_field(name="💪 Strength", value=strength, inline=True)
+    embed.add_field(name="📊 Stage", value=stage_role_name, inline=True)
+    if rank_role_name:
+        embed.add_field(name="📈 Rank Level", value=rank_role_name, inline=True)
+    if strength_role_name:
+        embed.add_field(name="💪 Strength", value=strength_role_name, inline=True)
     
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.set_footer(text="✝ The Fallen ✝")
