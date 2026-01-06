@@ -66,7 +66,7 @@ SET_RESULTS_CHANNEL_NAME = "♰・set-score"
 TOURNAMENT_RESULTS_CHANNEL_NAME = "╰・tournament-results" 
 LEVEL_UP_CHANNEL_NAME = "♰・level"        
 SHOP_CHANNEL_NAME = "♰・fallen-shop"
-WELCOME_CHANNEL_NAME = "♰・welcome"  # Welcome channel for new members
+WELCOME_CHANNEL_NAME = "╰・welcome"  # Welcome channel for new members
 
 # --- DATA FILES ---
 RECURRING_EVENTS_FILE = "recurring_events.json"      
