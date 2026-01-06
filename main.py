@@ -6918,17 +6918,73 @@ class EventCommands(commands.GroupCog, name="event"):
         super().__init__()
     
     @app_commands.command(name="create", description="Staff: Create a training or tryout event")
-    @app_commands.describe(event_type="Type of event", title="Event title", time="When it starts (e.g., 6PM GMT)")
+    @app_commands.describe(
+        event_type="Type of event",
+        title="Event title", 
+        minutes_from_now="Minutes from now (e.g., 30 = starts in 30 mins)"
+    )
     @app_commands.choices(event_type=[
         app_commands.Choice(name="Training", value="training"),
         app_commands.Choice(name="Tryout", value="tryout"),
     ])
-    async def event_create(self, interaction: discord.Interaction, event_type: str, title: str, time: str):
+    async def event_create(self, interaction: discord.Interaction, event_type: str, title: str, minutes_from_now: int):
         """Create a scheduled event with RSVP and reminders"""
         if not is_staff(interaction.user):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
         
-        scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+        if minutes_from_now < 1:
+            return await interaction.response.send_message("❌ Time must be at least 1 minute from now.", ephemeral=True)
+        
+        if minutes_from_now > 10080:  # 7 days max
+            return await interaction.response.send_message("❌ Time must be within 7 days.", ephemeral=True)
+        
+        # Calculate the actual scheduled time
+        scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes_from_now)
+        
+        event = create_event(
+            event_type=event_type.lower(),
+            title=title,
+            scheduled_time=scheduled_time.isoformat(),
+            host_id=interaction.user.id,
+            channel_id=interaction.channel.id
+        )
+        
+        ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
+        ping_role = discord.utils.get(interaction.guild.roles, name=ping_role_name)
+        
+        embed = await create_event_embed(event, interaction.guild)
+        
+        ping_text = ping_role.mention if ping_role else ""
+        await interaction.response.send_message(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
+    
+    @app_commands.command(name="schedule", description="Staff: Schedule event at specific time")
+    @app_commands.describe(
+        event_type="Type of event",
+        title="Event title",
+        hour="Hour (0-23, in UTC)",
+        minute="Minute (0-59)"
+    )
+    @app_commands.choices(event_type=[
+        app_commands.Choice(name="Training", value="training"),
+        app_commands.Choice(name="Tryout", value="tryout"),
+    ])
+    async def event_schedule(self, interaction: discord.Interaction, event_type: str, title: str, hour: int, minute: int = 0):
+        """Schedule event at a specific UTC time today or tomorrow"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        if hour < 0 or hour > 23:
+            return await interaction.response.send_message("❌ Hour must be 0-23.", ephemeral=True)
+        if minute < 0 or minute > 59:
+            return await interaction.response.send_message("❌ Minute must be 0-59.", ephemeral=True)
+        
+        # Calculate scheduled time
+        now = datetime.datetime.now(datetime.timezone.utc)
+        scheduled_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        
+        # If time has passed today, schedule for tomorrow
+        if scheduled_time <= now:
+            scheduled_time += datetime.timedelta(days=1)
         
         event = create_event(
             event_type=event_type.lower(),
@@ -8544,37 +8600,25 @@ async def scrim(ctx, opponent: str, time: str, *, details: str = ""):
 
 @bot.hybrid_command(name="event_create", description="Staff: Create a training or tryout event")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def event_create(ctx, event_type: str, title: str, time: str):
+async def event_create(ctx, event_type: str, title: str, minutes_from_now: int):
     """
     Create a scheduled event with RSVP and reminders.
     
     event_type: 'training' or 'tryout'
     title: Name of the event
-    time: When it starts (e.g., '6PM GMT', '18:00', 'tomorrow 5pm')
+    minutes_from_now: How many minutes until the event starts (e.g., 30 = in 30 mins)
     """
     if event_type.lower() not in ["training", "tryout"]:
         return await ctx.send("❌ Event type must be `training` or `tryout`", ephemeral=True)
     
-    # Parse the time - try to make it a proper datetime
-    # For now, store the raw time and let staff use Discord timestamps
-    try:
-        # Try to parse common formats
-        now = datetime.datetime.now(datetime.timezone.utc)
-        scheduled_time = now + datetime.timedelta(hours=1)  # Default 1 hour from now
-        
-        # Check if they used a Discord timestamp like <t:1234567890:F>
-        if "<t:" in time:
-            import re
-            match = re.search(r'<t:(\d+)', time)
-            if match:
-                timestamp = int(match.group(1))
-                scheduled_time = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
-        else:
-            # Store raw time string and use current time + 1 hour as placeholder
-            # Staff should use Discord timestamps for accurate times
-            pass
-    except:
-        scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)
+    if minutes_from_now < 1:
+        return await ctx.send("❌ Time must be at least 1 minute from now.", ephemeral=True)
+    
+    if minutes_from_now > 10080:  # 7 days max
+        return await ctx.send("❌ Time must be within 7 days.", ephemeral=True)
+    
+    # Calculate the actual scheduled time
+    scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes_from_now)
     
     # Create the event
     event = create_event(
@@ -8599,7 +8643,59 @@ async def event_create(ctx, event_type: str, title: str, time: str):
     # Store message ID for later updates
     update_event(event["id"], {"message_id": str(msg.id)})
     
-    await log_action(ctx.guild, f"📅 Event Created", f"**{title}**\nType: {event_type}\nHost: {ctx.author.mention}", 0x3498db)
+    await log_action(ctx.guild, f"📅 Event Created", f"**{title}**\nType: {event_type}\nStarts: <t:{int(scheduled_time.timestamp())}:R>\nHost: {ctx.author.mention}", 0x3498db)
+
+@bot.hybrid_command(name="event_schedule", description="Staff: Schedule event at specific UTC time")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def event_schedule_cmd(ctx, event_type: str, title: str, hour: int, minute: int = 0):
+    """
+    Schedule event at a specific UTC time today or tomorrow.
+    
+    event_type: 'training' or 'tryout'
+    title: Name of the event
+    hour: Hour in UTC (0-23)
+    minute: Minute (0-59)
+    """
+    if event_type.lower() not in ["training", "tryout"]:
+        return await ctx.send("❌ Event type must be `training` or `tryout`", ephemeral=True)
+    
+    if hour < 0 or hour > 23:
+        return await ctx.send("❌ Hour must be 0-23.", ephemeral=True)
+    if minute < 0 or minute > 59:
+        return await ctx.send("❌ Minute must be 0-59.", ephemeral=True)
+    
+    # Calculate scheduled time
+    now = datetime.datetime.now(datetime.timezone.utc)
+    scheduled_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    # If time has passed today, schedule for tomorrow
+    if scheduled_time <= now:
+        scheduled_time += datetime.timedelta(days=1)
+    
+    # Create the event
+    event = create_event(
+        event_type=event_type.lower(),
+        title=title,
+        scheduled_time=scheduled_time.isoformat(),
+        host_id=ctx.author.id,
+        channel_id=ctx.channel.id
+    )
+    
+    # Get ping role
+    ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
+    ping_role = discord.utils.get(ctx.guild.roles, name=ping_role_name)
+    
+    # Create embed
+    embed = await create_event_embed(event, ctx.guild)
+    
+    # Send announcement
+    ping_text = ping_role.mention if ping_role else ""
+    msg = await ctx.send(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
+    
+    # Store message ID
+    update_event(event["id"], {"message_id": str(msg.id)})
+    
+    await log_action(ctx.guild, f"📅 Event Scheduled", f"**{title}**\nType: {event_type}\nTime: <t:{int(scheduled_time.timestamp())}:F>\nHost: {ctx.author.mention}", 0x3498db)
 
 @bot.hybrid_command(name="event_list", description="View upcoming events")
 async def event_list(ctx):
