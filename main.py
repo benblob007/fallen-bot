@@ -3840,7 +3840,7 @@ async def recurring_events_loop():
         
         await asyncio.sleep(300)  # Check every 5 minutes
 
-def create_event(event_type, title, scheduled_time, host_id, ping_role=None, channel_id=None):
+def create_event(event_type, title, scheduled_time, host_id, ping_role=None, channel_id=None, server_link=None):
     """Create a new scheduled event"""
     data = load_events_data()
     
@@ -3854,6 +3854,7 @@ def create_event(event_type, title, scheduled_time, host_id, ping_role=None, cha
         "host_id": str(host_id),
         "ping_role": ping_role,
         "channel_id": str(channel_id) if channel_id else None,
+        "server_link": server_link,  # Private server link for Roblox
         "message_id": None,  # Will store the announcement message ID
         "rsvp_yes": [],
         "rsvp_maybe": [],
@@ -3861,7 +3862,8 @@ def create_event(event_type, title, scheduled_time, host_id, ping_role=None, cha
         "status": "scheduled",  # scheduled, active, completed, cancelled
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "reminder_30_sent": False,
-        "reminder_5_sent": False
+        "reminder_5_sent": False,
+        "link_posted": False  # Track if server link was posted
     }
     
     data["scheduled_events"].append(event)
@@ -4233,22 +4235,71 @@ async def send_event_reminder(event, minutes):
         ping_role_name = TRAINING_PING_ROLE if event_type == "training" else TRYOUT_PING_ROLE
         ping_role = discord.utils.get(guild.roles, name=ping_role_name)
         
+        # Get server link if available
+        server_link = event.get("server_link")
+        
         if minutes == 30:
             title = f"⏰ {emoji} {event['title']} - 30 MINUTES!"
             desc = f"**{event['title']}** starts in **30 minutes**!\n\nMake sure you're ready!"
-        else:
-            title = f"🚨 {emoji} {event['title']} - STARTING NOW!"
-            desc = f"**{event['title']}** is starting **NOW**!\n\n**Join the voice channel!**"
+            
+            embed = discord.Embed(title=title, description=desc, color=0xf39c12)
+            
+            # Show who RSVPd
+            if event.get("rsvp_yes"):
+                mentions = " ".join([f"<@{uid}>" for uid in event["rsvp_yes"][:15]])
+                embed.add_field(name="📋 Expected Attendees", value=mentions, inline=False)
+            
+            if server_link:
+                embed.add_field(name="🔗 Server Link", value="Will be posted in 25 minutes!", inline=False)
+            
+            ping_text = ping_role.mention if ping_role else ""
+            await channel.send(content=ping_text, embed=embed)
+            
+        else:  # 5 minute reminder - POST THE SERVER LINK!
+            title = f"🚨 {emoji} {event['title']} - STARTING IN 5 MINUTES!"
+            
+            if server_link:
+                desc = (
+                    f"**{event['title']}** is starting in **5 MINUTES**!\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"🎮 **JOIN THE SERVER NOW!**\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                )
+            else:
+                desc = f"**{event['title']}** is starting in **5 MINUTES**!\n\n**Join the voice channel!**"
+            
+            embed = discord.Embed(title=title, description=desc, color=0xe74c3c)
+            
+            # Show who RSVPd
+            if event.get("rsvp_yes"):
+                mentions = " ".join([f"<@{uid}>" for uid in event["rsvp_yes"][:15]])
+                embed.add_field(name="📋 Expected Attendees", value=mentions, inline=False)
+            
+            # Get host
+            host = guild.get_member(int(event["host_id"]))
+            if host:
+                embed.add_field(name="👑 Host", value=host.mention, inline=True)
+            
+            embed.set_footer(text="✝ The Fallen ✝ • Be on time!")
+            
+            ping_text = ping_role.mention if ping_role else ""
+            
+            # Send the embed first
+            await channel.send(content=ping_text, embed=embed)
+            
+            # Then send the server link separately so it's easy to click
+            if server_link:
+                link_embed = discord.Embed(
+                    title="🔗 PRIVATE SERVER LINK",
+                    description=f"**Click below to join:**\n\n{server_link}",
+                    color=0x2ecc71
+                )
+                link_embed.set_footer(text="Link expires when the event ends!")
+                await channel.send(embed=link_embed)
+                
+                # Mark link as posted
+                update_event(event["id"], {"link_posted": True})
         
-        embed = discord.Embed(title=title, description=desc, color=0xff6b6b)
-        
-        # Show who RSVPd
-        if event.get("rsvp_yes"):
-            mentions = " ".join([f"<@{uid}>" for uid in event["rsvp_yes"][:15]])
-            embed.add_field(name="📋 Expected Attendees", value=mentions, inline=False)
-        
-        ping_text = ping_role.mention if ping_role else ""
-        await channel.send(content=ping_text, embed=embed)
         break  # Only send to first guild found
 
 # ==========================================
@@ -5278,6 +5329,313 @@ class LeaderboardViewUI(discord.ui.View):
     @discord.ui.button(label="View leaderboard", style=discord.ButtonStyle.secondary, emoji="↗️")
     async def view_full(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("Full leaderboard coming soon!", ephemeral=True)
+
+# ==========================================
+# STAGE TRANSFER SYSTEM
+# ==========================================
+
+# Stage transfer ranks (in order from highest to lowest)
+STAGE_TRANSFER_RANKS = [
+    "Stage 0〢FALLEN DEITY",
+    "Stage 1〢FALLEN APEX", 
+    "Stage 2〢FALLEN ASCENDANT",
+    "Stage 3〢FORSAKEN WARRIOR",
+    "Stage 4〢ABYSS-TOUCHED",
+    "Stage 5〢BROKEN INITIATE",
+    "High",
+    "Mid", 
+    "Low",
+    "Stable",
+]
+
+# Clans that are accepted for proof
+ACCEPTED_CLANS = ["TSBCC", "VALHALLA", "TSBER"]
+
+class StageTransferView(discord.ui.View):
+    """View for stage transfer panel"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Request Stage Transfer", style=discord.ButtonStyle.danger, emoji="📋", custom_id="stage_transfer_btn")
+    async def request_transfer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open stage transfer ticket"""
+        # Check if user already has an open transfer ticket
+        category = discord.utils.get(interaction.guild.categories, name="Stage Transfers")
+        if category:
+            for channel in category.channels:
+                if str(interaction.user.id) in channel.name:
+                    return await interaction.response.send_message(
+                        f"❌ You already have an open transfer request: {channel.mention}", 
+                        ephemeral=True
+                    )
+        
+        # Create ticket
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
+            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+        
+        # Add staff access
+        staff_role = discord.utils.get(interaction.guild.roles, name=STAFF_ROLE_NAME)
+        if staff_role:
+            overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        
+        # Add high staff access
+        for role_name in HIGH_STAFF_ROLES:
+            role = discord.utils.get(interaction.guild.roles, name=role_name)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        
+        # Create or get category
+        if not category:
+            category = await interaction.guild.create_category("Stage Transfers")
+        
+        # Create ticket channel
+        ticket_name = f"transfer-{interaction.user.name}"[:50].lower().replace(" ", "-")
+        channel = await interaction.guild.create_text_channel(
+            name=ticket_name,
+            category=category,
+            overwrites=overwrites
+        )
+        
+        # Get user's current rank
+        current_rank = "Unknown"
+        for rank in STAGE_TRANSFER_RANKS:
+            role = discord.utils.get(interaction.user.roles, name=rank)
+            if role:
+                current_rank = rank
+                break
+        
+        embed = discord.Embed(
+            title="📋 Stage Transfer Request",
+            description=(
+                f"**Requested by:** {interaction.user.mention}\n"
+                f"**Current Rank:** {current_rank}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"**📸 Please upload proof of your rank from ONE of these clans:**\n"
+                f"• **TSBCC**\n"
+                f"• **VALHALLA**\n"
+                f"• **TSBER**\n\n"
+                f"**📌 Requirements:**\n"
+                f"1️⃣ Screenshot must clearly show your **username**\n"
+                f"2️⃣ Screenshot must show your **rank** in the clan\n"
+                f"3️⃣ Screenshot must be **recent** (within 24 hours)\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"**Upload your proof below and wait for staff to review.**"
+            ),
+            color=0x8B0000
+        )
+        embed.set_footer(text="Staff will approve or deny your request")
+        
+        await channel.send(
+            content=f"{interaction.user.mention} {staff_role.mention if staff_role else ''}",
+            embed=embed,
+            view=StageTransferControlView()
+        )
+        
+        await interaction.response.send_message(
+            f"✅ Transfer request created! Go to {channel.mention}",
+            ephemeral=True
+        )
+        
+        await log_action(interaction.guild, "📋 Stage Transfer", f"{interaction.user.mention} opened a transfer request", 0x9b59b6)
+
+
+class StageTransferControlView(discord.ui.View):
+    """Control view for stage transfer tickets"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="✅", custom_id="transfer_approve")
+    async def approve_transfer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Approve the transfer - opens rank selection"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        await interaction.response.send_message(
+            "Select the rank to assign:",
+            view=RankSelectView(interaction.channel),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="Deny", style=discord.ButtonStyle.danger, emoji="❌", custom_id="transfer_deny")
+    async def deny_transfer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Deny the transfer"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        # Send denial modal for reason
+        await interaction.response.send_modal(TransferDenyModal(interaction.channel))
+    
+    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.secondary, emoji="🔒", custom_id="transfer_close")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Close the ticket"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+        
+        await interaction.response.send_message("🔒 Closing ticket in 5 seconds...")
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+
+class RankSelectView(discord.ui.View):
+    """View for selecting rank to assign"""
+    def __init__(self, ticket_channel):
+        super().__init__(timeout=120)
+        self.ticket_channel = ticket_channel
+        
+        # Create dropdown with ranks
+        options = [
+            discord.SelectOption(label=rank.split("〢")[0] if "〢" in rank else rank, value=rank, description=rank)
+            for rank in STAGE_TRANSFER_RANKS
+        ]
+        
+        self.rank_select = discord.ui.Select(
+            placeholder="Select rank to assign...",
+            options=options,
+            custom_id="rank_select_dropdown"
+        )
+        self.rank_select.callback = self.select_rank
+        self.add_item(self.rank_select)
+    
+    async def select_rank(self, interaction: discord.Interaction):
+        """Handle rank selection"""
+        selected_rank = self.rank_select.values[0]
+        
+        # Find the user who opened the ticket
+        # Get from channel name or first message mention
+        target_user = None
+        async for message in self.ticket_channel.history(limit=5, oldest_first=True):
+            if message.mentions:
+                for mention in message.mentions:
+                    if not mention.bot:
+                        target_user = mention
+                        break
+            if target_user:
+                break
+        
+        if not target_user:
+            return await interaction.response.edit_message(
+                content="❌ Could not find the user who requested the transfer.",
+                view=None
+            )
+        
+        # Remove all current stage ranks
+        for rank_name in STAGE_TRANSFER_RANKS:
+            role = discord.utils.get(interaction.guild.roles, name=rank_name)
+            if role and role in target_user.roles:
+                try:
+                    await target_user.remove_roles(role)
+                    await asyncio.sleep(0.5)
+                except:
+                    pass
+        
+        # Add new rank
+        new_role = discord.utils.get(interaction.guild.roles, name=selected_rank)
+        if not new_role:
+            return await interaction.response.edit_message(
+                content=f"❌ Role `{selected_rank}` not found!",
+                view=None
+            )
+        
+        try:
+            await target_user.add_roles(new_role)
+        except Exception as e:
+            return await interaction.response.edit_message(
+                content=f"❌ Failed to add role: {e}",
+                view=None
+            )
+        
+        # Send approval message
+        embed = discord.Embed(
+            title="✅ Transfer Approved!",
+            description=(
+                f"**User:** {target_user.mention}\n"
+                f"**New Rank:** {selected_rank}\n"
+                f"**Approved by:** {interaction.user.mention}"
+            ),
+            color=0x2ecc71
+        )
+        
+        await self.ticket_channel.send(embed=embed)
+        await interaction.response.edit_message(content=f"✅ Assigned **{selected_rank}** to {target_user.display_name}", view=None)
+        
+        # Try to DM user
+        try:
+            dm_embed = discord.Embed(
+                title="✅ Stage Transfer Approved!",
+                description=f"Your transfer request has been approved!\n\n**New Rank:** {selected_rank}",
+                color=0x2ecc71
+            )
+            await target_user.send(embed=dm_embed)
+        except:
+            pass
+        
+        await log_action(interaction.guild, "✅ Transfer Approved", f"{target_user.mention} → **{selected_rank}**\nApproved by: {interaction.user.mention}", 0x2ecc71)
+
+
+class TransferDenyModal(discord.ui.Modal, title="Deny Transfer Request"):
+    """Modal for denying transfer with reason"""
+    
+    reason = discord.ui.TextInput(
+        label="Reason for denial",
+        placeholder="Enter the reason for denying this transfer...",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=500
+    )
+    
+    def __init__(self, ticket_channel):
+        super().__init__()
+        self.ticket_channel = ticket_channel
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Find the user
+        target_user = None
+        async for message in self.ticket_channel.history(limit=5, oldest_first=True):
+            if message.mentions:
+                for mention in message.mentions:
+                    if not mention.bot:
+                        target_user = mention
+                        break
+            if target_user:
+                break
+        
+        embed = discord.Embed(
+            title="❌ Transfer Denied",
+            description=(
+                f"**User:** {target_user.mention if target_user else 'Unknown'}\n"
+                f"**Denied by:** {interaction.user.mention}\n\n"
+                f"**Reason:**\n{self.reason.value}"
+            ),
+            color=0xe74c3c
+        )
+        
+        await self.ticket_channel.send(embed=embed)
+        await interaction.response.send_message("❌ Transfer denied. Ticket will close in 30 seconds.", ephemeral=True)
+        
+        # Try to DM user
+        if target_user:
+            try:
+                dm_embed = discord.Embed(
+                    title="❌ Stage Transfer Denied",
+                    description=f"Your transfer request has been denied.\n\n**Reason:** {self.reason.value}",
+                    color=0xe74c3c
+                )
+                await target_user.send(embed=dm_embed)
+            except:
+                pass
+        
+        await log_action(interaction.guild, "❌ Transfer Denied", f"{target_user.mention if target_user else 'Unknown'}\nReason: {self.reason.value}", 0xe74c3c)
+        
+        # Close ticket after delay
+        await asyncio.sleep(30)
+        try:
+            await self.ticket_channel.delete()
+        except:
+            pass
+
 
 class ShopView(discord.ui.View):
     def __init__(self): 
@@ -7283,6 +7641,8 @@ class PersistentBot(commands.Bot):
         self.add_view(ClanRosterView())
         self.add_view(TicketControlView("tryout"))
         self.add_view(TicketControlView("role"))
+        self.add_view(StageTransferView())
+        self.add_view(StageTransferControlView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -7697,13 +8057,14 @@ class EventCommands(commands.GroupCog, name="event"):
     @app_commands.describe(
         event_type="Type of event",
         title="Event title", 
-        minutes_from_now="Minutes from now (e.g., 30 = starts in 30 mins)"
+        minutes_from_now="Minutes from now (e.g., 30 = starts in 30 mins)",
+        server_link="Private server link (posted 5 mins before event)"
     )
     @app_commands.choices(event_type=[
         app_commands.Choice(name="Training", value="training"),
         app_commands.Choice(name="Tryout", value="tryout"),
     ])
-    async def event_create(self, interaction: discord.Interaction, event_type: str, title: str, minutes_from_now: int):
+    async def event_create(self, interaction: discord.Interaction, event_type: str, title: str, minutes_from_now: int, server_link: str = None):
         """Create a scheduled event with RSVP and reminders"""
         try:
             if not is_staff(interaction.user):
@@ -7715,6 +8076,10 @@ class EventCommands(commands.GroupCog, name="event"):
             if minutes_from_now > 10080:  # 7 days max
                 return await interaction.response.send_message("❌ Time must be within 7 days.", ephemeral=True)
             
+            # Validate server link if provided
+            if server_link and not server_link.startswith("https://"):
+                return await interaction.response.send_message("❌ Server link must start with https://", ephemeral=True)
+            
             # Calculate the actual scheduled time
             scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes_from_now)
             
@@ -7723,13 +8088,18 @@ class EventCommands(commands.GroupCog, name="event"):
                 title=title,
                 scheduled_time=scheduled_time.isoformat(),
                 host_id=interaction.user.id,
-                channel_id=interaction.channel.id
+                channel_id=interaction.channel.id,
+                server_link=server_link
             )
             
             ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
             ping_role = discord.utils.get(interaction.guild.roles, name=ping_role_name)
             
             embed = await create_event_embed(event, interaction.guild)
+            
+            # Add server link info if provided
+            if server_link:
+                embed.add_field(name="🔗 Server Link", value="Will be posted 5 minutes before event!", inline=False)
             
             ping_text = ping_role.mention if ping_role else ""
             await interaction.response.send_message(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
@@ -7747,13 +8117,14 @@ class EventCommands(commands.GroupCog, name="event"):
         event_type="Type of event",
         title="Event title",
         hour="Hour (0-23, in UTC)",
-        minute="Minute (0-59)"
+        minute="Minute (0-59)",
+        server_link="Private server link (posted 5 mins before event)"
     )
     @app_commands.choices(event_type=[
         app_commands.Choice(name="Training", value="training"),
         app_commands.Choice(name="Tryout", value="tryout"),
     ])
-    async def event_schedule(self, interaction: discord.Interaction, event_type: str, title: str, hour: int, minute: int = 0):
+    async def event_schedule(self, interaction: discord.Interaction, event_type: str, title: str, hour: int, minute: int = 0, server_link: str = None):
         """Schedule event at a specific UTC time today or tomorrow"""
         if not is_staff(interaction.user):
             return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
@@ -7762,6 +8133,10 @@ class EventCommands(commands.GroupCog, name="event"):
             return await interaction.response.send_message("❌ Hour must be 0-23.", ephemeral=True)
         if minute < 0 or minute > 59:
             return await interaction.response.send_message("❌ Minute must be 0-59.", ephemeral=True)
+        
+        # Validate server link if provided
+        if server_link and not server_link.startswith("https://"):
+            return await interaction.response.send_message("❌ Server link must start with https://", ephemeral=True)
         
         # Calculate scheduled time
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -7776,13 +8151,18 @@ class EventCommands(commands.GroupCog, name="event"):
             title=title,
             scheduled_time=scheduled_time.isoformat(),
             host_id=interaction.user.id,
-            channel_id=interaction.channel.id
+            channel_id=interaction.channel.id,
+            server_link=server_link
         )
         
         ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
         ping_role = discord.utils.get(interaction.guild.roles, name=ping_role_name)
         
         embed = await create_event_embed(event, interaction.guild)
+        
+        # Add server link info if provided
+        if server_link:
+            embed.add_field(name="🔗 Server Link", value="Will be posted 5 minutes before event!", inline=False)
         
         ping_text = ping_role.mention if ping_role else ""
         await interaction.response.send_message(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
@@ -9193,6 +9573,213 @@ async def setup_shop(ctx):
     
     await ch.send(embed=embed, view=ShopSelectView())
     await ctx.send(f"✅ Shop panel posted in {ch.mention}", ephemeral=True)
+
+@bot.hybrid_command(name="setup_transfer", description="Admin: Set up stage transfer panel")
+@commands.has_permissions(administrator=True)
+async def setup_transfer(ctx):
+    """Set up the stage transfer request panel"""
+    embed = discord.Embed(
+        title="📋 Stage Transfer Request",
+        description=(
+            "**Request a rank transfer from another clan!**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "**📌 Accepted Clans:**\n"
+            "• TSBCC\n"
+            "• VALHALLA\n"
+            "• TSBER\n\n"
+            "**📸 Requirements:**\n"
+            "• Screenshot of your rank in the clan\n"
+            "• Must show your username clearly\n"
+            "• Must be recent (within 24 hours)\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "**Click the button below to open a transfer request.**"
+        ),
+        color=0x8B0000
+    )
+    embed.set_footer(text="✝ The Fallen ✝ • Stage Transfers")
+    
+    await ctx.send(embed=embed, view=StageTransferView())
+    await ctx.send("✅ Stage transfer panel created!", ephemeral=True)
+
+@bot.hybrid_command(name="result", description="Staff: Assign tryout/transfer result with stage, rank, and strength")
+@app_commands.describe(
+    member="Member to give the rank to",
+    stage="The stage rank to assign",
+    rank_level="Rank level (High/Mid/Low/Stable)",
+    strength="Strength rating (Strong/Moderate/Weak)"
+)
+@app_commands.choices(stage=[
+    app_commands.Choice(name="Stage 0 (FALLEN DEITY)", value="Stage 0〢FALLEN DEITY"),
+    app_commands.Choice(name="Stage 1 (FALLEN APEX)", value="Stage 1〢FALLEN APEX"),
+    app_commands.Choice(name="Stage 2 (FALLEN ASCENDANT)", value="Stage 2〢FALLEN ASCENDANT"),
+    app_commands.Choice(name="Stage 3 (FORSAKEN WARRIOR)", value="Stage 3〢FORSAKEN WARRIOR"),
+    app_commands.Choice(name="Stage 4 (ABYSS-TOUCHED)", value="Stage 4〢ABYSS-TOUCHED"),
+    app_commands.Choice(name="Stage 5 (BROKEN INITIATE)", value="Stage 5〢BROKEN INITIATE"),
+])
+@app_commands.choices(rank_level=[
+    app_commands.Choice(name="High", value="High"),
+    app_commands.Choice(name="Mid", value="Mid"),
+    app_commands.Choice(name="Low", value="Low"),
+    app_commands.Choice(name="Stable", value="Stable"),
+])
+@app_commands.choices(strength=[
+    app_commands.Choice(name="Strong", value="Strong"),
+    app_commands.Choice(name="Moderate", value="Moderate"),
+    app_commands.Choice(name="Weak", value="Weak"),
+])
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME, TRYOUT_HOST_ROLE)
+async def result_transfer(ctx, member: discord.Member, stage: str, rank_level: str = None, strength: str = None):
+    """Assign tryout/transfer result - stage required, rank and strength optional"""
+    await ctx.defer()
+    
+    # All possible stage/rank roles to remove
+    ALL_RESULT_ROLES = [
+        "Stage 0〢FALLEN DEITY",
+        "Stage 1〢FALLEN APEX", 
+        "Stage 2〢FALLEN ASCENDANT",
+        "Stage 3〢FORSAKEN WARRIOR",
+        "Stage 4〢ABYSS-TOUCHED",
+        "Stage 5〢BROKEN INITIATE",
+        "High", "Mid", "Low", "Stable",
+        "Strong", "Moderate", "Weak"
+    ]
+    
+    # Get their current roles
+    old_stage = "None"
+    old_rank = "None"
+    old_strength = "None"
+    
+    for role_name in ["Stage 0〢FALLEN DEITY", "Stage 1〢FALLEN APEX", "Stage 2〢FALLEN ASCENDANT", 
+                      "Stage 3〢FORSAKEN WARRIOR", "Stage 4〢ABYSS-TOUCHED", "Stage 5〢BROKEN INITIATE"]:
+        role = discord.utils.get(member.roles, name=role_name)
+        if role:
+            old_stage = role_name
+            break
+    
+    for role_name in ["High", "Mid", "Low", "Stable"]:
+        role = discord.utils.get(member.roles, name=role_name)
+        if role:
+            old_rank = role_name
+            break
+    
+    for role_name in ["Strong", "Moderate", "Weak"]:
+        role = discord.utils.get(member.roles, name=role_name)
+        if role:
+            old_strength = role_name
+            break
+    
+    # Remove all current result roles
+    roles_to_remove = []
+    for role_name in ALL_RESULT_ROLES:
+        role = discord.utils.get(ctx.guild.roles, name=role_name)
+        if role and role in member.roles:
+            roles_to_remove.append(role)
+    
+    if roles_to_remove:
+        try:
+            await member.remove_roles(*roles_to_remove)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"Error removing roles: {e}")
+    
+    # Add new roles
+    roles_to_add = []
+    roles_added = []
+    
+    # Stage role (required)
+    stage_role = discord.utils.get(ctx.guild.roles, name=stage)
+    if stage_role:
+        roles_to_add.append(stage_role)
+        roles_added.append(stage)
+    else:
+        return await ctx.send(f"❌ Role `{stage}` not found! Please create it first.")
+    
+    # Rank level role (optional)
+    if rank_level:
+        rank_role = discord.utils.get(ctx.guild.roles, name=rank_level)
+        if rank_role:
+            roles_to_add.append(rank_role)
+            roles_added.append(rank_level)
+        else:
+            await ctx.send(f"⚠️ Role `{rank_level}` not found, skipping...")
+    
+    # Strength role (optional)
+    if strength:
+        strength_role = discord.utils.get(ctx.guild.roles, name=strength)
+        if strength_role:
+            roles_to_add.append(strength_role)
+            roles_added.append(strength)
+        else:
+            await ctx.send(f"⚠️ Role `{strength}` not found, skipping...")
+    
+    # Add all roles at once
+    try:
+        await member.add_roles(*roles_to_add)
+    except Exception as e:
+        return await ctx.send(f"❌ Failed to add roles: {e}")
+    
+    # Build result string
+    result_parts = [stage.split("〢")[0] if "〢" in stage else stage]
+    if rank_level:
+        result_parts.append(rank_level)
+    if strength:
+        result_parts.append(strength)
+    result_str = ", ".join(result_parts)
+    
+    # Build old rank string
+    old_parts = []
+    if old_stage != "None":
+        old_parts.append(old_stage.split("〢")[0] if "〢" in old_stage else old_stage)
+    if old_rank != "None":
+        old_parts.append(old_rank)
+    if old_strength != "None":
+        old_parts.append(old_strength)
+    old_str = ", ".join(old_parts) if old_parts else "None"
+    
+    # Create result embed
+    embed = discord.Embed(
+        title="✅ Result Assigned",
+        description=(
+            f"**Member:** {member.mention}\n\n"
+            f"**Previous:** {old_str}\n"
+            f"**New Result:** {result_str}\n\n"
+            f"**Assigned by:** {ctx.author.mention}"
+        ),
+        color=0x2ecc71
+    )
+    
+    # Add breakdown
+    embed.add_field(name="📊 Stage", value=stage, inline=True)
+    if rank_level:
+        embed.add_field(name="📈 Rank Level", value=rank_level, inline=True)
+    if strength:
+        embed.add_field(name="💪 Strength", value=strength, inline=True)
+    
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text="✝ The Fallen ✝")
+    
+    await ctx.send(embed=embed)
+    
+    # Try to DM the user
+    try:
+        dm_embed = discord.Embed(
+            title="✅ Your Result Has Been Assigned!",
+            description=(
+                f"Your rank in **The Fallen** has been updated!\n\n"
+                f"**Result:** {result_str}"
+            ),
+            color=0x2ecc71
+        )
+        if rank_level:
+            dm_embed.add_field(name="📊 Stage", value=stage, inline=True)
+            dm_embed.add_field(name="📈 Rank Level", value=rank_level, inline=True)
+        if strength:
+            dm_embed.add_field(name="💪 Strength", value=strength, inline=True)
+        await member.send(embed=dm_embed)
+    except:
+        pass
+    
+    await log_action(ctx.guild, "✅ Result Assigned", f"{member.mention}\n{old_str} → **{result_str}**\nBy: {ctx.author.mention}", 0x2ecc71)
 
 @bot.hybrid_command(name="voicetop", description="View voice time leaderboard")
 async def voicetop(ctx):
