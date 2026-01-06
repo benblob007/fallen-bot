@@ -5907,13 +5907,14 @@ class ShopSelectView(discord.ui.View):
 class HelpSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Member", emoji="👤", description="Basic commands"),
+            discord.SelectOption(label="Member", emoji="👤", description="Basic member commands"),
             discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
             discord.SelectOption(label="Events", emoji="📅", description="Trainings & tryouts"),
             discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
-            discord.SelectOption(label="Economy", emoji="💰", description="Coins & rewards"),
+            discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
             discord.SelectOption(label="Raids & Wars", emoji="🏴‍☠️", description="Clan battles"),
+            discord.SelectOption(label="Stage Transfer", emoji="📋", description="Rank transfers & results"),
             discord.SelectOption(label="Staff", emoji="🛡️", description="Staff commands"),
             discord.SelectOption(label="Admin", emoji="⚙️", description="Setup & management"),
         ]
@@ -5926,40 +5927,52 @@ class HelpSelect(discord.ui.Select):
             e.title="👤 Member Commands"
             e.description=(
                 "**🔗 Verification**\n"
-                "`/verify` - Verify with Roblox\n\n"
+                "`/verify` - Link your Roblox account\n\n"
                 "**📊 Quick Stats**\n"
-                "`/level` - Check your level card\n"
+                "`/level` - View your level card\n"
                 "`/rank` - View your rank card\n"
-                "`/fcoins` - Check coin balance\n\n"
-                "**🎁 Daily**\n"
-                "`/daily` - Claim daily reward\n"
+                "`/profile` - Full profile with all stats\n"
+                "`/fcoins` - Check coin balance\n"
+                "`/inventory` - View purchased items\n\n"
+                "**🎁 Daily & Streaks**\n"
+                "`/daily` - Claim daily reward (streak bonus!)\n"
+                "`/attendance_streak` - View event streak\n\n"
+                "**📅 Events**\n"
                 "`/schedule` - View upcoming events\n"
-                "`/attendance_streak` - View your streak"
+                "Click RSVP buttons on event posts!"
             )
             
         elif self.values[0] == "Profile & Stats":
             e.title="📊 Profile & Statistics"
             e.description=(
                 "**🖼️ Visual Cards**\n"
-                "`/profile` - Full profile card with all stats\n"
+                "`/profile` - Full profile card with avatar\n"
                 "`/rank` - Rank card with XP bar\n"
                 "`/level` - Level card\n\n"
                 "**📈 Statistics**\n"
-                "`/mystats` - Detailed stats breakdown\n"
+                "`/stats` - Combat stats (W/L)\n"
+                "`!mystats` - Detailed stats breakdown\n"
+                "`!achievements` - View your badges\n"
+                "`!activity` - Activity graph\n\n"
+                "**🏆 Leaderboards**\n"
                 "`/leaderboard` - XP leaderboard\n"
-                "`/voicetop` - Voice time leaderboard\n"
-                "`/serverstats` - Server statistics"
+                "`!voicetop` - Voice time leaders\n"
+                "`!topactive` - Most active this week\n"
+                "`!serverstats` - Server statistics\n"
+                "`!compare @user` - Compare with someone"
             )
         
         elif self.values[0] == "Duels & ELO":
             e.title="⚔️ Duels & ELO System"
             e.description=(
                 "**⚔️ Duel Commands**\n"
-                "`/duel @user` - Challenge to 1v1 duel\n"
+                "`/duel @user` - Challenge to 1v1\n"
                 "`/elo` - Check your ELO rating\n"
                 "`/elo @user` - Check someone's ELO\n"
-                "`/elo_leaderboard` - Top ranked players\n"
-                "`/duel_history` - View your duel history\n\n"
+                "`!elo_leaderboard` - Top ranked players\n"
+                "`!duel_history` - Your match history\n\n"
+                "**🛡️ ELO Shield (Shop Item)**\n"
+                "Protects you from ELO loss once!\n\n"
                 "**🏅 ELO Ranks**\n"
                 "🏆 Grandmaster (2000+)\n"
                 "💎 Diamond (1800+)\n"
@@ -5967,39 +5980,26 @@ class HelpSelect(discord.ui.Select):
                 "🥈 Gold (1400+)\n"
                 "🥉 Silver (1200+)\n"
                 "⚔️ Bronze (1000+)\n\n"
-                "*Win duels to climb the ranks!*"
+                "*Win duels to climb!*"
             )
         
         elif self.values[0] == "Tournaments":
             e.title="🏆 Tournament System"
             e.description=(
-                "**👤 Member Commands**\n"
+                "**👤 How to Participate**\n"
                 "• Click **Join Tournament** on panel\n"
                 "• Click **View Bracket** to see matches\n"
                 "• Click **Leave** to withdraw\n\n"
+                "**🎮 During Tournament**\n"
+                "• Wait for your match announcement\n"
+                "• Staff will create match channels\n"
+                "• Winner advances in bracket\n\n"
                 "**🛡️ Staff Commands**\n"
-                "• Click **Staff: Manage** on panel\n"
-                "• **Start Tournament** - Begin bracket\n"
-                "• **Report Match** - Log winner\n"
-                "• **End Tournament** - Cancel/finish\n\n"
-                "**⚙️ Admin Commands**\n"
-                "`/tournament_create <name>` - Create new\n"
-                "`/tournament_panel` - Post panel\n"
-                "`/tournament_end confirm` - End tournament"
-            )
-            
-        elif self.values[0] == "Achievements":
-            e.title="🎖️ Achievements"
-            e.description=(
-                "**📜 Commands**\n"
-                "`/achievements` - View all achievements\n\n"
-                "**🎯 How to Earn**\n"
-                "• Level up to unlock level badges\n"
-                "• Win duels for combat achievements\n"
-                "• Participate in raids for raider badges\n"
-                "• Maintain daily streaks\n"
-                "• Earn coins for wealth achievements\n"
-                "• Verify your Roblox account"
+                "`/tournament create <size>` - Create\n"
+                "`!tournament_panel` - Post join panel\n"
+                "Use **Staff: Manage** button on panel\n\n"
+                "**🏅 Rewards**\n"
+                "Winners get coins & XP!"
             )
             
         elif self.values[0] == "Events":
@@ -6007,98 +6007,135 @@ class HelpSelect(discord.ui.Select):
             e.description=(
                 "**👤 Member Commands**\n"
                 "`/schedule` - View upcoming events\n"
-                "`/event list` - See all scheduled events\n"
-                "`/attendance_streak` - Check your streak\n\n"
+                "`/event list` - All scheduled events\n"
+                "`/attendance_streak` - Your streak\n\n"
                 "**💰 Attendance Rewards**\n"
                 "• Training: 100 coins + 50 XP\n"
                 "• Tryout: 150 coins + 75 XP\n"
-                "• Streak bonuses at 3, 5, 7, 10!\n\n"
+                "• Host: 300 coins + 100 XP\n\n"
+                "**🔥 Streak Bonuses**\n"
+                "• 3 streak: +50 | 5: +100\n"
+                "• 7 streak: +200 | 10: +500\n\n"
                 "**🎖️ Attendance Roles**\n"
-                "• 5 trainings → Fallen Initiate\n"
-                "• 15 → Fallen Disciple\n"
-                "• 30 → Fallen Warrior\n"
-                "• 50 → Fallen Slayer\n"
-                "• 100 → Fallen Immortal\n\n"
-                "**🛡️ Staff Commands**\n"
-                "`/event create <type> <title> <mins>`\n"
-                "`/event schedule <type> <title> <hour>`\n"
-                "`/log_training` `/log_tryout` @users"
+                "5→Fallen Initiate | 15→Disciple\n"
+                "30→Warrior | 50→Slayer | 100→Immortal\n\n"
+                "**🔥 Streak Roles**\n"
+                "5→♰Rising Shadow | 10→♰Relentless\n"
+                "20→♰Undying | 50→♰Eternal Fallen"
             )
             
-        elif self.values[0] == "Economy": 
-            e.title="💰 Economy"
+        elif self.values[0] == "Economy & Shop": 
+            e.title="💰 Economy & Shop"
             e.description=(
                 "**💵 Earning Coins**\n"
-                "• Chat and be active\n"
+                "• Chat messages & reactions\n"
+                "• Voice channel time\n"
                 "• Attend trainings/tryouts\n"
-                "• Join voice channels\n"
-                "• Claim daily rewards\n"
-                "• Win raids & duels\n\n"
+                "• `/daily` rewards & streaks\n"
+                "• Win duels & raids\n\n"
                 "**📜 Commands**\n"
                 "`/fcoins` - Check balance\n"
-                "`/daily` - Claim daily (streak bonus!)\n\n"
-                "**🛒 Shop**\n"
-                "Visit the shop channel to spend coins!"
+                "`/inventory` - View items\n"
+                "`/setbackground <url>` - Custom bg\n\n"
+                "**🛒 Shop Items**\n"
+                "• Private Tryout (500)\n"
+                "• Custom Role (2000)\n"
+                "• Custom Role Color (1500)\n"
+                "• Hoisted Role (5000)\n"
+                "• Custom Level BG (3000)\n"
+                "• ELO Shield (1000)\n"
+                "• Streak Saver (1500)\n"
+                "• Training Reserve (300)\n"
+                "• Coaching Session (1500)"
             )
             
         elif self.values[0] == "Raids & Wars":
             e.title="🏴‍☠️ Raids & Wars"
             e.description=(
                 "**👤 Member Commands**\n"
-                "`/raid_lb` - Raid leaderboard\n"
-                "`/raid_history` - View raid history\n"
-                "`/wars` - View all clan wars\n\n"
+                "`!raid_lb` - Raid leaderboard\n"
+                "`!raid_history` - Past raids\n"
+                "`!wars` - View clan wars\n"
+                "`!war_record <clan>` - Record vs clan\n\n"
+                "**💰 Raid Rewards**\n"
+                "• Win: 150 coins + 100 XP\n"
+                "• Loss: 50 coins + 25 XP\n\n"
                 "**🛡️ Staff Commands**\n"
-                "`/raid_call <target> <time>` - Call raid\n"
-                "`/raid_log <win/loss> @users` - Log result\n"
-                "`/war_declare <clan>` - Declare war\n"
-                "`/war_result <clan> <win/loss>` - Log war"
+                "`!raid_call <target> <time>`\n"
+                "`!raid_log <win/loss> @users`\n"
+                "`!war_declare <clan>`\n"
+                "`!war_result <clan> <win/loss>`\n"
+                "`!scrim <clan> <time>`"
+            )
+        
+        elif self.values[0] == "Stage Transfer":
+            e.title="📋 Stage Transfer & Results"
+            e.description=(
+                "**📋 Request a Transfer**\n"
+                "Click **Stage Transfer** button\n"
+                "Upload proof from: TSBCC, VALHALLA, TSBER\n"
+                "Staff will approve/deny\n\n"
+                "**📸 Proof Requirements**\n"
+                "• Shows your username + rank\n"
+                "• Recent (within 24 hours)\n\n"
+                "**📊 Stage Ranks**\n"
+                "Stage 0 - FALLEN DEITY\n"
+                "Stage 1 - FALLEN APEX\n"
+                "Stage 2 - FALLEN ASCENDANT\n"
+                "Stage 3 - FORSAKEN WARRIOR\n"
+                "Stage 4 - ABYSS-TOUCHED\n"
+                "Stage 5 - BROKEN INITIATE\n\n"
+                "**📈 Rank Levels:** High/Mid/Low/Stable\n"
+                "**💪 Strength:** Strong/Moderate/Weak\n\n"
+                "**🛡️ Staff:** `/result @user <stage> [rank] [str]`"
             )
             
         elif self.values[0] == "Staff": 
             e.title="🛡️ Staff Commands"
             e.description=(
-                "**📅 Events**\n"
-                "`/event create <type> <title> <minutes>`\n"
-                "`/event schedule <type> <title> <hour> [min]`\n"
-                "`/event list` - View upcoming events\n"
-                "`/event cancel <event_id>`\n"
-                "`/log_training` `/log_tryout` @users\n\n"
+                "**📅 Events** (prefix: `!`)\n"
+                "`!event_create <type> <title> <mins> [link]`\n"
+                "`!event_schedule <type> <title> <hr> [link]`\n"
+                "`/log_training @users` (up to 10)\n"
+                "`/log_tryout @users` (up to 10)\n\n"
+                "**🔁 Recurring Events**\n"
+                "`/event recurring_add` - Weekly event\n"
+                "`/event recurring_list` - View all\n\n"
                 "**📊 Levels & Economy**\n"
-                "`/lvl set @user <level>` - Set level\n"
-                "`/lvl add @user <xp>` - Add XP\n"
-                "`/lvl import @user <lvl>` - Import from Arcane\n"
-                "`/addxp` `/addfcoins` @user amt\n\n"
-                "**🛡️ Inactivity & Immunity**\n"
-                "`/inactivity check` - Run check\n"
-                "`/inactivity strikes @user`\n"
-                "`/immunity add @user [reason]`\n"
-                "`/immunity remove @user`\n"
-                "`/immunity list` - View immune\n\n"
+                "`!addxp` `!removexp` `!setlevel`\n"
+                "`!addfcoins` `!removefcoins`\n"
+                "`!importlevel @user <lvl>`\n\n"
+                "**📋 Results**\n"
+                "`/result @user <stage> [rank] [str]`\n\n"
+                "**🛡️ Inactivity**\n"
+                "`!inactivity_check` `!inactivity_strikes`\n"
+                "`!immunity_add` `!immunity_remove`\n\n"
                 "**🔨 Moderation**\n"
-                "`/warn @user [reason]`\n"
-                "`/warnings @user`"
+                "`/warn` `/warnings` `!promote` `!demote`"
             )
             
         elif self.values[0] == "Admin":
             e.title="⚙️ Admin Commands"
             e.description=(
-                "**📋 Setup Panels**\n"
-                "`/setup_verify` - Verification\n"
-                "`/setup_tickets` - Tickets\n"
-                "`/setup_shop` - Shop\n"
-                "`/tournament create <name>`\n"
-                "`/setup_logs` - Logging\n\n"
-                "**📊 Level Management**\n"
-                "`/bulkimport` - Import guide\n"
-                "`/lvl set` `/lvl setxp`\n\n"
-                "**🔄 Resets & Admin**\n"
-                "`/reset_weekly` `/reset_monthly`\n"
-                "`/elo reset confirm`\n"
-                "`!sync` - Sync commands"
+                "**📋 Setup Panels** (prefix: `!`)\n"
+                "`!setup_verify` `!setup_tickets`\n"
+                "`!setup_shop` `!setup_transfer`\n"
+                "`!setup_roster` `!setup_logs`\n"
+                "`!ticket_panel` `!apply_panel`\n"
+                "`!top10_setup`\n\n"
+                "**🏆 Tournaments**\n"
+                "`/tournament create <size>`\n"
+                "`!tournament_panel`\n\n"
+                "**📊 Management**\n"
+                "`!bulkimport` - Import guide\n"
+                "`!reset_weekly` `!reset_monthly`\n"
+                "`!elo_reset confirm`\n"
+                "`!db_status` - Database status\n\n"
+                "**⚙️ Sync**\n"
+                "`!sync` - Sync slash commands"
             )
         
-        e.set_footer(text="The Fallen Bot • Use / for slash commands")
+        e.set_footer(text="The Fallen Bot • / = slash • ! = prefix")
         await interaction.response.edit_message(embed=e)
 
 class HelpView(discord.ui.View):
@@ -6106,7 +6143,6 @@ class HelpView(discord.ui.View):
         super().__init__(timeout=180)
         self.add_item(HelpSelect())
 
-class ChallengeModal(discord.ui.Modal, title="Challenge Request"):
     claimed_rank = discord.ui.TextInput(label="Your Rank", max_length=5)
     opponent_name = discord.ui.TextInput(label="Opponent Username", max_length=32)
     
