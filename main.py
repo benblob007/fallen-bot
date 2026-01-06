@@ -8469,6 +8469,66 @@ async def sync_cmd(ctx):
     except Exception as e:
         await msg.edit(content=f"❌ Sync failed: {e}")
 
+@bot.command(name="test_welcome")
+@commands.has_permissions(administrator=True)
+async def test_welcome_cmd(ctx, member: discord.Member = None):
+    """Test the welcome message - !test_welcome or !test_welcome @user"""
+    target = member or ctx.author
+    
+    try:
+        # Generate welcome card image
+        welcome_card = await create_welcome_card(target)
+        
+        # Fallen-themed welcome message
+        welcome_messages = [
+            f"The shadows welcome you, {target.mention}...",
+            f"Another soul descends... Welcome, {target.mention}.",
+            f"From the ashes, {target.mention} rises to join The Fallen.",
+            f"The abyss has claimed another... Welcome, {target.mention}.",
+            f"{target.mention} has answered the call of The Fallen.",
+        ]
+        
+        import random
+        welcome_text = random.choice(welcome_messages)
+        
+        embed = discord.Embed(
+            title="✝ WELCOME TO THE FALLEN ✝",
+            description=(
+                f"{welcome_text}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"*Through shattered skies and broken crowns,*\n"
+                f"*The descent carves its mark.*\n"
+                f"*Fallen endures — not erased, but remade.*\n"
+                f"*In ruin lies the seed of power.*\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"**🔒 To gain access:**\n"
+                f"1️⃣ Verify with **Bloxlink** (`/verify`)\n"
+                f"2️⃣ Click the **Verify** button in verification channel\n\n"
+                f"**⚔️ What awaits you:**\n"
+                f"• Trainings & Tryouts\n"
+                f"• Ranked Duels & ELO System\n"
+                f"• Leveling & Rewards\n"
+                f"• Clan Wars & Raids\n\n"
+                f"You are member **#{ctx.guild.member_count}**"
+            ),
+            color=0x8B0000
+        )
+        
+        if welcome_card:
+            file = discord.File(welcome_card, filename="welcome.png")
+            embed.set_image(url="attachment://welcome.png")
+            await ctx.send(content="**🧪 Welcome Message Test:**", file=file, embed=embed)
+        else:
+            embed.set_thumbnail(url=target.display_avatar.url)
+            if ctx.guild.icon:
+                embed.set_footer(text="✝ The Fallen ✝", icon_url=ctx.guild.icon.url)
+            else:
+                embed.set_footer(text="✝ The Fallen ✝")
+            await ctx.send(content="**🧪 Welcome Message Test:**", embed=embed)
+            
+    except Exception as e:
+        await ctx.send(f"❌ Error testing welcome: {e}")
+
 # --- MEMBER COMMANDS ---
 
 @bot.hybrid_command(name="verify", description="Verify with your Roblox account")
