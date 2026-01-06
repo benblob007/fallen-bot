@@ -9662,20 +9662,61 @@ async def quick_tryout(ctx, time: str, *, description: str = ""):
     ping_text = ping_role.mention if ping_role else ""
     await ctx.send(content=ping_text, embed=embed)
 
-@bot.hybrid_command(name="log_training", description="Staff: Quick log training attendance")
+@bot.hybrid_command(name="log_training", description="Staff: Log training attendance for members")
+@app_commands.describe(
+    member1="First attendee",
+    member2="Second attendee (optional)",
+    member3="Third attendee (optional)",
+    member4="Fourth attendee (optional)",
+    member5="Fifth attendee (optional)",
+    member6="Sixth attendee (optional)",
+    member7="Seventh attendee (optional)",
+    member8="Eighth attendee (optional)",
+    member9="Ninth attendee (optional)",
+    member10="Tenth attendee (optional)"
+)
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def log_training(ctx):
-    """Quick log training attendance - mention attendees"""
-    mentioned = ctx.message.mentions if hasattr(ctx, 'message') and ctx.message else []
+async def log_training(ctx, 
+                       member1: discord.Member,
+                       member2: discord.Member = None,
+                       member3: discord.Member = None,
+                       member4: discord.Member = None,
+                       member5: discord.Member = None,
+                       member6: discord.Member = None,
+                       member7: discord.Member = None,
+                       member8: discord.Member = None,
+                       member9: discord.Member = None,
+                       member10: discord.Member = None):
+    """Log training attendance - add up to 10 members, or use mentions for more"""
+    # Collect all provided members
+    members = [m for m in [member1, member2, member3, member4, member5, 
+                           member6, member7, member8, member9, member10] if m is not None]
     
-    if not mentioned:
-        return await ctx.send("❌ Please mention the attendees!", ephemeral=True)
+    # Also check for mentions in message (for prefix command with more than 10)
+    if hasattr(ctx, 'message') and ctx.message and ctx.message.mentions:
+        for m in ctx.message.mentions:
+            if m not in members and m != ctx.bot.user:
+                members.append(m)
+    
+    if not members:
+        return await ctx.send("❌ Please specify at least one member!", ephemeral=True)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_members = []
+    for m in members:
+        if m.id not in seen:
+            seen.add(m.id)
+            unique_members.append(m)
+    members = unique_members
+    
+    await ctx.defer()  # May take a while with many members
     
     rewards = ATTENDANCE_REWARDS["training"]
     streak_bonuses = []
     role_rewards = []
     
-    for m in mentioned:
+    for m in members:
         add_user_stat(m.id, "coins", rewards["coins"])
         add_xp_to_user(m.id, rewards["xp"])
         add_user_stat(m.id, "training_attendance", 1)
@@ -9700,7 +9741,7 @@ async def log_training(ctx):
             role_rewards.append(f"🔥 {m.display_name}: **{streak_roles[0]}**")
         
         await check_level_up(m.id, ctx.guild)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
     
     # Host rewards
     host_rewards = ATTENDANCE_REWARDS["host"]
@@ -9709,11 +9750,18 @@ async def log_training(ctx):
     add_user_stat(ctx.author.id, "events_hosted", 1)
     reset_member_activity(ctx.author.id)  # Reset host activity too
     
+    # Build attendee list
+    attendee_names = [m.display_name for m in members[:15]]
+    attendee_list = ", ".join(attendee_names)
+    if len(members) > 15:
+        attendee_list += f" +{len(members) - 15} more"
+    
     embed = discord.Embed(
         title="📚 Training Attendance Logged",
-        description=f"**{len(mentioned)} attendees** rewarded!",
+        description=f"**{len(members)} attendees** rewarded!",
         color=0x2ecc71
     )
+    embed.add_field(name="👥 Attendees", value=attendee_list, inline=False)
     embed.add_field(name="💰 Each Received", value=f"{rewards['coins']} coins + {rewards['xp']} XP", inline=True)
     embed.add_field(name="👑 Host Received", value=f"{host_rewards['coins']} coins + {host_rewards['xp']} XP", inline=True)
     
@@ -9725,20 +9773,61 @@ async def log_training(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="log_tryout", description="Staff: Quick log tryout attendance")
+@bot.hybrid_command(name="log_tryout", description="Staff: Log tryout attendance for members")
+@app_commands.describe(
+    member1="First attendee",
+    member2="Second attendee (optional)",
+    member3="Third attendee (optional)",
+    member4="Fourth attendee (optional)",
+    member5="Fifth attendee (optional)",
+    member6="Sixth attendee (optional)",
+    member7="Seventh attendee (optional)",
+    member8="Eighth attendee (optional)",
+    member9="Ninth attendee (optional)",
+    member10="Tenth attendee (optional)"
+)
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def log_tryout(ctx):
-    """Quick log tryout attendance - mention attendees"""
-    mentioned = ctx.message.mentions if hasattr(ctx, 'message') and ctx.message else []
+async def log_tryout(ctx,
+                     member1: discord.Member,
+                     member2: discord.Member = None,
+                     member3: discord.Member = None,
+                     member4: discord.Member = None,
+                     member5: discord.Member = None,
+                     member6: discord.Member = None,
+                     member7: discord.Member = None,
+                     member8: discord.Member = None,
+                     member9: discord.Member = None,
+                     member10: discord.Member = None):
+    """Log tryout attendance - add up to 10 members, or use mentions for more"""
+    # Collect all provided members
+    members = [m for m in [member1, member2, member3, member4, member5, 
+                           member6, member7, member8, member9, member10] if m is not None]
     
-    if not mentioned:
-        return await ctx.send("❌ Please mention the attendees!", ephemeral=True)
+    # Also check for mentions in message (for prefix command with more than 10)
+    if hasattr(ctx, 'message') and ctx.message and ctx.message.mentions:
+        for m in ctx.message.mentions:
+            if m not in members and m != ctx.bot.user:
+                members.append(m)
+    
+    if not members:
+        return await ctx.send("❌ Please specify at least one member!", ephemeral=True)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_members = []
+    for m in members:
+        if m.id not in seen:
+            seen.add(m.id)
+            unique_members.append(m)
+    members = unique_members
+    
+    await ctx.defer()  # May take a while with many members
     
     rewards = ATTENDANCE_REWARDS["tryout"]
     streak_bonuses = []
     role_rewards = []
     
-    for m in mentioned:
+    for m in members:
         add_user_stat(m.id, "coins", rewards["coins"])
         add_xp_to_user(m.id, rewards["xp"])
         add_user_stat(m.id, "tryout_attendance", 1)
@@ -9763,7 +9852,7 @@ async def log_tryout(ctx):
             role_rewards.append(f"🔥 {m.display_name}: **{streak_roles[0]}**")
         
         await check_level_up(m.id, ctx.guild)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.3)
     
     # Host rewards
     host_rewards = ATTENDANCE_REWARDS["host"]
@@ -9772,11 +9861,18 @@ async def log_tryout(ctx):
     add_user_stat(ctx.author.id, "events_hosted", 1)
     reset_member_activity(ctx.author.id)  # Reset host activity too
     
+    # Build attendee list
+    attendee_names = [m.display_name for m in members[:15]]
+    attendee_list = ", ".join(attendee_names)
+    if len(members) > 15:
+        attendee_list += f" +{len(members) - 15} more"
+    
     embed = discord.Embed(
         title="🎯 Tryout Attendance Logged",
-        description=f"**{len(mentioned)} attendees** rewarded!",
+        description=f"**{len(members)} attendees** rewarded!",
         color=0x2ecc71
     )
+    embed.add_field(name="👥 Attendees", value=attendee_list, inline=False)
     embed.add_field(name="💰 Each Received", value=f"{rewards['coins']} coins + {rewards['xp']} XP", inline=True)
     embed.add_field(name="👑 Host Received", value=f"{host_rewards['coins']} coins + {host_rewards['xp']} XP", inline=True)
     
