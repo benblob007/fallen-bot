@@ -289,9 +289,36 @@ COOLDOWN_SECONDS = 60
 
 # --- SHOP CONFIG ---
 SHOP_ITEMS = [
-    {"id": "private_tryout", "name": "⚔️ Private Tryout Ticket", "price": 500, "desc": "Opens a private channel with hosts."},
-    {"id": "custom_role", "name": "🎨 Custom Role Request", "price": 2000, "desc": "Request a custom colored role."}
+    # Original Items
+    {"id": "private_tryout", "name": "⚔️ Private Tryout Ticket", "price": 500, "desc": "Opens a private channel with hosts.", "type": "ticket"},
+    {"id": "custom_role", "name": "🎨 Custom Role Request", "price": 2000, "desc": "Request a custom colored role.", "type": "ticket"},
+    
+    # New Cosmetic Items
+    {"id": "custom_role_color", "name": "🎨 Custom Role Color", "price": 1500, "desc": "Change your custom role's color.", "type": "ticket"},
+    {"id": "hoisted_role", "name": "👑 Hoisted Role", "price": 5000, "desc": "Your role displays separately on the member list.", "type": "ticket"},
+    {"id": "custom_level_bg", "name": "🖼️ Custom Level Card BG", "price": 3000, "desc": "Set a custom background for your level card.", "type": "background"},
+    
+    # Gameplay Items
+    {"id": "elo_shield", "name": "🛡️ ELO Shield", "price": 1000, "desc": "Prevents ELO loss on your next duel loss.", "type": "consumable", "uses": 1},
+    {"id": "streak_saver", "name": "🔥 Streak Saver", "price": 1500, "desc": "Protects your attendance streak once if you miss.", "type": "consumable", "uses": 1},
+    {"id": "training_reserve", "name": "📋 Training Slot Reserve", "price": 300, "desc": "Reserve your spot in the next training.", "type": "consumable", "uses": 1},
+    
+    # Special Access
+    {"id": "coaching_session", "name": "🎯 1v1 Coaching Session", "price": 1500, "desc": "Book a private training with a coach.", "type": "coaching"},
 ]
+
+# Coaching role - members with this role can be selected for coaching
+COACHING_ROLE = "Coach"
+
+# Preset Level Card Backgrounds
+LEVEL_CARD_BACKGROUNDS = {
+    "default": None,  # Default gradient
+    "fallen_dark": "https://i.imgur.com/dark_fallen_bg.png",
+    "crimson": "https://i.imgur.com/crimson_bg.png",
+    "shadow": "https://i.imgur.com/shadow_bg.png",
+    "flames": "https://i.imgur.com/flames_bg.png",
+    "galaxy": "https://i.imgur.com/galaxy_bg.png",
+}
 
 # --- TOURNAMENT STATE ---
 tournament_state = {
@@ -333,6 +360,7 @@ async def init_database():
         
         # Create tables if they don't exist
         async with db_pool.acquire() as conn:
+            # Main users table with ALL fields
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
@@ -344,20 +372,54 @@ async def init_database():
                     raid_wins INTEGER DEFAULT 0,
                     raid_losses INTEGER DEFAULT 0,
                     raid_participation INTEGER DEFAULT 0,
+                    training_attendance INTEGER DEFAULT 0,
+                    tryout_attendance INTEGER DEFAULT 0,
+                    tryout_passes INTEGER DEFAULT 0,
+                    tryout_fails INTEGER DEFAULT 0,
+                    events_hosted INTEGER DEFAULT 0,
                     daily_streak INTEGER DEFAULT 0,
                     last_daily TIMESTAMP,
                     weekly_xp INTEGER DEFAULT 0,
                     monthly_xp INTEGER DEFAULT 0,
+                    voice_time INTEGER DEFAULT 0,
                     messages INTEGER DEFAULT 0,
-                    warnings INTEGER DEFAULT 0,
                     verified BOOLEAN DEFAULT FALSE,
                     roblox_username TEXT,
                     roblox_id BIGINT,
+                    last_active TIMESTAMP DEFAULT NOW(),
+                    elo_shield_active BOOLEAN DEFAULT FALSE,
+                    streak_saver_active BOOLEAN DEFAULT FALSE,
+                    training_reserved BOOLEAN DEFAULT FALSE,
+                    custom_level_bg TEXT,
+                    inventory TEXT[] DEFAULT ARRAY[]::TEXT[],
+                    warnings JSONB DEFAULT '[]'::JSONB,
                     achievements TEXT[] DEFAULT ARRAY[]::TEXT[],
                     activity_log JSONB DEFAULT '[]'::JSONB,
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             ''')
+            
+            # Add new columns if they don't exist (for existing databases)
+            new_columns = [
+                ("training_attendance", "INTEGER DEFAULT 0"),
+                ("tryout_attendance", "INTEGER DEFAULT 0"),
+                ("tryout_passes", "INTEGER DEFAULT 0"),
+                ("tryout_fails", "INTEGER DEFAULT 0"),
+                ("events_hosted", "INTEGER DEFAULT 0"),
+                ("voice_time", "INTEGER DEFAULT 0"),
+                ("last_active", "TIMESTAMP DEFAULT NOW()"),
+                ("elo_shield_active", "BOOLEAN DEFAULT FALSE"),
+                ("streak_saver_active", "BOOLEAN DEFAULT FALSE"),
+                ("training_reserved", "BOOLEAN DEFAULT FALSE"),
+                ("custom_level_bg", "TEXT"),
+                ("inventory", "TEXT[] DEFAULT ARRAY[]::TEXT[]"),
+            ]
+            
+            for col_name, col_type in new_columns:
+                try:
+                    await conn.execute(f'ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type}')
+                except:
+                    pass
             
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS raids (
@@ -405,6 +467,42 @@ async def init_database():
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value JSONB
+                )
+            ''')
+            
+            # JSON data backup table (stores entire JSON blobs)
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS json_data (
+                    key TEXT PRIMARY KEY,
+                    data JSONB NOT NULL,
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            ''')
+            
+            # ELO/Duels table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS duels (
+                    key TEXT PRIMARY KEY,
+                    data JSONB NOT NULL,
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            ''')
+            
+            # Events table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS events (
+                    key TEXT PRIMARY KEY,
+                    data JSONB NOT NULL,
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            ''')
+            
+            # Inactivity table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS inactivity (
+                    key TEXT PRIMARY KEY,
+                    data JSONB NOT NULL,
+                    updated_at TIMESTAMP DEFAULT NOW()
                 )
             ''')
         
@@ -477,24 +575,106 @@ async def db_get_raid_history(limit: int = 10):
             return [dict(row) for row in rows]
     return []
 
-# --- JSON DATA MANAGEMENT (Fallback) ---
+# --- JSON DATA MANAGEMENT (with PostgreSQL backup) ---
+
+# In-memory cache to reduce database calls
+_data_cache = None
+_cache_time = None
+CACHE_DURATION = 5  # seconds
+
 def load_data():
+    """Load data from PostgreSQL if available, otherwise JSON file"""
+    global _data_cache, _cache_time
+    
+    # Check cache first
+    if _data_cache and _cache_time and (datetime.datetime.now() - _cache_time).seconds < CACHE_DURATION:
+        return _data_cache
+    
+    # Try to load from JSON file (local copy)
     if not os.path.exists(LEADERBOARD_FILE):
-        return {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
-    with open(LEADERBOARD_FILE, "r") as f:
-        try:
-            data = json.load(f)
-            if "users" not in data: data["users"] = {}
-            if "roster" not in data: data["roster"] = [None]*10
-            if "theme" not in data: data["theme"] = DEFAULT_THEME
-            return data
-        except Exception as e:
-            print(f"Error loading data: {e}")
-            return {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
+        data = {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
+    else:
+        with open(LEADERBOARD_FILE, "r") as f:
+            try:
+                data = json.load(f)
+                if "users" not in data: data["users"] = {}
+                if "roster" not in data: data["roster"] = [None]*10
+                if "theme" not in data: data["theme"] = DEFAULT_THEME
+            except Exception as e:
+                print(f"Error loading data: {e}")
+                data = {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
+    
+    _data_cache = data
+    _cache_time = datetime.datetime.now()
+    return data
 
 def save_data(data):
+    """Save data to JSON file and PostgreSQL if available"""
+    global _data_cache, _cache_time
+    
+    # Always save to local JSON file
     with open(LEADERBOARD_FILE, "w") as f:
         json.dump(data, f, indent=4)
+    
+    # Update cache
+    _data_cache = data
+    _cache_time = datetime.datetime.now()
+    
+    # Also save to PostgreSQL in background if available
+    if db_pool:
+        asyncio.create_task(save_data_to_postgres(data))
+
+async def save_data_to_postgres(data):
+    """Save main data to PostgreSQL json_data table"""
+    if not db_pool:
+        return
+    
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO json_data (key, data, updated_at)
+                VALUES ('main_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+    except Exception as e:
+        print(f"PostgreSQL save error: {e}")
+
+async def load_data_from_postgres():
+    """Load main data from PostgreSQL - use on startup to restore data"""
+    if not db_pool:
+        return None
+    
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT data FROM json_data WHERE key = 'main_data'")
+            if row:
+                return json.loads(row['data'])
+    except Exception as e:
+        print(f"PostgreSQL load error: {e}")
+    return None
+
+async def sync_data_from_postgres():
+    """Sync local JSON with PostgreSQL data on startup"""
+    global _data_cache, _cache_time
+    
+    if not db_pool:
+        return False
+    
+    pg_data = await load_data_from_postgres()
+    if pg_data:
+        # PostgreSQL has data - use it
+        with open(LEADERBOARD_FILE, "w") as f:
+            json.dump(pg_data, f, indent=4)
+        _data_cache = pg_data
+        _cache_time = datetime.datetime.now()
+        print("✅ Data synced from PostgreSQL!")
+        return True
+    else:
+        # No data in PostgreSQL - upload current JSON
+        local_data = load_data()
+        await save_data_to_postgres(local_data)
+        print("✅ Local data uploaded to PostgreSQL!")
+        return True
 
 def reset_all_data():
     """Complete data wipe - resets everything"""
@@ -513,9 +693,16 @@ def ensure_user_structure(data, uid):
         "roblox_username": None, "roblox_id": None, "verified": False,
         "wins": 0, "losses": 0,
         "raid_wins": 0, "raid_losses": 0, "raid_participation": 0,
-        "training_attendance": 0, "tryout_passes": 0, "tryout_fails": 0,
+        "training_attendance": 0, "tryout_attendance": 0, "tryout_passes": 0, "tryout_fails": 0,
         "warnings": [], "last_daily": None, "daily_streak": 0,
-        "last_active": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        "last_active": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        # Inventory & Shop
+        "inventory": [],  # List of owned item IDs
+        "elo_shield_active": False,  # ELO shield protection
+        "streak_saver_active": False,  # Streak protection
+        "training_reserved": False,  # Training slot reserved
+        "custom_level_bg": None,  # Custom level card background URL
+        "events_hosted": 0,  # Number of events hosted
     }
     if uid not in data["users"]:
         data["users"][uid] = defaults.copy()
@@ -2471,6 +2658,37 @@ def load_duels_data():
 def save_duels_data(data):
     with open(DUELS_FILE, "w") as f:
         json.dump(data, f, indent=2)
+    
+    # Also save to PostgreSQL if available
+    if db_pool:
+        asyncio.create_task(save_duels_to_postgres(data))
+
+async def save_duels_to_postgres(data):
+    """Save duels data to PostgreSQL"""
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO duels (key, data, updated_at)
+                VALUES ('duels_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+    except Exception as e:
+        print(f"PostgreSQL duels save error: {e}")
+
+async def load_duels_from_postgres():
+    """Load duels data from PostgreSQL"""
+    if not db_pool:
+        return None
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT data FROM duels WHERE key = 'duels_data'")
+            if row:
+                return json.loads(row['data'])
+    except Exception as e:
+        print(f"PostgreSQL duels load error: {e}")
+    return None
 
 def get_elo(user_id):
     """Get a user's ELO rating"""
@@ -2562,6 +2780,15 @@ def complete_duel(duel_id, winner_id, loser_id):
     # Calculate changes
     winner_change, loser_change = calculate_elo_change(winner_elo, loser_elo)
     
+    # Check if loser has ELO shield
+    loser_data = get_user_data(loser_id)
+    shield_used = False
+    if loser_data.get("elo_shield_active", False):
+        # Shield protects from ELO loss
+        loser_change = 0
+        update_user_data(loser_id, "elo_shield_active", False)
+        shield_used = True
+    
     # Apply changes
     new_winner_elo = winner_elo + winner_change
     new_loser_elo = max(MIN_ELO, loser_elo + loser_change)
@@ -2578,6 +2805,7 @@ def complete_duel(duel_id, winner_id, loser_id):
         "winner_elo_after": new_winner_elo,
         "loser_elo_before": loser_elo,
         "loser_elo_after": new_loser_elo,
+        "shield_used": shield_used,
         "completed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
     data["duel_history"].append(history_entry)
@@ -2592,7 +2820,8 @@ def complete_duel(duel_id, winner_id, loser_id):
         "winner_change": winner_change,
         "loser_change": loser_change,
         "winner_new_elo": new_winner_elo,
-        "loser_new_elo": new_loser_elo
+        "loser_new_elo": new_loser_elo,
+        "shield_used": shield_used
     }
 
 def get_duel_history(user_id, limit=10):
@@ -3401,6 +3630,37 @@ def load_events_data():
 def save_events_data(data):
     with open(EVENTS_FILE, "w") as f:
         json.dump(data, f, indent=2)
+    
+    # Also save to PostgreSQL if available
+    if db_pool:
+        asyncio.create_task(save_events_to_postgres(data))
+
+async def save_events_to_postgres(data):
+    """Save events data to PostgreSQL"""
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO events (key, data, updated_at)
+                VALUES ('events_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+    except Exception as e:
+        print(f"PostgreSQL events save error: {e}")
+
+async def load_events_from_postgres():
+    """Load events data from PostgreSQL"""
+    if not db_pool:
+        return None
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT data FROM events WHERE key = 'events_data'")
+            if row:
+                return json.loads(row['data'])
+    except Exception as e:
+        print(f"PostgreSQL events load error: {e}")
+    return None
 
 def create_event(event_type, title, scheduled_time, host_id, ping_role=None, channel_id=None):
     """Create a new scheduled event"""
@@ -3872,6 +4132,37 @@ def load_inactivity_data():
 def save_inactivity_data(data):
     with open(INACTIVITY_FILE, "w") as f:
         json.dump(data, f, indent=2)
+    
+    # Also save to PostgreSQL if available
+    if db_pool:
+        asyncio.create_task(save_inactivity_to_postgres(data))
+
+async def save_inactivity_to_postgres(data):
+    """Save inactivity data to PostgreSQL"""
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO inactivity (key, data, updated_at)
+                VALUES ('inactivity_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+    except Exception as e:
+        print(f"PostgreSQL inactivity save error: {e}")
+
+async def load_inactivity_from_postgres():
+    """Load inactivity data from PostgreSQL"""
+    if not db_pool:
+        return None
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT data FROM inactivity WHERE key = 'inactivity_data'")
+            if row:
+                return json.loads(row['data'])
+    except Exception as e:
+        print(f"PostgreSQL inactivity load error: {e}")
+    return None
 
 def get_inactivity_strikes(user_id):
     """Get inactivity strikes for a user"""
@@ -4823,13 +5114,87 @@ class ShopView(discord.ui.View):
         if user_data["coins"] < item["price"]:
             return await interaction.response.send_message(f"❌ **Insufficient Funds.**\nYou need {item['price']} coins, you have {user_data['coins']}.", ephemeral=True)
         
+        # Deduct coins
         add_user_stat(interaction.user.id, "coins", -item["price"])
         
-        ticket_type = "tryout" if item_id == "private_tryout" else "role"
-        title = "⚔️ Private Tryout" if ticket_type == "tryout" else "🎨 Custom Role Request"
-        await self.open_shop_ticket(interaction, ticket_type, title)
+        # Handle different item types
+        item_type = item.get("type", "ticket")
+        
+        if item_type == "ticket":
+            # Opens a ticket for staff assistance
+            await self.open_shop_ticket(interaction, item_id, item["name"])
+        
+        elif item_type == "coaching":
+            # Open coaching selection
+            await self.open_coaching_ticket(interaction)
+        
+        elif item_type == "consumable":
+            # Add to inventory
+            await self.add_to_inventory(interaction, item_id, item)
+        
+        elif item_type == "background":
+            # Open background selection
+            await interaction.response.send_message(
+                "🖼️ **Custom Level Card Background**\n\n"
+                "Use `/setbackground <url>` to set your custom background!\n"
+                "• Image must be a direct URL (ends in .png, .jpg, etc.)\n"
+                "• Recommended size: 900x300 pixels\n"
+                "• Or use `/setbackground default` to reset",
+                ephemeral=True
+            )
+            # Mark that they own the background feature
+            data = load_data()
+            uid = str(interaction.user.id)
+            data = ensure_user_structure(data, uid)
+            if "custom_level_bg" not in data["users"][uid].get("inventory", []):
+                if "inventory" not in data["users"][uid]:
+                    data["users"][uid]["inventory"] = []
+                data["users"][uid]["inventory"].append("custom_level_bg")
+            save_data(data)
 
-    async def open_shop_ticket(self, interaction: discord.Interaction, prefix: str, title: str):
+    async def add_to_inventory(self, interaction: discord.Interaction, item_id: str, item: dict):
+        """Add consumable item to user's inventory"""
+        data = load_data()
+        uid = str(interaction.user.id)
+        data = ensure_user_structure(data, uid)
+        
+        if "inventory" not in data["users"][uid]:
+            data["users"][uid]["inventory"] = []
+        
+        data["users"][uid]["inventory"].append(item_id)
+        save_data(data)
+        
+        # Special handling for certain items
+        if item_id == "elo_shield":
+            update_user_data(interaction.user.id, "elo_shield_active", True)
+            await interaction.response.send_message(
+                "🛡️ **ELO Shield Activated!**\n"
+                "Your next duel loss will not affect your ELO rating.\n"
+                "*Shield is consumed after one loss.*",
+                ephemeral=True
+            )
+        elif item_id == "streak_saver":
+            update_user_data(interaction.user.id, "streak_saver_active", True)
+            await interaction.response.send_message(
+                "🔥 **Streak Saver Activated!**\n"
+                "If you miss the next training, your streak will be protected.\n"
+                "*Saver is consumed after one missed event.*",
+                ephemeral=True
+            )
+        elif item_id == "training_reserve":
+            update_user_data(interaction.user.id, "training_reserved", True)
+            await interaction.response.send_message(
+                "📋 **Training Slot Reserved!**\n"
+                "You have a guaranteed spot in the next training.\n"
+                "*Staff will be notified of your reservation.*",
+                ephemeral=True
+            )
+            # Notify staff
+            await log_action(interaction.guild, "📋 Training Reserve", f"{interaction.user.mention} reserved a training slot!", 0x3498db)
+        else:
+            await interaction.response.send_message(f"✅ **{item['name']}** added to your inventory!", ephemeral=True)
+
+    async def open_shop_ticket(self, interaction: discord.Interaction, item_id: str, title: str):
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False), 
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True), 
@@ -4844,7 +5209,7 @@ class ShopView(discord.ui.View):
             cat = await interaction.guild.create_category("Purchases")
         
         ch = await interaction.guild.create_text_channel(
-            name=f"{prefix}-{interaction.user.name}", 
+            name=f"{item_id}-{interaction.user.name}"[:50], 
             category=cat, 
             overwrites=overwrites
         )
@@ -4854,17 +5219,154 @@ class ShopView(discord.ui.View):
             description=f"Purchase confirmed by {interaction.user.mention}.\nStaff will assist you shortly.", 
             color=0x2ecc71
         )
-        await ch.send(f"{staff.mention if staff else ''}", embed=embed, view=TicketControlView(prefix))
+        await ch.send(f"{staff.mention if staff else ''}", embed=embed, view=TicketControlView(item_id))
         await interaction.response.send_message(f"✅ **Purchased!** Check {ch.mention}", ephemeral=True)
         await log_action(interaction.guild, "🛒 Purchase", f"User: {interaction.user.mention}\nItem: {title}", 0xF1C40F)
 
-    @discord.ui.button(label="Buy Private Tryout (500 💰)", style=discord.ButtonStyle.primary, custom_id="shop_tryout")
-    async def buy_tryout(self, interaction: discord.Interaction, button: discord.ui.Button): 
-        await self.buy_item(interaction, "private_tryout")
+    async def open_coaching_ticket(self, interaction: discord.Interaction):
+        """Open a coaching session ticket with coach selection"""
+        # Find all coaches
+        coach_role = discord.utils.get(interaction.guild.roles, name=COACHING_ROLE)
+        
+        if not coach_role or len(coach_role.members) == 0:
+            # Refund if no coaches available
+            add_user_stat(interaction.user.id, "coins", 1500)
+            return await interaction.response.send_message(
+                "❌ No coaches are currently available. You have been refunded.",
+                ephemeral=True
+            )
+        
+        # Create selection view
+        await interaction.response.send_message(
+            "🎯 **Select Your Coach**\n\nChoose who you'd like to train with:",
+            view=CoachSelectView(interaction.user, coach_role.members),
+            ephemeral=True
+        )
+
+
+class CoachSelectView(discord.ui.View):
+    """View for selecting a coach for 1v1 session"""
+    def __init__(self, buyer: discord.Member, coaches: list):
+        super().__init__(timeout=120)
+        self.buyer = buyer
+        self.coaches = coaches[:25]  # Discord limit
+        
+        # Add coach select dropdown
+        options = [
+            discord.SelectOption(
+                label=coach.display_name[:100],
+                value=str(coach.id),
+                description=f"Book session with {coach.display_name}"[:100]
+            )
+            for coach in self.coaches
+        ]
+        
+        self.coach_select = discord.ui.Select(
+            placeholder="Select a coach...",
+            options=options,
+            custom_id="coach_select"
+        )
+        self.coach_select.callback = self.select_coach
+        self.add_item(self.coach_select)
     
-    @discord.ui.button(label="Buy Custom Role (2000 💰)", style=discord.ButtonStyle.secondary, custom_id="shop_role")
+    async def select_coach(self, interaction: discord.Interaction):
+        if interaction.user.id != self.buyer.id:
+            return await interaction.response.send_message("❌ This isn't your purchase!", ephemeral=True)
+        
+        coach_id = int(self.coach_select.values[0])
+        coach = interaction.guild.get_member(coach_id)
+        
+        if not coach:
+            return await interaction.response.send_message("❌ Coach not found!", ephemeral=True)
+        
+        # Create coaching ticket
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            self.buyer: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            coach: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            interaction.guild.me: discord.PermissionOverwrite(read_messages=True)
+        }
+        
+        staff = discord.utils.get(interaction.guild.roles, name=STAFF_ROLE_NAME)
+        if staff:
+            overwrites[staff] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        
+        cat = discord.utils.get(interaction.guild.categories, name="Coaching")
+        if not cat:
+            cat = await interaction.guild.create_category("Coaching")
+        
+        ch = await interaction.guild.create_text_channel(
+            name=f"coaching-{self.buyer.name}-{coach.name}"[:50],
+            category=cat,
+            overwrites=overwrites
+        )
+        
+        embed = discord.Embed(
+            title="🎯 1v1 Coaching Session",
+            description=(
+                f"**Student:** {self.buyer.mention}\n"
+                f"**Coach:** {coach.mention}\n\n"
+                f"Coordinate your training session here!\n"
+                f"Coach, please schedule a time that works for both of you."
+            ),
+            color=0x9b59b6
+        )
+        embed.set_footer(text="Close this ticket when the session is complete")
+        
+        await ch.send(f"{self.buyer.mention} {coach.mention}", embed=embed, view=TicketControlView("coaching"))
+        await interaction.response.edit_message(content=f"✅ **Coaching booked!** Check {ch.mention}", view=None)
+        
+        # Notify coach
+        try:
+            dm_embed = discord.Embed(
+                title="🎯 New Coaching Session!",
+                description=f"**{self.buyer.display_name}** has booked a 1v1 coaching session with you!\n\nCheck {ch.mention} to coordinate.",
+                color=0x9b59b6
+            )
+            await coach.send(embed=dm_embed)
+        except:
+            pass
+        
+        await log_action(interaction.guild, "🎯 Coaching Booked", f"Student: {self.buyer.mention}\nCoach: {coach.mention}", 0x9b59b6)
+
+
+class ShopSelectView(discord.ui.View):
+    """Dropdown shop for all items"""
+    def __init__(self):
+        super().__init__(timeout=None)
+        
+        options = [
+            discord.SelectOption(
+                label=item["name"].replace("⚔️ ", "").replace("🎨 ", "").replace("🛡️ ", "").replace("🔥 ", "").replace("📋 ", "").replace("🎯 ", "").replace("👑 ", "").replace("🖼️ ", "")[:100],
+                value=item["id"],
+                description=f"{item['price']} coins - {item['desc'][:50]}",
+                emoji=item["name"][0] if item["name"][0] in "⚔️🎨🛡️🔥📋🎯👑🖼️" else "🛒"
+            )
+            for item in SHOP_ITEMS
+        ]
+        
+        self.shop_select = discord.ui.Select(
+            placeholder="Select an item to purchase...",
+            options=options,
+            custom_id="shop_select_menu"
+        )
+        self.shop_select.callback = self.purchase_item
+        self.add_item(self.shop_select)
+    
+    async def purchase_item(self, interaction: discord.Interaction):
+        item_id = self.shop_select.values[0]
+        shop_view = ShopView()
+        await shop_view.buy_item(interaction, item_id)
+
+    @discord.ui.button(label="Buy Private Tryout (500 💰)", style=discord.ButtonStyle.primary, custom_id="shop_tryout", row=1)
+    async def buy_tryout(self, interaction: discord.Interaction, button: discord.ui.Button): 
+        shop_view = ShopView()
+        await shop_view.buy_item(interaction, "private_tryout")
+    
+    @discord.ui.button(label="Buy Custom Role (2000 💰)", style=discord.ButtonStyle.secondary, custom_id="shop_role", row=1)
     async def buy_role(self, interaction: discord.Interaction, button: discord.ui.Button): 
-        await self.buy_item(interaction, "custom_role")
+        shop_view = ShopView()
+        await shop_view.buy_item(interaction, "custom_role")
 
 class HelpSelect(discord.ui.Select):
     def __init__(self):
@@ -7427,9 +7929,33 @@ async def on_ready():
     # Initialize PostgreSQL database
     if POSTGRES_AVAILABLE and DATABASE_URL:
         print("Connecting to PostgreSQL database...")
-        await init_database()
+        db_connected = await init_database()
+        
+        if db_connected:
+            # Sync data from PostgreSQL (restore after redeploy)
+            print("Syncing data from PostgreSQL...")
+            await sync_data_from_postgres()
+            
+            # Sync other data files
+            duels_data = await load_duels_from_postgres()
+            if duels_data:
+                with open(DUELS_FILE, "w") as f:
+                    json.dump(duels_data, f, indent=2)
+                print("✅ Duels data synced from PostgreSQL!")
+            
+            events_data = await load_events_from_postgres()
+            if events_data:
+                with open(EVENTS_FILE, "w") as f:
+                    json.dump(events_data, f, indent=2)
+                print("✅ Events data synced from PostgreSQL!")
+            
+            inactivity_data = await load_inactivity_from_postgres()
+            if inactivity_data:
+                with open(INACTIVITY_FILE, "w") as f:
+                    json.dump(inactivity_data, f, indent=2)
+                print("✅ Inactivity data synced from PostgreSQL!")
     else:
-        print("📁 Using JSON file storage")
+        print("📁 Using JSON file storage (no PostgreSQL)")
     
     # Check database health
     print("Checking database health...")
@@ -7719,6 +8245,90 @@ async def fcoins(ctx):
         description=f"💰 **{ctx.author.display_name}** has **{coins:,}** Fallen Coins",
         color=0xF1C40F
     )
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="inventory", description="View your purchased items")
+@commands.cooldown(1, 10, commands.BucketType.user)
+async def inventory_cmd(ctx):
+    """Display your inventory of purchased items"""
+    user_data = get_user_data(ctx.author.id)
+    inventory = user_data.get("inventory", [])
+    
+    embed = discord.Embed(
+        title=f"🎒 {ctx.author.display_name}'s Inventory",
+        color=0x9b59b6
+    )
+    
+    if not inventory:
+        embed.description = "Your inventory is empty!\nVisit the shop to buy items."
+    else:
+        # Count items
+        item_counts = {}
+        for item_id in inventory:
+            item_counts[item_id] = item_counts.get(item_id, 0) + 1
+        
+        inv_text = ""
+        for item_id, count in item_counts.items():
+            item = next((i for i in SHOP_ITEMS if i["id"] == item_id), None)
+            if item:
+                inv_text += f"• **{item['name']}** x{count}\n"
+            else:
+                inv_text += f"• {item_id} x{count}\n"
+        
+        embed.description = inv_text
+    
+    # Show active effects
+    effects = []
+    if user_data.get("elo_shield_active"):
+        effects.append("🛡️ ELO Shield (Active)")
+    if user_data.get("streak_saver_active"):
+        effects.append("🔥 Streak Saver (Active)")
+    if user_data.get("training_reserved"):
+        effects.append("📋 Training Reserved")
+    if user_data.get("custom_level_bg"):
+        effects.append("🖼️ Custom Background Set")
+    
+    if effects:
+        embed.add_field(name="✨ Active Effects", value="\n".join(effects), inline=False)
+    
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="setbackground", description="Set your custom level card background")
+@commands.cooldown(1, 30, commands.BucketType.user)
+async def setbackground_cmd(ctx, url: str):
+    """Set a custom background for your level card"""
+    user_data = get_user_data(ctx.author.id)
+    
+    # Check if user owns the background feature
+    if "custom_level_bg" not in user_data.get("inventory", []):
+        return await ctx.send("❌ You need to purchase **Custom Level Card BG** from the shop first!", ephemeral=True)
+    
+    # Handle reset
+    if url.lower() == "default" or url.lower() == "reset":
+        update_user_data(ctx.author.id, "custom_level_bg", None)
+        return await ctx.send("✅ Your level card background has been reset to default!")
+    
+    # Validate URL
+    valid_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.webp')
+    if not url.startswith(('http://', 'https://')) or not any(url.lower().endswith(ext) for ext in valid_extensions):
+        return await ctx.send(
+            "❌ Invalid URL! Please provide a direct image link.\n"
+            "• Must start with `http://` or `https://`\n"
+            "• Must end with `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp`",
+            ephemeral=True
+        )
+    
+    # Save the background
+    update_user_data(ctx.author.id, "custom_level_bg", url)
+    
+    embed = discord.Embed(
+        title="🖼️ Background Set!",
+        description="Your level card will now use your custom background.",
+        color=0x2ecc71
+    )
+    embed.set_image(url=url)
+    embed.set_footer(text="Use /setbackground default to reset")
+    
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="help", description="Get help with bot commands")
@@ -8126,23 +8736,45 @@ async def setup_shop(ctx):
                 file = discord.File(shop_image, filename="shop.png")
                 embed = discord.Embed(color=0x8B0000)
                 embed.set_image(url="attachment://shop.png")
-                await ch.send(file=file, embed=embed, view=ShopView())
+                await ch.send(file=file, embed=embed, view=ShopSelectView())
                 await ctx.send(f"✅ Shop panel posted in {ch.mention}", ephemeral=True)
                 return
         except Exception as e:
             print(f"Shop image error: {e}")
     
-    # Fallback to embed
+    # Fallback to embed with all items
     embed = discord.Embed(
         title="🛒 The Fallen Shop",
         description="Spend your hard-earned Fallen Coins here!",
         color=0xDC143C
     )
-    for item in SHOP_ITEMS:
-        embed.add_field(name=f"{item['name']} — {item['price']:,} 💰", value=item['desc'], inline=False)
-    embed.set_footer(text="Click a button below to purchase")
     
-    await ch.send(embed=embed, view=ShopView())
+    # Group items by type
+    cosmetic_items = [i for i in SHOP_ITEMS if i.get("type") in ["ticket", "background"] and "role" in i["id"].lower() or "bg" in i["id"].lower() or "hoisted" in i["id"].lower()]
+    gameplay_items = [i for i in SHOP_ITEMS if i.get("type") == "consumable"]
+    special_items = [i for i in SHOP_ITEMS if i.get("type") in ["coaching", "ticket"] and i["id"] in ["private_tryout", "coaching_session"]]
+    
+    embed.add_field(
+        name="🎨 Cosmetic Items",
+        value="\n".join([f"**{i['name']}** — {i['price']:,} 💰\n*{i['desc']}*" for i in SHOP_ITEMS if i["id"] in ["custom_role", "custom_role_color", "hoisted_role", "custom_level_bg"]]) or "None",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚔️ Gameplay Items",
+        value="\n".join([f"**{i['name']}** — {i['price']:,} 💰\n*{i['desc']}*" for i in SHOP_ITEMS if i.get("type") == "consumable"]) or "None",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📜 Special Access",
+        value="\n".join([f"**{i['name']}** — {i['price']:,} 💰\n*{i['desc']}*" for i in SHOP_ITEMS if i["id"] in ["private_tryout", "coaching_session"]]) or "None",
+        inline=False
+    )
+    
+    embed.set_footer(text="Use the dropdown or buttons below to purchase!")
+    
+    await ch.send(embed=embed, view=ShopSelectView())
     await ctx.send(f"✅ Shop panel posted in {ch.mention}", ephemeral=True)
 
 @bot.hybrid_command(name="voicetop", description="View voice time leaderboard")
