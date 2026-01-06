@@ -3309,20 +3309,20 @@ STREAK_BONUSES = {
 # Attendance Role Rewards (total attendance -> role name)
 # These roles should be created in Discord with desired colors
 ATTENDANCE_ROLE_REWARDS = {
-    5: "Dedicated Trainee",      # 5 total trainings
-    15: "Training Regular",      # 15 total trainings
-    30: "Training Veteran",      # 30 total trainings
-    50: "Training Elite",        # 50 total trainings
-    100: "Training Legend",      # 100 total trainings
+    5: "Fallen Initiate",          # 5 total trainings
+    15: "Fallen Disciple",         # 15 total trainings
+    30: "Fallen Warrior",          # 30 total trainings
+    50: "Fallen Slayer",           # 50 total trainings
+    100: "Fallen Immortal",        # 100 total trainings
 }
 
 # Streak Role Rewards (current streak -> role name)
 # These are for maintaining consistent attendance
 STREAK_ROLE_REWARDS = {
-    5: "🔥 On Fire",             # 5 streak
-    10: "💪 Committed",          # 10 streak
-    20: "⭐ Dedicated",          # 20 streak
-    50: "👑 Training King",      # 50 streak
+    5: "♰ Rising Shadow",          # 5 streak
+    10: "♰ Relentless",            # 10 streak
+    20: "♰ Undying",               # 20 streak
+    50: "♰ Eternal Fallen",        # 50 streak
 }
 
 async def check_attendance_roles(member, guild):
