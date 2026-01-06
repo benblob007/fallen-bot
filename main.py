@@ -65,7 +65,11 @@ LOG_CHANNEL_NAME = "fallen-logs"
 SET_RESULTS_CHANNEL_NAME = "♰・set-score"              
 TOURNAMENT_RESULTS_CHANNEL_NAME = "╰・tournament-results" 
 LEVEL_UP_CHANNEL_NAME = "♰・level"        
-SHOP_CHANNEL_NAME = "♰・fallen-shop"      
+SHOP_CHANNEL_NAME = "♰・fallen-shop"
+WELCOME_CHANNEL_NAME = "♰・welcome"  # Welcome channel for new members
+
+# --- DATA FILES ---
+RECURRING_EVENTS_FILE = "recurring_events.json"      
 
 # --- LEVEL CARD SETTINGS ---
 # Option 1: Set URL to your background image (RECOMMENDED for Discloud)
@@ -3661,6 +3665,180 @@ async def load_events_from_postgres():
     except Exception as e:
         print(f"PostgreSQL events load error: {e}")
     return None
+
+# ==========================================
+# RECURRING EVENTS SYSTEM
+# ==========================================
+
+def load_recurring_events():
+    """Load recurring events configuration"""
+    try:
+        with open(RECURRING_EVENTS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"recurring_events": [], "last_created": {}}
+
+def save_recurring_events(data):
+    """Save recurring events configuration"""
+    with open(RECURRING_EVENTS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+    
+    # Also save to PostgreSQL if available
+    if db_pool:
+        asyncio.create_task(save_recurring_to_postgres(data))
+
+async def save_recurring_to_postgres(data):
+    """Save recurring events to PostgreSQL"""
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO json_data (key, data, updated_at)
+                VALUES ('recurring_events', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+    except Exception as e:
+        print(f"PostgreSQL recurring save error: {e}")
+
+async def load_recurring_from_postgres():
+    """Load recurring events from PostgreSQL"""
+    if not db_pool:
+        return None
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT data FROM json_data WHERE key = 'recurring_events'")
+            if row:
+                return json.loads(row['data'])
+    except Exception as e:
+        print(f"PostgreSQL recurring load error: {e}")
+    return None
+
+def create_recurring_event(event_type, title, day_of_week, hour, minute, channel_id, created_by):
+    """Create a new recurring event
+    
+    day_of_week: 0=Monday, 1=Tuesday, ..., 6=Sunday
+    hour: 0-23 (UTC)
+    minute: 0-59
+    """
+    data = load_recurring_events()
+    
+    recurring_id = f"recurring_{int(datetime.datetime.now().timestamp())}"
+    
+    recurring = {
+        "id": recurring_id,
+        "type": event_type,
+        "title": title,
+        "day_of_week": day_of_week,
+        "hour": hour,
+        "minute": minute,
+        "channel_id": str(channel_id),
+        "created_by": str(created_by),
+        "enabled": True,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+    
+    data["recurring_events"].append(recurring)
+    save_recurring_events(data)
+    return recurring
+
+def get_recurring_events():
+    """Get all recurring events"""
+    data = load_recurring_events()
+    return data.get("recurring_events", [])
+
+def delete_recurring_event(recurring_id):
+    """Delete a recurring event"""
+    data = load_recurring_events()
+    
+    for i, event in enumerate(data["recurring_events"]):
+        if event["id"] == recurring_id:
+            removed = data["recurring_events"].pop(i)
+            save_recurring_events(data)
+            return removed
+    return None
+
+def toggle_recurring_event(recurring_id, enabled):
+    """Enable or disable a recurring event"""
+    data = load_recurring_events()
+    
+    for event in data["recurring_events"]:
+        if event["id"] == recurring_id:
+            event["enabled"] = enabled
+            save_recurring_events(data)
+            return event
+    return None
+
+DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+async def check_recurring_events(guild):
+    """Check if any recurring events should be created now"""
+    data = load_recurring_events()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    current_day = now.weekday()  # 0=Monday, 6=Sunday
+    current_hour = now.hour
+    current_minute = now.minute
+    
+    for recurring in data.get("recurring_events", []):
+        if not recurring.get("enabled", True):
+            continue
+        
+        # Check if this event should trigger now
+        if recurring["day_of_week"] == current_day and recurring["hour"] == current_hour:
+            # Check if we're within the right minute window (0-5 mins past the hour)
+            if 0 <= current_minute <= 5:
+                # Check if we already created this event today
+                last_key = f"{recurring['id']}_{now.strftime('%Y-%m-%d')}"
+                if last_key in data.get("last_created", {}):
+                    continue  # Already created today
+                
+                # Create the event!
+                channel = guild.get_channel(int(recurring["channel_id"]))
+                if not channel:
+                    continue
+                
+                # Schedule event for right now (or a few minutes from now)
+                scheduled_time = now + datetime.timedelta(minutes=30)  # Event starts in 30 mins
+                
+                event = create_event(
+                    event_type=recurring["type"],
+                    title=recurring["title"],
+                    scheduled_time=scheduled_time.isoformat(),
+                    host_id=recurring["created_by"],
+                    channel_id=recurring["channel_id"]
+                )
+                
+                # Mark as created
+                if "last_created" not in data:
+                    data["last_created"] = {}
+                data["last_created"][last_key] = now.isoformat()
+                save_recurring_events(data)
+                
+                # Post the event announcement
+                ping_role_name = TRAINING_PING_ROLE if recurring["type"] == "training" else TRYOUT_PING_ROLE
+                ping_role = discord.utils.get(guild.roles, name=ping_role_name)
+                
+                embed = await create_event_embed(event, guild)
+                
+                ping_text = ping_role.mention if ping_role else ""
+                try:
+                    await channel.send(content=f"📅 **Recurring Event Auto-Created!**\n{ping_text}", embed=embed, view=EventRSVPView(event["id"]))
+                except Exception as e:
+                    print(f"Failed to post recurring event: {e}")
+
+async def recurring_events_loop():
+    """Background loop to check recurring events"""
+    await bot.wait_until_ready()
+    await asyncio.sleep(120)  # Wait 2 minutes after startup
+    
+    while not bot.is_closed():
+        try:
+            for guild in bot.guilds:
+                await check_recurring_events(guild)
+        except Exception as e:
+            print(f"Recurring events check error: {e}")
+        
+        await asyncio.sleep(300)  # Check every 5 minutes
 
 def create_event(event_type, title, scheduled_time, host_id, ping_role=None, channel_id=None):
     """Create a new scheduled event"""
@@ -7651,6 +7829,123 @@ class EventCommands(commands.GroupCog, name="event"):
             return await interaction.response.send_message("❌ Event not found!", ephemeral=True)
         
         await interaction.response.send_message(f"✅ Event **{event['title']}** has been cancelled.")
+    
+    @app_commands.command(name="recurring_add", description="Admin: Create a recurring weekly event")
+    @app_commands.describe(
+        event_type="Type of event",
+        title="Event title",
+        day="Day of the week",
+        hour="Hour (0-23, UTC)",
+        minute="Minute (0-59)"
+    )
+    @app_commands.choices(event_type=[
+        app_commands.Choice(name="Training", value="training"),
+        app_commands.Choice(name="Tryout", value="tryout"),
+    ])
+    @app_commands.choices(day=[
+        app_commands.Choice(name="Monday", value=0),
+        app_commands.Choice(name="Tuesday", value=1),
+        app_commands.Choice(name="Wednesday", value=2),
+        app_commands.Choice(name="Thursday", value=3),
+        app_commands.Choice(name="Friday", value=4),
+        app_commands.Choice(name="Saturday", value=5),
+        app_commands.Choice(name="Sunday", value=6),
+    ])
+    @app_commands.checks.has_permissions(administrator=True)
+    async def event_recurring_add(self, interaction: discord.Interaction, event_type: str, title: str, day: int, hour: int, minute: int = 0):
+        """Create a recurring weekly event"""
+        if hour < 0 or hour > 23:
+            return await interaction.response.send_message("❌ Hour must be 0-23.", ephemeral=True)
+        if minute < 0 or minute > 59:
+            return await interaction.response.send_message("❌ Minute must be 0-59.", ephemeral=True)
+        
+        recurring = create_recurring_event(
+            event_type=event_type,
+            title=title,
+            day_of_week=day,
+            hour=hour,
+            minute=minute,
+            channel_id=interaction.channel.id,
+            created_by=interaction.user.id
+        )
+        
+        day_name = DAYS_OF_WEEK[day]
+        time_str = f"{hour:02d}:{minute:02d} UTC"
+        
+        embed = discord.Embed(
+            title="🔁 Recurring Event Created!",
+            description=(
+                f"**Type:** {event_type.title()}\n"
+                f"**Title:** {title}\n"
+                f"**Schedule:** Every **{day_name}** at **{time_str}**\n"
+                f"**Channel:** {interaction.channel.mention}\n\n"
+                f"The bot will automatically create this event every week!"
+            ),
+            color=0x2ecc71
+        )
+        embed.set_footer(text=f"ID: {recurring['id']}")
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="recurring_list", description="View all recurring events")
+    async def event_recurring_list(self, interaction: discord.Interaction):
+        """View all recurring events"""
+        recurring_events = get_recurring_events()
+        
+        if not recurring_events:
+            return await interaction.response.send_message("📅 No recurring events set up!", ephemeral=True)
+        
+        embed = discord.Embed(
+            title="🔁 Recurring Events",
+            color=0x3498db
+        )
+        
+        for event in recurring_events:
+            day_name = DAYS_OF_WEEK[event["day_of_week"]]
+            time_str = f"{event['hour']:02d}:{event['minute']:02d} UTC"
+            status = "✅ Enabled" if event.get("enabled", True) else "❌ Disabled"
+            emoji = "📚" if event["type"] == "training" else "🎯"
+            
+            channel = interaction.guild.get_channel(int(event["channel_id"]))
+            channel_str = channel.mention if channel else "Unknown"
+            
+            embed.add_field(
+                name=f"{emoji} {event['title']}",
+                value=(
+                    f"**When:** {day_name} @ {time_str}\n"
+                    f"**Channel:** {channel_str}\n"
+                    f"**Status:** {status}\n"
+                    f"**ID:** `{event['id']}`"
+                ),
+                inline=False
+            )
+        
+        await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="recurring_remove", description="Admin: Remove a recurring event")
+    @app_commands.describe(recurring_id="The recurring event ID to remove")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def event_recurring_remove(self, interaction: discord.Interaction, recurring_id: str):
+        """Remove a recurring event"""
+        removed = delete_recurring_event(recurring_id)
+        
+        if not removed:
+            return await interaction.response.send_message("❌ Recurring event not found!", ephemeral=True)
+        
+        await interaction.response.send_message(f"✅ Recurring event **{removed['title']}** has been removed.")
+    
+    @app_commands.command(name="recurring_toggle", description="Admin: Enable or disable a recurring event")
+    @app_commands.describe(recurring_id="The recurring event ID", enabled="Enable or disable")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def event_recurring_toggle(self, interaction: discord.Interaction, recurring_id: str, enabled: bool):
+        """Toggle a recurring event on/off"""
+        event = toggle_recurring_event(recurring_id, enabled)
+        
+        if not event:
+            return await interaction.response.send_message("❌ Recurring event not found!", ephemeral=True)
+        
+        status = "enabled" if enabled else "disabled"
+        await interaction.response.send_message(f"✅ Recurring event **{event['title']}** has been **{status}**.")
 
 
 class RosterCommands(commands.GroupCog, name="roster"):
@@ -8008,6 +8303,12 @@ async def on_ready():
         bot.event_reminder_task_started = True
         print("✅ Event reminder task started!")
     
+    # Start recurring events background task
+    if not hasattr(bot, 'recurring_events_task_started'):
+        bot.loop.create_task(recurring_events_loop())
+        bot.recurring_events_task_started = True
+        print("✅ Recurring events task started!")
+    
     print("=" * 50)
     print("🚀 Bot is ready!")
     print("=" * 50)
@@ -8023,33 +8324,69 @@ async def on_member_join(member):
             print(f"Could not add unverified role: {e}")
     
     # Send welcome card to welcome channel
-    welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome") or \
-                      discord.utils.get(member.guild.text_channels, name="welcomes") or \
-                      discord.utils.get(member.guild.text_channels, name="general")
+    welcome_channel = discord.utils.get(member.guild.text_channels, name=WELCOME_CHANNEL_NAME) or \
+                      discord.utils.get(member.guild.text_channels, name="welcome") or \
+                      discord.utils.get(member.guild.text_channels, name="welcomes")
     
     if welcome_channel:
         try:
             # Generate welcome card image
             welcome_card = await create_welcome_card(member)
+            
+            # Fallen-themed welcome message
+            welcome_messages = [
+                f"The shadows welcome you, {member.mention}...",
+                f"Another soul descends... Welcome, {member.mention}.",
+                f"From the ashes, {member.mention} rises to join The Fallen.",
+                f"The abyss has claimed another... Welcome, {member.mention}.",
+                f"{member.mention} has answered the call of The Fallen.",
+            ]
+            
+            import random
+            welcome_text = random.choice(welcome_messages)
+            
+            embed = discord.Embed(
+                title="✝ WELCOME TO THE FALLEN ✝",
+                description=(
+                    f"{welcome_text}\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"*Through shattered skies and broken crowns,*\n"
+                    f"*The descent carves its mark.*\n"
+                    f"*Fallen endures — not erased, but remade.*\n"
+                    f"*In ruin lies the seed of power.*\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"**🔒 To gain access:**\n"
+                    f"1️⃣ Verify with **Bloxlink** (`/verify`)\n"
+                    f"2️⃣ Click the **Verify** button in verification channel\n\n"
+                    f"**⚔️ What awaits you:**\n"
+                    f"• Trainings & Tryouts\n"
+                    f"• Ranked Duels & ELO System\n"
+                    f"• Leveling & Rewards\n"
+                    f"• Clan Wars & Raids\n\n"
+                    f"You are member **#{member.guild.member_count}**"
+                ),
+                color=0x8B0000
+            )
+            
             if welcome_card:
                 file = discord.File(welcome_card, filename="welcome.png")
-                embed = discord.Embed(
-                    description=f"Welcome {member.mention} to **The Fallen**!\n\nVerify with Bloxlink then click the verify button to gain full access.",
-                    color=0x8B0000
-                )
                 embed.set_image(url="attachment://welcome.png")
                 await welcome_channel.send(file=file, embed=embed)
             else:
-                # Fallback to text welcome
-                embed = discord.Embed(
-                    title="👋 Welcome to The Fallen!",
-                    description=f"Welcome {member.mention}!\n\nMember #{member.guild.member_count}",
-                    color=0x8B0000
-                )
                 embed.set_thumbnail(url=member.display_avatar.url)
+                if member.guild.icon:
+                    embed.set_footer(text="✝ The Fallen ✝", icon_url=member.guild.icon.url)
+                else:
+                    embed.set_footer(text="✝ The Fallen ✝")
                 await welcome_channel.send(embed=embed)
+                
         except Exception as e:
             print(f"Welcome card error: {e}")
+            # Simple fallback
+            try:
+                await welcome_channel.send(f"✝ Welcome to The Fallen, {member.mention}! ✝")
+            except:
+                pass
     
     # Try to DM them with verification instructions
     try:
