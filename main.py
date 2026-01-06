@@ -3306,6 +3306,91 @@ STREAK_BONUSES = {
     10: 500,  # 10 events = +500 bonus
 }
 
+# Attendance Role Rewards (total attendance -> role name)
+# These roles should be created in Discord with desired colors
+ATTENDANCE_ROLE_REWARDS = {
+    5: "Dedicated Trainee",      # 5 total trainings
+    15: "Training Regular",      # 15 total trainings
+    30: "Training Veteran",      # 30 total trainings
+    50: "Training Elite",        # 50 total trainings
+    100: "Training Legend",      # 100 total trainings
+}
+
+# Streak Role Rewards (current streak -> role name)
+# These are for maintaining consistent attendance
+STREAK_ROLE_REWARDS = {
+    5: "🔥 On Fire",             # 5 streak
+    10: "💪 Committed",          # 10 streak
+    20: "⭐ Dedicated",          # 20 streak
+    50: "👑 Training King",      # 50 streak
+}
+
+async def check_attendance_roles(member, guild):
+    """Check and award attendance milestone roles"""
+    user_data = get_user_data(member.id)
+    total_trainings = user_data.get("training_attendance", 0) + user_data.get("tryout_attendance", 0)
+    
+    roles_to_add = []
+    highest_earned = None
+    
+    # Check total attendance roles
+    for threshold, role_name in sorted(ATTENDANCE_ROLE_REWARDS.items()):
+        if total_trainings >= threshold:
+            highest_earned = role_name
+    
+    if highest_earned:
+        # Remove lower attendance roles, keep only highest
+        for threshold, role_name in ATTENDANCE_ROLE_REWARDS.items():
+            role = discord.utils.get(guild.roles, name=role_name)
+            if role:
+                if role_name == highest_earned:
+                    if role not in member.roles:
+                        await safe_add_role(member, role)
+                        roles_to_add.append(role_name)
+                else:
+                    if role in member.roles:
+                        await safe_remove_role(member, role)
+    
+    return roles_to_add
+
+async def check_streak_roles(member, guild, current_streak):
+    """Check and award streak milestone roles"""
+    roles_to_add = []
+    highest_earned = None
+    
+    # Find highest earned streak role
+    for threshold, role_name in sorted(STREAK_ROLE_REWARDS.items()):
+        if current_streak >= threshold:
+            highest_earned = role_name
+    
+    if highest_earned:
+        # Remove lower streak roles, keep only highest
+        for threshold, role_name in STREAK_ROLE_REWARDS.items():
+            role = discord.utils.get(guild.roles, name=role_name)
+            if role:
+                if role_name == highest_earned:
+                    if role not in member.roles:
+                        await safe_add_role(member, role)
+                        roles_to_add.append(role_name)
+                else:
+                    if role in member.roles:
+                        await safe_remove_role(member, role)
+    else:
+        # No streak role earned, remove all streak roles
+        for threshold, role_name in STREAK_ROLE_REWARDS.items():
+            role = discord.utils.get(guild.roles, name=role_name)
+            if role and role in member.roles:
+                await safe_remove_role(member, role)
+    
+    return roles_to_add
+
+async def remove_streak_roles(member, guild):
+    """Remove all streak roles when streak breaks"""
+    for threshold, role_name in STREAK_ROLE_REWARDS.items():
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role and role in member.roles:
+            await safe_remove_role(member, role)
+
 def load_events_data():
     try:
         with open(EVENTS_FILE, "r") as f:
@@ -8936,6 +9021,7 @@ async def log_training(ctx):
     
     rewards = ATTENDANCE_REWARDS["training"]
     streak_bonuses = []
+    role_rewards = []
     
     for m in mentioned:
         add_user_stat(m.id, "coins", rewards["coins"])
@@ -8950,6 +9036,16 @@ async def log_training(ctx):
         if bonus > 0:
             add_user_stat(m.id, "coins", bonus)
             streak_bonuses.append(f"🔥 {m.display_name}: {streak} streak (+{bonus})")
+        
+        # Check for attendance role rewards
+        new_roles = await check_attendance_roles(m, ctx.guild)
+        if new_roles:
+            role_rewards.append(f"🎖️ {m.display_name}: **{new_roles[0]}**")
+        
+        # Check for streak role rewards
+        streak_roles = await check_streak_roles(m, ctx.guild, streak)
+        if streak_roles:
+            role_rewards.append(f"🔥 {m.display_name}: **{streak_roles[0]}**")
         
         await check_level_up(m.id, ctx.guild)
         await asyncio.sleep(0.5)
@@ -8972,6 +9068,9 @@ async def log_training(ctx):
     if streak_bonuses:
         embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_bonuses[:5]), inline=False)
     
+    if role_rewards:
+        embed.add_field(name="🎉 Role Rewards Earned!", value="\n".join(role_rewards[:5]), inline=False)
+    
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="log_tryout", description="Staff: Quick log tryout attendance")
@@ -8985,6 +9084,7 @@ async def log_tryout(ctx):
     
     rewards = ATTENDANCE_REWARDS["tryout"]
     streak_bonuses = []
+    role_rewards = []
     
     for m in mentioned:
         add_user_stat(m.id, "coins", rewards["coins"])
@@ -8999,6 +9099,16 @@ async def log_tryout(ctx):
         if bonus > 0:
             add_user_stat(m.id, "coins", bonus)
             streak_bonuses.append(f"🔥 {m.display_name}: {streak} streak (+{bonus})")
+        
+        # Check for attendance role rewards
+        new_roles = await check_attendance_roles(m, ctx.guild)
+        if new_roles:
+            role_rewards.append(f"🎖️ {m.display_name}: **{new_roles[0]}**")
+        
+        # Check for streak role rewards
+        streak_roles = await check_streak_roles(m, ctx.guild, streak)
+        if streak_roles:
+            role_rewards.append(f"🔥 {m.display_name}: **{streak_roles[0]}**")
         
         await check_level_up(m.id, ctx.guild)
         await asyncio.sleep(0.5)
@@ -9020,6 +9130,9 @@ async def log_tryout(ctx):
     
     if streak_bonuses:
         embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_bonuses[:5]), inline=False)
+    
+    if role_rewards:
+        embed.add_field(name="🎉 Role Rewards Earned!", value="\n".join(role_rewards[:5]), inline=False)
     
     await ctx.send(embed=embed)
 
