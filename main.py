@@ -5471,15 +5471,21 @@ class HelpSelect(discord.ui.Select):
             e.description=(
                 "**👤 Member Commands**\n"
                 "`/schedule` - View upcoming events\n"
-                "`/event_list` - See all scheduled events\n"
+                "`/event list` - See all scheduled events\n"
                 "`/attendance_streak` - Check your streak\n\n"
                 "**💰 Attendance Rewards**\n"
                 "• Training: 100 coins + 50 XP\n"
                 "• Tryout: 150 coins + 75 XP\n"
                 "• Streak bonuses at 3, 5, 7, 10!\n\n"
+                "**🎖️ Attendance Roles**\n"
+                "• 5 trainings → Fallen Initiate\n"
+                "• 15 → Fallen Disciple\n"
+                "• 30 → Fallen Warrior\n"
+                "• 50 → Fallen Slayer\n"
+                "• 100 → Fallen Immortal\n\n"
                 "**🛡️ Staff Commands**\n"
-                "`/event_create <type> <title> <time>`\n"
-                "`/quick_training` `/quick_tryout`\n"
+                "`/event create <type> <title> <mins>`\n"
+                "`/event schedule <type> <title> <hour>`\n"
                 "`/log_training` `/log_tryout` @users"
             )
             
@@ -5517,17 +5523,22 @@ class HelpSelect(discord.ui.Select):
             e.title="🛡️ Staff Commands"
             e.description=(
                 "**📅 Events**\n"
-                "`/event_create <type> <title> <time>`\n"
+                "`/event create <type> <title> <minutes>`\n"
+                "`/event schedule <type> <title> <hour> [min]`\n"
+                "`/event list` - View upcoming events\n"
+                "`/event cancel <event_id>`\n"
                 "`/log_training` `/log_tryout` @users\n\n"
                 "**📊 Levels & Economy**\n"
-                "`/setlevel @user <lvl>` - Set level\n"
-                "`/importlevel @user <lvl>` - Import\n"
+                "`/lvl set @user <level>` - Set level\n"
+                "`/lvl add @user <xp>` - Add XP\n"
+                "`/lvl import @user <lvl>` - Import from Arcane\n"
                 "`/addxp` `/addfcoins` @user amt\n\n"
                 "**🛡️ Inactivity & Immunity**\n"
-                "`/inactivity_check` - Run check\n"
-                "`/immunity_add @user [reason]`\n"
-                "`/immunity_remove @user`\n"
-                "`/immunity_list` - View immune\n\n"
+                "`/inactivity check` - Run check\n"
+                "`/inactivity strikes @user`\n"
+                "`/immunity add @user [reason]`\n"
+                "`/immunity remove @user`\n"
+                "`/immunity list` - View immune\n\n"
                 "**🔨 Moderation**\n"
                 "`/warn @user [reason]`\n"
                 "`/warnings @user`"
@@ -5540,14 +5551,14 @@ class HelpSelect(discord.ui.Select):
                 "`/setup_verify` - Verification\n"
                 "`/setup_tickets` - Tickets\n"
                 "`/setup_shop` - Shop\n"
-                "`/tournament_create <n>`\n"
+                "`/tournament create <name>`\n"
                 "`/setup_logs` - Logging\n\n"
                 "**📊 Level Management**\n"
                 "`/bulkimport` - Import guide\n"
-                "`/setlevel` `/setxp`\n\n"
+                "`/lvl set` `/lvl setxp`\n\n"
                 "**🔄 Resets & Admin**\n"
                 "`/reset_weekly` `/reset_monthly`\n"
-                "`/elo_reset confirm`\n"
+                "`/elo reset confirm`\n"
                 "`!sync` - Sync commands"
             )
         
@@ -7516,33 +7527,42 @@ class EventCommands(commands.GroupCog, name="event"):
     ])
     async def event_create(self, interaction: discord.Interaction, event_type: str, title: str, minutes_from_now: int):
         """Create a scheduled event with RSVP and reminders"""
-        if not is_staff(interaction.user):
-            return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
-        
-        if minutes_from_now < 1:
-            return await interaction.response.send_message("❌ Time must be at least 1 minute from now.", ephemeral=True)
-        
-        if minutes_from_now > 10080:  # 7 days max
-            return await interaction.response.send_message("❌ Time must be within 7 days.", ephemeral=True)
-        
-        # Calculate the actual scheduled time
-        scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes_from_now)
-        
-        event = create_event(
-            event_type=event_type.lower(),
-            title=title,
-            scheduled_time=scheduled_time.isoformat(),
-            host_id=interaction.user.id,
-            channel_id=interaction.channel.id
-        )
-        
-        ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
-        ping_role = discord.utils.get(interaction.guild.roles, name=ping_role_name)
-        
-        embed = await create_event_embed(event, interaction.guild)
-        
-        ping_text = ping_role.mention if ping_role else ""
-        await interaction.response.send_message(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
+        try:
+            if not is_staff(interaction.user):
+                return await interaction.response.send_message("❌ Staff only.", ephemeral=True)
+            
+            if minutes_from_now < 1:
+                return await interaction.response.send_message("❌ Time must be at least 1 minute from now.", ephemeral=True)
+            
+            if minutes_from_now > 10080:  # 7 days max
+                return await interaction.response.send_message("❌ Time must be within 7 days.", ephemeral=True)
+            
+            # Calculate the actual scheduled time
+            scheduled_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes_from_now)
+            
+            event = create_event(
+                event_type=event_type.lower(),
+                title=title,
+                scheduled_time=scheduled_time.isoformat(),
+                host_id=interaction.user.id,
+                channel_id=interaction.channel.id
+            )
+            
+            ping_role_name = TRAINING_PING_ROLE if event_type.lower() == "training" else TRYOUT_PING_ROLE
+            ping_role = discord.utils.get(interaction.guild.roles, name=ping_role_name)
+            
+            embed = await create_event_embed(event, interaction.guild)
+            
+            ping_text = ping_role.mention if ping_role else ""
+            await interaction.response.send_message(content=ping_text, embed=embed, view=EventRSVPView(event["id"]))
+        except Exception as e:
+            print(f"Event create error: {e}")
+            import traceback
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"❌ Error creating event: {str(e)}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ Error creating event: {str(e)}", ephemeral=True)
     
     @app_commands.command(name="schedule", description="Staff: Schedule event at specific time")
     @app_commands.describe(
