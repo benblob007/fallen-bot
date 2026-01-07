@@ -7419,124 +7419,148 @@ class VerifyView(discord.ui.View):
     @discord.ui.button(label="✅ Verify with Fallen", style=discord.ButtonStyle.success, custom_id="verify_fallen_btn")
     async def verify_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Quick verify if user has Bloxlink verified role"""
-        member = interaction.user
-        guild = interaction.guild
-        
-        # Check if already has Abyssbound (full access)
-        abyssbound = discord.utils.get(guild.roles, name=MEMBER_ROLE_NAME)
-        if abyssbound and abyssbound in member.roles:
-            return await interaction.response.send_message(
-                "✅ You're already verified with The Fallen!",
-                ephemeral=True
-            )
-        
-        # Check if user has Bloxlink verified role
-        bloxlink_role = discord.utils.get(guild.roles, name=BLOXLINK_VERIFIED_ROLE)
-        
-        if not bloxlink_role or bloxlink_role not in member.roles:
+        try:
+            member = interaction.user
+            guild = interaction.guild
+            
+            # Check if already has Abyssbound (full access)
+            abyssbound = discord.utils.get(guild.roles, name=MEMBER_ROLE_NAME)
+            if abyssbound and abyssbound in member.roles:
+                return await interaction.response.send_message(
+                    "✅ You're already verified with The Fallen!",
+                    ephemeral=True
+                )
+            
+            # Check if user has Bloxlink verified role
+            bloxlink_role = discord.utils.get(guild.roles, name=BLOXLINK_VERIFIED_ROLE)
+            
+            if not bloxlink_role or bloxlink_role not in member.roles:
+                embed = discord.Embed(
+                    title="❌ Bloxlink Verification Required",
+                    description=(
+                        "You need to verify with **Bloxlink** first!\n\n"
+                        "**Steps:**\n"
+                        "1️⃣ Use `/verify` or go to the Bloxlink verification channel\n"
+                        "2️⃣ Complete Bloxlink verification\n"
+                        "3️⃣ Come back here and click this button again\n\n"
+                        "*Once you have the Bloxlink verified role, you can get full access to The Fallen!*"
+                    ),
+                    color=0xe74c3c
+                )
+                return await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # User has Bloxlink role - try to get their Roblox info from nickname
+            # Bloxlink usually sets nickname to Roblox username
+            roblox_username = member.display_name
+            
+            # Remove any clan tags or extra stuff (common format: "Username | Tag" or "[Tag] Username")
+            if " | " in roblox_username:
+                roblox_username = roblox_username.split(" | ")[0]
+            if "] " in roblox_username:
+                roblox_username = roblox_username.split("] ")[-1]
+            
+            # Defer FIRST before any API calls
+            await interaction.response.defer(ephemeral=True)
+            
+            # Try to look up the Roblox user to get their ID (with timeout protection)
+            roblox_id = None
+            try:
+                roblox_user = await asyncio.wait_for(
+                    get_roblox_user_by_username(roblox_username),
+                    timeout=5.0  # 5 second timeout
+                )
+                if roblox_user:
+                    roblox_username = roblox_user["name"]  # Use correct capitalization
+                    roblox_id = roblox_user["id"]
+            except asyncio.TimeoutError:
+                print(f"Roblox API timeout for {roblox_username}")
+            except Exception as e:
+                print(f"Roblox API error: {e}")
+            
+            # Give roles
+            roles_given = []
+            roles_removed = []
+            
+            # Remove Unverified
+            unverified = discord.utils.get(guild.roles, name=UNVERIFIED_ROLE_NAME)
+            if unverified and unverified in member.roles:
+                try:
+                    await member.remove_roles(unverified)
+                    roles_removed.append(unverified.name)
+                    await asyncio.sleep(0.5)  # Small delay between role operations
+                except:
+                    pass
+            
+            # Add Verified (Fallen's own verified role, can be different from Bloxlink's)
+            fallen_verified = discord.utils.get(guild.roles, name=FALLEN_VERIFIED_ROLE)
+            if fallen_verified and fallen_verified not in member.roles:
+                try:
+                    await member.add_roles(fallen_verified)
+                    roles_given.append(fallen_verified.name)
+                    await asyncio.sleep(0.5)  # Small delay between role operations
+                except:
+                    pass
+            
+            # Add Abyssbound (member role)
+            if abyssbound and abyssbound not in member.roles:
+                try:
+                    await member.add_roles(abyssbound)
+                    roles_given.append(abyssbound.name)
+                except:
+                    pass
+            
+            # Save to database
+            data = load_data()
+            uid = str(member.id)
+            data = ensure_user_structure(data, uid)
+            data["users"][uid]["roblox_username"] = roblox_username
+            data["users"][uid]["verified"] = True
+            if roblox_id:
+                data["users"][uid]["roblox_id"] = roblox_id
+            save_data(data)
+            
+            # Check achievements (don't wait for this)
+            asyncio.create_task(check_new_achievements(member.id, guild))
+            
+            # Success message
             embed = discord.Embed(
-                title="❌ Bloxlink Verification Required",
+                title="✅ Welcome to The Fallen!",
                 description=(
-                    "You need to verify with **Bloxlink** first!\n\n"
-                    "**Steps:**\n"
-                    "1️⃣ Use `/verify` or go to the Bloxlink verification channel\n"
-                    "2️⃣ Complete Bloxlink verification\n"
-                    "3️⃣ Come back here and click this button again\n\n"
-                    "*Once you have the Bloxlink verified role, you can get full access to The Fallen!*"
+                    f"You've been verified as **{roblox_username}**!\n\n"
+                    f"**Roles Given:** {', '.join(roles_given) if roles_given else 'None needed'}\n\n"
+                    "You now have full access to the server. Enjoy! ⚔️"
                 ),
-                color=0xe74c3c
+                color=0x2ecc71
             )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
+            if roblox_id:
+                embed.add_field(
+                    name="🎮 Roblox Profile",
+                    value=f"[View Profile](https://www.roblox.com/users/{roblox_id}/profile)"
+                )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            # Log to dashboard (don't wait for this)
+            asyncio.create_task(log_to_dashboard(
+                guild, "✅ VERIFY", "Member Verified",
+                f"{member.mention} verified as **{roblox_username}**",
+                color=0x2ecc71,
+                fields={"Method": "Bloxlink Quick Verify", "Roblox": roblox_username}
+            ))
         
-        # User has Bloxlink role - try to get their Roblox info from nickname
-        # Bloxlink usually sets nickname to Roblox username
-        roblox_username = member.display_name
-        
-        # Remove any clan tags or extra stuff (common format: "Username | Tag" or "[Tag] Username")
-        if " | " in roblox_username:
-            roblox_username = roblox_username.split(" | ")[0]
-        if "] " in roblox_username:
-            roblox_username = roblox_username.split("] ")[-1]
-        
-        await interaction.response.defer(ephemeral=True)
-        
-        # Try to look up the Roblox user to get their ID
-        roblox_user = await get_roblox_user_by_username(roblox_username)
-        
-        roblox_id = None
-        if roblox_user:
-            roblox_username = roblox_user["name"]  # Use correct capitalization
-            roblox_id = roblox_user["id"]
-        
-        # Give roles
-        roles_given = []
-        roles_removed = []
-        
-        # Remove Unverified
-        unverified = discord.utils.get(guild.roles, name=UNVERIFIED_ROLE_NAME)
-        if unverified and unverified in member.roles:
+        except discord.errors.NotFound:
+            # Interaction expired
+            pass
+        except Exception as e:
+            print(f"Verify button error: {e}")
             try:
-                await member.remove_roles(unverified)
-                roles_removed.append(unverified.name)
+                await interaction.followup.send(
+                    f"❌ An error occurred during verification. Please try again.",
+                    ephemeral=True
+                )
             except:
                 pass
-        
-        # Add Verified (Fallen's own verified role, can be different from Bloxlink's)
-        fallen_verified = discord.utils.get(guild.roles, name=FALLEN_VERIFIED_ROLE)
-        if fallen_verified and fallen_verified not in member.roles:
-            try:
-                await member.add_roles(fallen_verified)
-                roles_given.append(fallen_verified.name)
-            except:
-                pass
-        
-        # Add Abyssbound (member role)
-        if abyssbound and abyssbound not in member.roles:
-            try:
-                await member.add_roles(abyssbound)
-                roles_given.append(abyssbound.name)
-            except:
-                pass
-        
-        # Save to database
-        data = load_data()
-        uid = str(member.id)
-        data = ensure_user_structure(data, uid)
-        data["users"][uid]["roblox_username"] = roblox_username
-        data["users"][uid]["verified"] = True
-        if roblox_id:
-            data["users"][uid]["roblox_id"] = roblox_id
-        save_data(data)
-        
-        # Check achievements
-        await check_new_achievements(member.id, guild)
-        
-        # Success message
-        embed = discord.Embed(
-            title="✅ Welcome to The Fallen!",
-            description=(
-                f"You've been verified as **{roblox_username}**!\n\n"
-                f"**Roles Given:** {', '.join(roles_given) if roles_given else 'None needed'}\n\n"
-                "You now have full access to the server. Enjoy! ⚔️"
-            ),
-            color=0x2ecc71
-        )
-        if roblox_id:
-            embed.add_field(
-                name="🎮 Roblox Profile",
-                value=f"[View Profile](https://www.roblox.com/users/{roblox_id}/profile)"
-            )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        
-        # Log to dashboard
-        await log_to_dashboard(
-            guild, "✅ VERIFY", "Member Verified",
-            f"{member.mention} verified as **{roblox_username}**",
-            color=0x2ecc71,
-            fields={"Method": "Bloxlink Quick Verify", "Roblox": roblox_username}
-        )
 
 class ManualVerifyModal(discord.ui.Modal, title="🔗 Link Roblox Account"):
     roblox_username = discord.ui.TextInput(
@@ -8761,6 +8785,10 @@ async def on_ready():
     print(f"✅ PostgreSQL Available: {POSTGRES_AVAILABLE}")
     print("=" * 50)
     
+    # Add startup delay to avoid rate limits
+    print("⏳ Waiting 5 seconds before initializing...")
+    await asyncio.sleep(5)
+    
     # Initialize PostgreSQL database
     if POSTGRES_AVAILABLE and DATABASE_URL:
         print("Connecting to PostgreSQL database...")
@@ -8770,6 +8798,7 @@ async def on_ready():
             # Sync data from PostgreSQL (restore after redeploy)
             print("Syncing data from PostgreSQL...")
             await sync_data_from_postgres()
+            await asyncio.sleep(1)  # Small delay
             
             # Sync other data files
             duels_data = await load_duels_from_postgres()
@@ -8778,11 +8807,15 @@ async def on_ready():
                     json.dump(duels_data, f, indent=2)
                 print("✅ Duels data synced from PostgreSQL!")
             
+            await asyncio.sleep(1)  # Small delay
+            
             events_data = await load_events_from_postgres()
             if events_data:
                 with open(EVENTS_FILE, "w") as f:
                     json.dump(events_data, f, indent=2)
                 print("✅ Events data synced from PostgreSQL!")
+            
+            await asyncio.sleep(1)  # Small delay
             
             inactivity_data = await load_inactivity_from_postgres()
             if inactivity_data:
@@ -8810,12 +8843,8 @@ async def on_ready():
         bot.cogs_loaded = True
         print("✅ Subcommand groups loaded!")
     
-    # Auto-sync slash commands on startup
-    try:
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} slash commands globally!")
-    except Exception as e:
-        print(f"❌ Failed to sync commands: {e}")
+    # DON'T auto-sync on startup - use !sync command instead to avoid rate limits
+    print("⚠️ Slash commands NOT auto-synced. Use !sync to sync manually.")
     
     # Start event reminder background task
     if not hasattr(bot, 'event_reminder_task_started'):
@@ -8982,10 +9011,19 @@ async def on_reaction_add(reaction, user):
 @commands.has_permissions(administrator=True)
 async def sync_cmd(ctx):
     """Sync slash commands to this server"""
-    msg = await ctx.send("🔄 Syncing slash commands to this server...")
+    msg = await ctx.send("🔄 Syncing slash commands to this server... (this may take a moment)")
+    
     try:
+        # Add delay before syncing to avoid rate limits
+        await asyncio.sleep(2)
         synced = await bot.tree.sync(guild=ctx.guild)
+        await asyncio.sleep(1)
         await msg.edit(content=f"✅ Synced {len(synced)} slash commands to this server!")
+    except discord.HTTPException as e:
+        if e.status == 429:
+            await msg.edit(content=f"⚠️ Rate limited! Please wait a few minutes and try again.\nRetry after: {e.retry_after if hasattr(e, 'retry_after') else 'unknown'} seconds")
+        else:
+            await msg.edit(content=f"❌ Sync failed: {e}")
     except Exception as e:
         await msg.edit(content=f"❌ Sync failed: {e}")
 
