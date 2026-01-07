@@ -9283,8 +9283,7 @@ async def help_cmd(ctx):
         value=(
             "👤 **Member** - Verification & basics\n"
             "📊 **Profile & Stats** - Cards & statistics\n"
-            "🏆 **Achievements** - Badges & progress\n"
-            "💰 **Economy** - Coins & shop"
+            "💰 **Economy & Shop** - Coins & items"
         ),
         inline=False
     )
@@ -9292,17 +9291,18 @@ async def help_cmd(ctx):
     embed.add_field(
         name="━━━━━ Activities ━━━━━",
         value=(
-            "🎫 **Tickets** - Support system\n"
-            "🏴‍☠️ **Raids & Wars** - Combat & battles\n"
-            "📚 **Training** - Events & tryouts\n"
-            "📋 **Applications** - Staff applications"
+            "📅 **Events** - Trainings & tryouts\n"
+            "⚔️ **Duels & ELO** - 1v1 battles\n"
+            "🏆 **Tournaments** - Competitions\n"
+            "🆘 **Backup** - Request help"
         ),
         inline=False
     )
     
     embed.add_field(
-        name="━━━━━ Staff Only ━━━━━",
+        name="━━━━━ Ranking ━━━━━",
         value=(
+            "📋 **Stage Transfer** - Rank transfers\n"
             "🛡️ **Staff** - Moderation tools\n"
             "⚙️ **Admin** - Server management"
         ),
