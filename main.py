@@ -6015,7 +6015,7 @@ class HelpSelect(discord.ui.Select):
             discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
             discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
-            discord.SelectOption(label="Raids & Wars", emoji="🏴‍☠️", description="Clan battles"),
+            discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
             discord.SelectOption(label="Stage Transfer", emoji="📋", description="Rank transfers & results"),
             discord.SelectOption(label="Staff", emoji="🛡️", description="Staff commands"),
             discord.SelectOption(label="Admin", emoji="⚙️", description="Setup & management"),
@@ -6151,23 +6151,25 @@ class HelpSelect(discord.ui.Select):
                 "• Coaching Session (1500)"
             )
             
-        elif self.values[0] == "Raids & Wars":
-            e.title="🏴‍☠️ Raids & Wars"
+        elif self.values[0] == "Backup":
+            e.title="🆘 Backup System"
             e.description=(
-                "**👤 Member Commands**\n"
-                "`!raid_lb` - Raid leaderboard\n"
-                "`!raid_history` - Past raids\n"
-                "`!wars` - View clan wars\n"
-                "`!war_record <clan>` - Record vs clan\n\n"
-                "**💰 Raid Rewards**\n"
-                "• Win: 150 coins + 100 XP\n"
-                "• Loss: 50 coins + 25 XP\n\n"
-                "**🛡️ Staff Commands**\n"
-                "`!raid_call <target> <time>`\n"
-                "`!raid_log <win/loss> @users`\n"
-                "`!war_declare <clan>`\n"
-                "`!war_result <clan> <win/loss>`\n"
-                "`!scrim <clan> <time>`"
+                "**🆘 Request Backup**\n"
+                "`/backup` or `!backup`\n"
+                "Opens a form to request backup!\n\n"
+                "**📋 Requirements:**\n"
+                "• List at least **3 enemies**\n"
+                "• Include a valid **invite link**\n\n"
+                "**🔗 Valid Links:**\n"
+                "• Roblox Invite: `roblox.com/share?code=...`\n"
+                "• RO-PRO: `ro.pro/XXXXXX`\n\n"
+                "**📢 What Happens:**\n"
+                "Your request pings @Backup Ping\n"
+                "so members can join and help!\n\n"
+                "**⚠️ Rules:**\n"
+                "• Don't spam backup requests\n"
+                "• Only use for real situations\n"
+                "• Include accurate enemy count"
             )
         
         elif self.values[0] == "Stage Transfer":
@@ -10367,168 +10369,152 @@ async def schedule(ctx):
 # RAID & WAR COMMANDS
 # ==========================================
 
-@bot.command(name="raid_lb", description="View raid leaderboard")
-async def raid_lb(ctx):
-    """Display raid leaderboard"""
-    users = load_data()["users"]
-    sorted_users = sorted(users.items(), key=lambda x: x[1].get('raid_wins', 0), reverse=True)[:10]
+# ==========================================
+# BACKUP SYSTEM
+# ==========================================
+
+class BackupModal(discord.ui.Modal, title="🆘 Request Backup"):
+    """Modal for requesting backup"""
     
-    embed = discord.Embed(title="🏴‍☠️ Raid Leaderboard", color=0xFF4500)
-    lines = []
-    for i, (uid, stats) in enumerate(sorted_users, 1):
-        m = ctx.guild.get_member(int(uid))
-        name = f"@{m.name}" if m else f"@user_{uid[:8]}"
-        rw, rl = stats.get('raid_wins', 0), stats.get('raid_losses', 0)
-        total = rw + rl
-        wr = round((rw / total) * 100, 1) if total > 0 else 0
-        rank = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"**#{i}**"
-        lines.append(f"{rank} • {name} • {rw}W-{rl}L ({wr}%)")
+    enemies = discord.ui.TextInput(
+        label="Enemy Names (at least 3)",
+        placeholder="List enemy usernames, separated by commas...",
+        style=discord.TextStyle.paragraph,
+        min_length=5,
+        max_length=500,
+        required=True
+    )
     
-    embed.description = "\n".join(lines) or "No raid data yet."
+    invite_link = discord.ui.TextInput(
+        label="Invite Link (Roblox or RO-PRO)",
+        placeholder="https://www.roblox.com/share?code=... or ro.pro/XXXXX",
+        style=discord.TextStyle.short,
+        min_length=10,
+        max_length=200,
+        required=True
+    )
+    
+    additional_info = discord.ui.TextInput(
+        label="Additional Info (Optional)",
+        placeholder="Any extra details about the situation...",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=300
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validate enemies (at least 3)
+        enemy_list = [e.strip() for e in self.enemies.value.replace('\n', ',').split(',') if e.strip()]
+        
+        if len(enemy_list) < 3:
+            return await interaction.response.send_message(
+                "❌ You must list at least **3 enemies**! Please try again.",
+                ephemeral=True
+            )
+        
+        # Validate link
+        link = self.invite_link.value.strip()
+        valid_link = False
+        
+        # Check for valid Roblox invite link
+        if "roblox.com/share" in link.lower() and "code=" in link.lower():
+            valid_link = True
+        # Check for RO-PRO link
+        elif "ro.pro/" in link.lower():
+            valid_link = True
+        # Also accept direct roblox game links with privateServerLinkCode
+        elif "roblox.com/games" in link.lower() and "privateserverlinkcode" in link.lower():
+            valid_link = True
+        
+        if not valid_link:
+            return await interaction.response.send_message(
+                "❌ Invalid link! Please provide a valid:\n"
+                "• **Roblox Invite:** `https://www.roblox.com/share?code=...`\n"
+                "• **RO-PRO Link:** `ro.pro/XXXXXX`",
+                ephemeral=True
+            )
+        
+        # Find backup ping role
+        backup_role = discord.utils.get(interaction.guild.roles, name="Backup Ping")
+        ping_text = backup_role.mention if backup_role else "@Backup Ping"
+        
+        # Create backup request embed
+        embed = discord.Embed(
+            title="🆘 BACKUP REQUESTED",
+            description=f"**{interaction.user.mention} needs backup!**",
+            color=0xFF0000,
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        
+        # Format enemy list nicely
+        enemy_display = "\n".join([f"• {enemy}" for enemy in enemy_list[:10]])  # Max 10 displayed
+        if len(enemy_list) > 10:
+            enemy_display += f"\n• ... and {len(enemy_list) - 10} more"
+        
+        embed.add_field(
+            name=f"⚔️ Enemies ({len(enemy_list)})",
+            value=enemy_display,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🔗 Join Link",
+            value=f"**[CLICK TO JOIN]({link})**",
+            inline=False
+        )
+        
+        if self.additional_info.value:
+            embed.add_field(
+                name="📝 Additional Info",
+                value=self.additional_info.value,
+                inline=False
+            )
+        
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text="✝ The Fallen • Backup System ✝")
+        
+        # Send the backup request
+        await interaction.response.send_message(
+            content=f"🚨 {ping_text} 🚨",
+            embed=embed
+        )
+        
+        # Log the backup request
+        await log_action(
+            interaction.guild,
+            "🆘 Backup Requested",
+            f"**By:** {interaction.user.mention}\n**Enemies:** {len(enemy_list)}\n**Link:** [Join]({link})",
+            0xFF0000
+        )
+
+
+@bot.hybrid_command(name="backup", description="Request backup from clan members")
+async def backup_request(ctx):
+    """Request backup - opens a form to fill out"""
+    modal = BackupModal()
+    await ctx.interaction.response.send_modal(modal)
+
+
+@bot.command(name="backup_cmd")
+async def backup_prefix(ctx):
+    """Backup command for prefix usage - shows instructions"""
+    embed = discord.Embed(
+        title="🆘 Request Backup",
+        description=(
+            "To request backup, use the **slash command**:\n"
+            "```/backup```\n\n"
+            "This will open a form where you need to:\n"
+            "• List at least **3 enemies**\n"
+            "• Provide a valid **invite link**\n\n"
+            "**Valid Links:**\n"
+            "• `https://www.roblox.com/share?code=...`\n"
+            "• `ro.pro/XXXXXX`"
+        ),
+        color=0xFF0000
+    )
+    embed.set_footer(text="✝ The Fallen ✝")
     await ctx.send(embed=embed)
 
-@bot.hybrid_command(name="wars", description="View active and past wars")
-async def wars(ctx):
-    """Display war information"""
-    wars_data = load_data().get("wars", {})
-    embed = discord.Embed(title="⚔️ Clan Wars", color=0xFF4500)
-    
-    if not wars_data:
-        embed.description = "No war records yet."
-    else:
-        lines = []
-        for clan, record in list(wars_data.items())[:10]:
-            status = "🔴 Active" if record.get('active') else "⚪ Ended"
-            lines.append(f"**vs {clan}** - {record['wins']}W/{record['losses']}L {status}")
-        embed.description = "\n".join(lines)
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name="war_record", description="View record against a specific clan")
-async def war_record(ctx, clan_name: str):
-    """View war record against specific clan"""
-    wars = load_data().get("wars", {})
-    record = None
-    for c, r in wars.items():
-        if c.lower() == clan_name.lower():
-            record = r
-            clan_name = c
-            break
-    
-    if not record:
-        return await ctx.send(f"❌ No war record found against **{clan_name}**", ephemeral=True)
-    
-    total = record['wins'] + record['losses']
-    wr = round((record['wins'] / total) * 100, 1) if total > 0 else 0
-    
-    embed = discord.Embed(title=f"⚔️ War Record vs {clan_name}", color=0xFF4500)
-    embed.add_field(name="🏆 Wins", value=str(record['wins']), inline=True)
-    embed.add_field(name="💀 Losses", value=str(record['losses']), inline=True)
-    embed.add_field(name="📊 Win Rate", value=f"{wr}%", inline=True)
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name="raid_call", description="Staff: Call a raid")
-async def raid_call(ctx, target: str, time: str, *, requirements: str = "None"):
-    """Call a raid"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    data = load_data()
-    raid_id = f"raid_{int(datetime.datetime.now().timestamp())}"
-    
-    if "raids" not in data:
-        data["raids"] = []
-    
-    data["raids"].append({
-        "id": raid_id, "target": target, "time": time,
-        "requirements": requirements, "host": ctx.author.id, "participants": []
-    })
-    save_data(data)
-    
-    embed = discord.Embed(title="🏴‍☠️ RAID CALL", description=f"**Target:** {target}\n**Time:** {time}\n**Requirements:** {requirements}", color=0xFF4500)
-    embed.add_field(name="Host", value=ctx.author.mention, inline=True)
-    embed.set_footer(text="React ⚔️ to join!")
-    
-    await ctx.send(embed=embed)
-    await log_action(ctx.guild, "🏴‍☠️ Raid Called", f"Target: {target}\nTime: {time}\nHost: {ctx.author.mention}", 0xFF4500)
-
-@bot.command(name="raid_log", description="Staff: Log raid results")
-async def raid_log(ctx, result: str):
-    """Log raid results (win/loss) - mention participants"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    if result.lower() not in ['win', 'w', 'loss', 'l']:
-        return await ctx.send("❌ Result must be `win` or `loss`", ephemeral=True)
-    
-    is_win = result.lower() in ['win', 'w']
-    mentioned = ctx.message.mentions if hasattr(ctx, 'message') else []
-    
-    for m in mentioned:
-        add_user_stat(m.id, "raid_participation", 1)
-        add_user_stat(m.id, "raid_wins" if is_win else "raid_losses", 1)
-    
-    result_text = "🏆 WIN" if is_win else "💀 LOSS"
-    embed = discord.Embed(title=f"🏴‍☠️ Raid Result: {result_text}", description=f"**Participants:** {len(mentioned)} raiders", color=0x2ecc71 if is_win else 0xe74c3c)
-    await ctx.send(embed=embed)
-    await log_action(ctx.guild, f"🏴‍☠️ Raid {result_text}", f"Participants: {len(mentioned)}", 0xFF4500)
-
-@bot.command(name="war_declare", description="Staff: Declare war on a clan")
-async def war_declare(ctx, clan_name: str):
-    """Declare war on another clan"""
-    if not is_high_staff(ctx.author):
-        return await ctx.send("❌ High Staff only.", ephemeral=True)
-    
-    data = load_data()
-    if "wars" not in data:
-        data["wars"] = {}
-    
-    if clan_name in data["wars"]:
-        data["wars"][clan_name]["active"] = True
-    else:
-        data["wars"][clan_name] = {"wins": 0, "losses": 0, "active": True}
-    save_data(data)
-    
-    embed = discord.Embed(title="⚔️ WAR DECLARED", description=f"**The Fallen** has declared war on **{clan_name}**!", color=0xFF0000)
-    await ctx.send(embed=embed)
-    await log_action(ctx.guild, "⚔️ War Declared", f"vs {clan_name} by {ctx.author.mention}", 0xFF0000)
-
-@bot.command(name="war_result", description="Staff: Log a war result")
-async def war_result(ctx, clan_name: str, result: str):
-    """Log war result"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    if result.lower() not in ['win', 'w', 'loss', 'l']:
-        return await ctx.send("❌ Result must be `win` or `loss`", ephemeral=True)
-    
-    data = load_data()
-    if "wars" not in data:
-        data["wars"] = {}
-    if clan_name not in data["wars"]:
-        data["wars"][clan_name] = {"wins": 0, "losses": 0, "active": False}
-    
-    is_win = result.lower() in ['win', 'w']
-    data["wars"][clan_name]["wins" if is_win else "losses"] += 1
-    save_data(data)
-    
-    r = data["wars"][clan_name]
-    result_text = "🏆 WIN" if is_win else "💀 LOSS"
-    embed = discord.Embed(title=f"⚔️ vs {clan_name}: {result_text}", description=f"**Record:** {r['wins']}W - {r['losses']}L", color=0x2ecc71 if is_win else 0xe74c3c)
-    await ctx.send(embed=embed)
-
-@bot.command(name="scrim", description="Staff: Schedule a scrim")
-async def scrim(ctx, opponent: str, time: str, *, details: str = ""):
-    """Schedule a scrim"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    embed = discord.Embed(title="🎮 SCRIM SCHEDULED", description=f"**Opponent:** {opponent}\n**Time:** {time}", color=0x9b59b6)
-    if details:
-        embed.add_field(name="Details", value=details, inline=False)
-    embed.add_field(name="Scheduled by", value=ctx.author.mention, inline=True)
-    await ctx.send(embed=embed)
 
 # ==========================================
 @bot.hybrid_command(name="attendance_streak", description="Check your attendance streak")
@@ -11385,41 +11371,6 @@ async def activity_cmd(ctx, member: discord.Member = None):
     )
     embed.add_field(name="Weekly XP", value=format_number(user_data.get('weekly_xp', 0)), inline=True)
     embed.add_field(name="Monthly XP", value=format_number(user_data.get('monthly_xp', 0)), inline=True)
-    await ctx.send(embed=embed)
-
-@bot.command(name="raid_history", description="View raid history")
-async def raid_history_cmd(ctx):
-    """Display recent raid history"""
-    history = load_raid_history()
-    raids = history.get("raids", [])[-10:]  # Last 10 raids
-    
-    if not raids:
-        return await ctx.send("📜 No raid history yet!")
-    
-    embed = discord.Embed(
-        title="🏴‍☠️ Raid History",
-        description="Last 10 raids:",
-        color=0x8B0000
-    )
-    
-    for raid in reversed(raids):
-        result_emoji = "✅" if raid['result'] == "win" else "❌"
-        date = raid.get('date', 'Unknown')[:10]
-        participants = len(raid.get('participants', []))
-        xp = raid.get('xp_gained', 0)
-        
-        embed.add_field(
-            name=f"{result_emoji} vs {raid['target']}",
-            value=f"📅 {date} | 👥 {participants} | +{xp} XP",
-            inline=False
-        )
-    
-    # Stats summary
-    total_raids = len(history.get("raids", []))
-    wins = sum(1 for r in history.get("raids", []) if r['result'] == "win")
-    winrate = round((wins / total_raids) * 100, 1) if total_raids > 0 else 0
-    
-    embed.set_footer(text=f"Total: {total_raids} raids | Win Rate: {winrate}%")
     await ctx.send(embed=embed)
 
 # ==========================================
