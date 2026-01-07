@@ -10488,16 +10488,10 @@ class BackupModal(discord.ui.Modal, title="🆘 Request Backup"):
         )
 
 
-@bot.hybrid_command(name="backup", description="Request backup from clan members")
+@bot.command(name="backup", description="Request backup from clan members")
 async def backup_request(ctx):
-    """Request backup - opens a form to fill out"""
-    modal = BackupModal()
-    await ctx.interaction.response.send_modal(modal)
-
-
-@bot.command(name="backup_cmd")
-async def backup_prefix(ctx):
-    """Backup command for prefix usage - shows instructions"""
+    """Request backup - shows instructions for prefix, modal for slash"""
+    # For prefix command, show instructions since modals don't work
     embed = discord.Embed(
         title="🆘 Request Backup",
         description=(
@@ -10514,6 +10508,13 @@ async def backup_prefix(ctx):
     )
     embed.set_footer(text="✝ The Fallen ✝")
     await ctx.send(embed=embed)
+
+
+@bot.tree.command(name="backup", description="Request backup from clan members")
+async def backup_slash(interaction: discord.Interaction):
+    """Request backup - opens a form to fill out"""
+    modal = BackupModal()
+    await interaction.response.send_modal(modal)
 
 
 # ==========================================
