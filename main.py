@@ -9009,23 +9009,112 @@ async def on_reaction_add(reaction, user):
 
 @bot.command(name="sync")
 @commands.has_permissions(administrator=True)
+@commands.cooldown(1, 60, commands.BucketType.guild)  # Once per minute per server
 async def sync_cmd(ctx):
     """Sync slash commands to this server"""
     msg = await ctx.send("🔄 Syncing slash commands to this server... (this may take a moment)")
     
     try:
         # Add delay before syncing to avoid rate limits
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         synced = await bot.tree.sync(guild=ctx.guild)
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         await msg.edit(content=f"✅ Synced {len(synced)} slash commands to this server!")
     except discord.HTTPException as e:
         if e.status == 429:
-            await msg.edit(content=f"⚠️ Rate limited! Please wait a few minutes and try again.\nRetry after: {e.retry_after if hasattr(e, 'retry_after') else 'unknown'} seconds")
+            retry = getattr(e, 'retry_after', 60)
+            await msg.edit(content=f"⚠️ Rate limited! Please wait {int(retry)} seconds and try again.")
         else:
             await msg.edit(content=f"❌ Sync failed: {e}")
     except Exception as e:
         await msg.edit(content=f"❌ Sync failed: {e}")
+
+
+@bot.command(name="syncglobal")
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 300, commands.BucketType.guild)  # Once per 5 minutes
+async def sync_global_cmd(ctx):
+    """Sync slash commands globally (takes up to 1 hour to propagate)"""
+    msg = await ctx.send("🔄 Syncing slash commands globally... (this may take a moment)")
+    
+    try:
+        await asyncio.sleep(3)
+        synced = await bot.tree.sync()
+        await asyncio.sleep(2)
+        await msg.edit(content=f"✅ Synced {len(synced)} slash commands globally!\n⚠️ Global sync can take up to 1 hour to show everywhere.")
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry = getattr(e, 'retry_after', 60)
+            await msg.edit(content=f"⚠️ Rate limited! Please wait {int(retry)} seconds and try again.")
+        else:
+            await msg.edit(content=f"❌ Sync failed: {e}")
+    except Exception as e:
+        await msg.edit(content=f"❌ Sync failed: {e}")
+
+
+@bot.command(name="clearsync")
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 300, commands.BucketType.guild)  # Once per 5 minutes
+async def clear_sync_cmd(ctx):
+    """Clear ALL slash commands from this server and re-sync fresh"""
+    msg = await ctx.send("🗑️ Clearing all slash commands from this server... (please wait ~15 seconds)")
+    
+    try:
+        # Clear guild commands
+        bot.tree.clear_commands(guild=ctx.guild)
+        await asyncio.sleep(5)  # Longer delay
+        
+        # Sync empty (this removes old commands)
+        await bot.tree.sync(guild=ctx.guild)
+        await msg.edit(content="✅ Cleared old commands! Waiting before re-sync...")
+        
+        await asyncio.sleep(5)  # Longer delay between operations
+        
+        # Copy global commands to guild and sync
+        bot.tree.copy_global_to(guild=ctx.guild)
+        await asyncio.sleep(3)
+        synced = await bot.tree.sync(guild=ctx.guild)
+        
+        await msg.edit(content=f"✅ Done! Cleared and re-synced {len(synced)} slash commands to this server!")
+    except discord.HTTPException as e:
+        if e.status == 429:
+            retry = getattr(e, 'retry_after', 60)
+            await msg.edit(content=f"⚠️ Rate limited! Please wait {int(retry)} seconds and try again.")
+        else:
+            await msg.edit(content=f"❌ Failed: {e}")
+    except Exception as e:
+        await msg.edit(content=f"❌ Failed: {e}")
+
+
+@bot.command(name="clearglobal")
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 600, commands.BucketType.guild)  # Once per 10 minutes
+async def clear_global_cmd(ctx):
+    """Clear ALL global slash commands and re-sync (DANGEROUS - use carefully)"""
+    msg = await ctx.send("⚠️ Clearing ALL global slash commands... This will take ~20 seconds.")
+    
+    try:
+        # Clear global commands
+        bot.tree.clear_commands(guild=None)
+        await asyncio.sleep(5)
+        
+        # Sync empty globally
+        await bot.tree.sync()
+        await msg.edit(content="✅ Cleared global commands! Waiting before re-sync...")
+        
+        await asyncio.sleep(10)  # Long delay for global operations
+        
+        # Re-register all commands and sync
+        synced = await bot.tree.sync()
+        
+        await msg.edit(content=f"✅ Done! Cleared and re-synced {len(synced)} slash commands globally!\n⚠️ May take up to 1 hour to fully propagate.")
+    except discord.HTTPException as e:
+        if e.status == 429:
+            await msg.edit(content=f"⚠️ Rate limited! Please wait a few minutes and try again.")
+        else:
+            await msg.edit(content=f"❌ Failed: {e}")
+    except Exception as e:
+        await msg.edit(content=f"❌ Failed: {e}")
 
 @bot.command(name="test_welcome")
 @commands.has_permissions(administrator=True)
