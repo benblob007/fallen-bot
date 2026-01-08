@@ -11871,22 +11871,38 @@ async def add_inactivity_strike_cmd(ctx, member: discord.Member, reason: str = "
     # Check if demotion needed
     demoted = False
     kicked = False
+    demoted_to_rank = None
+    old_rank = None
     
     if new_count >= 3:
         strike_info = get_inactivity_strikes(member.id)
         if not strike_info.get("demoted"):
-            mainer_role = discord.utils.get(ctx.guild.roles, name=REQUIRED_ROLE_NAME)
-            tryout_role = discord.utils.get(ctx.guild.roles, name="Tryout")
+            # Get current rank and next rank using the stage system
+            old_rank = get_member_rank(member)
             
-            if mainer_role and mainer_role in member.roles:
-                try:
-                    await member.remove_roles(mainer_role)
-                    if tryout_role:
-                        await member.add_roles(tryout_role)
+            if old_rank:
+                next_rank = get_next_demotion_rank(old_rank)
+                
+                if next_rank:
+                    old_role = discord.utils.get(ctx.guild.roles, name=old_rank)
+                    new_role = discord.utils.get(ctx.guild.roles, name=next_rank)
+                    
+                    try:
+                        if old_role:
+                            await member.remove_roles(old_role)
+                            await asyncio.sleep(0.5)
+                        if new_role:
+                            await member.add_roles(new_role)
+                        mark_user_demoted(member.id)
+                        demoted = True
+                        demoted_to_rank = next_rank
+                    except:
+                        pass
+                else:
+                    # Already at lowest rank, just mark as demoted
                     mark_user_demoted(member.id)
                     demoted = True
-                except:
-                    pass
+                    demoted_to_rank = old_rank  # Stays at same rank
     
     if new_count >= MAX_INACTIVITY_STRIKES:
         try:
@@ -11896,14 +11912,16 @@ async def add_inactivity_strike_cmd(ctx, member: discord.Member, reason: str = "
         except:
             pass
     else:
-        await send_inactivity_strike_dm(member, new_count, demoted=demoted)
+        await send_inactivity_strike_dm(member, new_count, demoted=demoted, old_rank=old_rank, new_rank=demoted_to_rank)
     
     # Response
     action_text = ""
     if kicked:
         action_text = " → **KICKED**"
-    elif demoted:
-        action_text = " → **DEMOTED to Tryout**"
+    elif demoted and demoted_to_rank:
+        # Show just the stage name without the full role name
+        rank_display = demoted_to_rank.split("〢")[0] if "〢" in demoted_to_rank else demoted_to_rank
+        action_text = f" → **DEMOTED to {rank_display}**"
     
     embed = discord.Embed(
         title="⚠️ Inactivity Strike Added",
