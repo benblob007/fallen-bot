@@ -3552,10 +3552,11 @@ ATTENDANCE_ROLE_REWARDS = {
 # Streak Role Rewards (current streak -> role name)
 # These are for maintaining consistent attendance
 STREAK_ROLE_REWARDS = {
-    5: "♰ Rising Shadow",          # 5 streak
-    10: "♰ Relentless",            # 10 streak
-    20: "♰ Undying",               # 20 streak
-    50: "♰ Eternal Fallen",        # 50 streak
+    3: "♰ Shadow Initiate",         # 3 streak
+    5: "♰ Rising Shadow",           # 5 streak
+    10: "♰ Relentless",             # 10 streak
+    20: "♰ Undying",                # 20 streak
+    50: "♰ Eternal Fallen",         # 50 streak
 }
 
 async def check_attendance_roles(member, guild):
@@ -6122,8 +6123,8 @@ class HelpSelect(discord.ui.Select):
                 "5→Fallen Initiate | 15→Disciple\n"
                 "30→Warrior | 50→Slayer | 100→Immortal\n\n"
                 "**🔥 Streak Roles**\n"
-                "5→♰Rising Shadow | 10→♰Relentless\n"
-                "20→♰Undying | 50→♰Eternal Fallen"
+                "3→♰Shadow Initiate | 5→♰Rising Shadow\n"
+                "10→♰Relentless | 20→♰Undying | 50→♰Eternal"
             )
             
         elif self.values[0] == "Economy & Shop": 
