@@ -12424,7 +12424,9 @@ async def generate_transcript(channel, ticket_type="support", closer=None, ticke
     """Generate a transcript of all messages in a ticket channel"""
     messages = []
     try:
-        async for msg in channel.history(limit=500, oldest_first=True):
+        # channel.history() is a single paginated API call, not multiple calls
+        # Limit to 200 messages to be safe
+        async for msg in channel.history(limit=200, oldest_first=True):
             timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
             content = msg.content or ""
             
@@ -12502,6 +12504,7 @@ async def send_transcript_log(guild, transcript, user=None):
 
 @bot.command(name="transcript")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+@commands.cooldown(1, 10, commands.BucketType.user)  # 10 second cooldown
 async def view_transcript(ctx, transcript_id: str):
     """View a ticket transcript by ID"""
     data = load_transcripts()
@@ -12556,6 +12559,7 @@ async def view_transcript(ctx, transcript_id: str):
 
 @bot.command(name="transcripts")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+@commands.cooldown(1, 15, commands.BucketType.user)  # 15 second cooldown
 async def list_transcripts(ctx, limit: int = 10):
     """List recent ticket transcripts"""
     data = load_transcripts()
@@ -12628,6 +12632,7 @@ def calculate_alt_score(member):
 
 @bot.command(name="altcheck")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+@commands.cooldown(1, 5, commands.BucketType.user)  # 5 second cooldown
 async def alt_check_cmd(ctx, member: discord.Member):
     """Check if a user might be an alt account"""
     score, reasons = calculate_alt_score(member)
@@ -12831,6 +12836,7 @@ async def legacy_cmd(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 @bot.command(name="legacytop")
+@commands.cooldown(1, 30, commands.BucketType.user)  # 30 second cooldown (iterates members)
 async def legacy_top(ctx, limit: int = 10):
     """View members with longest tenure"""
     members_with_dates = []
@@ -13029,9 +13035,10 @@ class PracticeJoinModal(discord.ui.Modal, title="🎯 Join Practice Queue"):
                     
                     match_embed.set_footer(text="Good luck! Rate your partner after with !practice_rate")
                     
-                    # Try to DM both players
+                    # Try to DM both players with delay to avoid rate limits
                     try:
                         await player1.send(embed=match_embed)
+                        await asyncio.sleep(1)  # Delay between DMs
                     except:
                         pass
                     try:
@@ -13051,6 +13058,7 @@ class PracticeJoinModal(discord.ui.Modal, title="🎯 Join Practice Queue"):
         )
 
 @bot.command(name="practice_log")
+@commands.cooldown(1, 10, commands.BucketType.user)  # 10 second cooldown
 async def practice_log(ctx, session_id: str, winner: discord.Member, rounds_won: int, rounds_lost: int):
     """Log practice session results"""
     data = load_practice_data()
@@ -13120,6 +13128,7 @@ async def practice_log(ctx, session_id: str, winner: discord.Member, rounds_won:
     await ctx.send(embed=embed)
 
 @bot.command(name="practice_rate")
+@commands.cooldown(1, 10, commands.BucketType.user)  # 10 second cooldown
 async def practice_rate(ctx, session_id: str, partner: discord.Member, rating: int, *, feedback: str = ""):
     """Rate your practice partner (1-5 stars)"""
     if rating < 1 or rating > 5:
@@ -13524,6 +13533,7 @@ class EmbedSaveModal(discord.ui.Modal, title="Save Template"):
 
 @bot.command(name="embedbuilder")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+@commands.cooldown(1, 30, commands.BucketType.user)  # 30 second cooldown
 async def embed_builder(ctx):
     """Open the custom embed builder"""
     embed = discord.Embed(
