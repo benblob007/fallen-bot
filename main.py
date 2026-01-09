@@ -8995,6 +8995,39 @@ async def on_member_join(member):
     
     # Check for member milestones
     await check_member_milestone(member.guild)
+    
+    # Alt account detection
+    try:
+        score, reasons = calculate_alt_score(member)
+        
+        if score >= 50:
+            alt_flags[str(member.id)] = {
+                "score": score,
+                "reasons": reasons,
+                "flagged_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }
+            
+            # Alert staff
+            log_channel = discord.utils.get(member.guild.text_channels, name=LOG_CHANNEL_NAME)
+            if not log_channel:
+                log_channel = discord.utils.get(member.guild.text_channels, name="fallen-logs")
+            
+            if log_channel:
+                embed = discord.Embed(
+                    title="🔍 Potential Alt Account Detected",
+                    description=f"{member.mention} has been flagged as a potential alt account.",
+                    color=0xe74c3c if score >= 70 else 0xf39c12
+                )
+                embed.add_field(name="👤 User", value=f"{member} ({member.id})", inline=True)
+                embed.add_field(name="⚠️ Risk Score", value=f"{score}/100", inline=True)
+                embed.add_field(name="📅 Account Age", value=f"{(datetime.datetime.now(datetime.timezone.utc) - member.created_at).days} days", inline=True)
+                embed.add_field(name="🚩 Flags", value="\n".join(f"• {r}" for r in reasons), inline=False)
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(text="Use !altcheck @user for detailed check")
+                
+                await log_channel.send(embed=embed)
+    except Exception as e:
+        print(f"Alt check error: {e}")
 
 @bot.event
 async def on_message(message):
@@ -12592,41 +12625,6 @@ def calculate_alt_score(member):
             reasons.append("Just joined")
     
     return min(score, 100), reasons
-
-@bot.event
-async def on_member_join_alt_check(member):
-    """Check new members for alt account indicators"""
-    score, reasons = calculate_alt_score(member)
-    
-    if score >= 50:
-        alt_flags[str(member.id)] = {
-            "score": score,
-            "reasons": reasons,
-            "flagged_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }
-        
-        # Alert staff
-        log_channel = discord.utils.get(member.guild.text_channels, name=LOG_CHANNEL_NAME)
-        if not log_channel:
-            log_channel = discord.utils.get(member.guild.text_channels, name="fallen-logs")
-        
-        if log_channel:
-            embed = discord.Embed(
-                title="🔍 Potential Alt Account Detected",
-                description=f"{member.mention} has been flagged as a potential alt account.",
-                color=0xe74c3c if score >= 70 else 0xf39c12
-            )
-            embed.add_field(name="👤 User", value=f"{member} ({member.id})", inline=True)
-            embed.add_field(name="⚠️ Risk Score", value=f"{score}/100", inline=True)
-            embed.add_field(name="📅 Account Age", value=f"{(datetime.datetime.now(datetime.timezone.utc) - member.created_at).days} days", inline=True)
-            embed.add_field(name="🚩 Flags", value="\n".join(f"• {r}" for r in reasons), inline=False)
-            embed.set_thumbnail(url=member.display_avatar.url)
-            embed.set_footer(text="Use !altcheck @user for detailed check")
-            
-            await log_channel.send(embed=embed)
-
-# Hook into on_member_join
-original_on_member_join = bot.get_listeners('on_member_join')
 
 @bot.command(name="altcheck")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
