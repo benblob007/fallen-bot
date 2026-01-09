@@ -69,7 +69,11 @@ SHOP_CHANNEL_NAME = "♰・fallen-shop"
 WELCOME_CHANNEL_NAME = "╰・welcome"  # Welcome channel for new members
 
 # --- DATA FILES ---
-RECURRING_EVENTS_FILE = "recurring_events.json"      
+RECURRING_EVENTS_FILE = "recurring_events.json"
+TRANSCRIPTS_FILE = "ticket_transcripts.json"
+PRACTICE_FILE = "practice_sessions.json"
+LEGACY_FILE = "legacy_data.json"
+EMBEDS_FILE = "custom_embeds.json"      
 
 # --- LEVEL CARD SETTINGS ---
 # Option 1: Set URL to your background image (RECOMMENDED for Discloud)
@@ -5099,16 +5103,28 @@ class ConfirmCloseView(discord.ui.View):
     async def confirm_close(self, interaction: discord.Interaction, button: discord.ui.Button):
         config = SUPPORT_TICKET_TYPES.get(self.ticket_type, SUPPORT_TICKET_TYPES["support"])
         
-        # Generate transcript
-        transcript = []
-        async for msg in interaction.channel.history(limit=100, oldest_first=True):
-            if not msg.author.bot or msg.embeds:
-                transcript.append(f"[{msg.created_at.strftime('%Y-%m-%d %H:%M')}] {msg.author.name}: {msg.content or '[Embed/Attachment]'}")
+        await interaction.response.edit_message(content="📜 Generating transcript...", view=None)
+        
+        # Generate transcript using new system
+        ticket_info = {
+            "type": self.ticket_type,
+            "creator_id": str(self.creator_id),
+            "config": config["name"]
+        }
+        transcript = await generate_transcript(
+            interaction.channel, 
+            ticket_type=self.ticket_type,
+            closer=interaction.user,
+            ticket_info=ticket_info
+        )
         
         # Update ticket status
         if interaction.channel.id in support_tickets:
             support_tickets[interaction.channel.id]["status"] = "closed"
-            support_tickets[interaction.channel.id]["transcript"] = transcript
+            support_tickets[interaction.channel.id]["transcript_id"] = transcript["id"]
+        
+        # Send transcript to logs
+        await send_transcript_log(interaction.guild, transcript, user=self.creator_id)
         
         # DM creator with transcript summary
         creator = interaction.guild.get_member(self.creator_id)
@@ -5121,6 +5137,7 @@ class ConfirmCloseView(discord.ui.View):
                 )
                 dm_embed.add_field(name="Server", value=interaction.guild.name, inline=True)
                 dm_embed.add_field(name="Closed By", value=interaction.user.display_name, inline=True)
+                dm_embed.add_field(name="📜 Transcript ID", value=f"`{transcript['id']}`", inline=False)
                 await creator.send(embed=dm_embed)
             except:
                 pass
@@ -5128,11 +5145,11 @@ class ConfirmCloseView(discord.ui.View):
         await log_action(
             interaction.guild,
             f"{config['emoji']} Ticket Closed",
-            f"**Type:** {config['name']}\n**User:** <@{self.creator_id}>\n**Closed By:** {interaction.user.mention}\n**Messages:** {len(transcript)}",
+            f"**Type:** {config['name']}\n**User:** <@{self.creator_id}>\n**Closed By:** {interaction.user.mention}\n**Messages:** {transcript['message_count']}\n**Transcript:** `{transcript['id']}`",
             0xe74c3c
         )
         
-        await interaction.response.edit_message(content="🔒 Closing ticket in 5 seconds...", view=None)
+        await interaction.edit_original_response(content="🔒 Closing ticket in 5 seconds...")
         await asyncio.sleep(5)
         await interaction.channel.delete()
     
@@ -7808,6 +7825,7 @@ class PersistentBot(commands.Bot):
         self.add_view(TicketControlView("role"))
         self.add_view(StageTransferView())
         self.add_view(StageTransferControlView())
+        self.add_view(PracticeQueueView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -12350,6 +12368,1237 @@ async def on_app_command_error(interaction: discord.Interaction, error):
             await interaction.response.send_message("❌ An error occurred. Please try again.", ephemeral=True)
         except:
             pass
+
+
+# ==========================================
+# TICKET TRANSCRIPT SYSTEM
+# ==========================================
+
+def load_transcripts():
+    """Load ticket transcripts from file"""
+    try:
+        with open(TRANSCRIPTS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"transcripts": []}
+
+def save_transcripts(data):
+    """Save ticket transcripts to file"""
+    with open(TRANSCRIPTS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+async def generate_transcript(channel, ticket_type="support", closer=None, ticket_info=None):
+    """Generate a transcript of all messages in a ticket channel"""
+    messages = []
+    try:
+        async for msg in channel.history(limit=500, oldest_first=True):
+            timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            content = msg.content or ""
+            
+            # Handle attachments
+            attachments = [att.url for att in msg.attachments] if msg.attachments else []
+            
+            # Handle embeds
+            embed_texts = []
+            for embed in msg.embeds:
+                if embed.title:
+                    embed_texts.append(f"[Embed: {embed.title}]")
+                if embed.description:
+                    embed_texts.append(embed.description[:200])
+            
+            messages.append({
+                "timestamp": timestamp,
+                "author": str(msg.author),
+                "author_id": str(msg.author.id),
+                "content": content,
+                "attachments": attachments,
+                "embeds": embed_texts
+            })
+    except Exception as e:
+        print(f"Error generating transcript: {e}")
+    
+    # Create transcript entry
+    transcript = {
+        "id": f"transcript_{int(datetime.datetime.now().timestamp())}",
+        "channel_name": channel.name,
+        "ticket_type": ticket_type,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "closed_by": str(closer) if closer else "Unknown",
+        "closed_by_id": str(closer.id) if closer else None,
+        "ticket_info": ticket_info or {},
+        "message_count": len(messages),
+        "messages": messages
+    }
+    
+    # Save transcript
+    data = load_transcripts()
+    data["transcripts"].append(transcript)
+    
+    # Keep only last 500 transcripts
+    if len(data["transcripts"]) > 500:
+        data["transcripts"] = data["transcripts"][-500:]
+    
+    save_transcripts(data)
+    
+    return transcript
+
+async def send_transcript_log(guild, transcript, user=None):
+    """Send transcript summary to logs channel"""
+    log_channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
+    if not log_channel:
+        log_channel = discord.utils.get(guild.text_channels, name="fallen-logs")
+    
+    if log_channel:
+        embed = discord.Embed(
+            title="📜 Ticket Transcript Saved",
+            color=0x3498db,
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="📋 Ticket", value=transcript["channel_name"], inline=True)
+        embed.add_field(name="🏷️ Type", value=transcript["ticket_type"].title(), inline=True)
+        embed.add_field(name="💬 Messages", value=str(transcript["message_count"]), inline=True)
+        embed.add_field(name="🔒 Closed By", value=transcript["closed_by"], inline=True)
+        embed.add_field(name="🆔 Transcript ID", value=f"`{transcript['id']}`", inline=False)
+        
+        if user:
+            embed.add_field(name="👤 Ticket Owner", value=f"<@{user}>", inline=True)
+        
+        embed.set_footer(text="Use !transcript <id> to view full transcript")
+        
+        await log_channel.send(embed=embed)
+
+@bot.command(name="transcript")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def view_transcript(ctx, transcript_id: str):
+    """View a ticket transcript by ID"""
+    data = load_transcripts()
+    
+    transcript = None
+    for t in data["transcripts"]:
+        if t["id"] == transcript_id:
+            transcript = t
+            break
+    
+    if not transcript:
+        return await ctx.send(f"❌ Transcript `{transcript_id}` not found.")
+    
+    # Create transcript text file
+    lines = [
+        f"═══════════════════════════════════════════════════",
+        f"TICKET TRANSCRIPT - {transcript['channel_name']}",
+        f"═══════════════════════════════════════════════════",
+        f"Type: {transcript['ticket_type']}",
+        f"Created: {transcript['created_at']}",
+        f"Closed By: {transcript['closed_by']}",
+        f"Messages: {transcript['message_count']}",
+        f"═══════════════════════════════════════════════════",
+        ""
+    ]
+    
+    for msg in transcript["messages"]:
+        lines.append(f"[{msg['timestamp']}] {msg['author']}:")
+        if msg["content"]:
+            lines.append(f"  {msg['content']}")
+        if msg["attachments"]:
+            lines.append(f"  📎 Attachments: {', '.join(msg['attachments'])}")
+        if msg["embeds"]:
+            lines.append(f"  📋 Embeds: {' | '.join(msg['embeds'])}")
+        lines.append("")
+    
+    transcript_text = "\n".join(lines)
+    
+    # Send as file
+    file = discord.File(
+        BytesIO(transcript_text.encode()),
+        filename=f"{transcript['id']}.txt"
+    )
+    
+    embed = discord.Embed(
+        title=f"📜 Transcript: {transcript['channel_name']}",
+        description=f"**Type:** {transcript['ticket_type']}\n**Messages:** {transcript['message_count']}",
+        color=0x3498db
+    )
+    
+    await ctx.send(embed=embed, file=file)
+
+@bot.command(name="transcripts")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def list_transcripts(ctx, limit: int = 10):
+    """List recent ticket transcripts"""
+    data = load_transcripts()
+    
+    if not data["transcripts"]:
+        return await ctx.send("📜 No transcripts found.")
+    
+    recent = data["transcripts"][-limit:][::-1]  # Most recent first
+    
+    embed = discord.Embed(
+        title="📜 Recent Ticket Transcripts",
+        color=0x3498db
+    )
+    
+    lines = []
+    for t in recent:
+        date = t["created_at"][:10] if t.get("created_at") else "Unknown"
+        lines.append(f"`{t['id']}` - {t['channel_name']} ({date})")
+    
+    embed.description = "\n".join(lines)
+    embed.set_footer(text="Use !transcript <id> to view full transcript")
+    
+    await ctx.send(embed=embed)
+
+
+# ==========================================
+# ALT DETECTION SYSTEM
+# ==========================================
+
+# Store flagged users for alt detection
+alt_flags = {}
+
+def calculate_alt_score(member):
+    """Calculate likelihood of account being an alt (0-100)"""
+    score = 0
+    reasons = []
+    
+    # Account age
+    account_age = (datetime.datetime.now(datetime.timezone.utc) - member.created_at).days
+    if account_age < 1:
+        score += 40
+        reasons.append("Account less than 1 day old")
+    elif account_age < 7:
+        score += 30
+        reasons.append("Account less than 1 week old")
+    elif account_age < 30:
+        score += 15
+        reasons.append("Account less than 1 month old")
+    
+    # No avatar
+    if member.avatar is None:
+        score += 15
+        reasons.append("No profile picture")
+    
+    # Default username pattern (random letters/numbers)
+    if re.match(r'^[a-z]+_?\d{4,}$', member.name.lower()):
+        score += 20
+        reasons.append("Default username pattern")
+    
+    # No bio/about me (can't check this via API easily)
+    
+    # Joined very recently
+    if member.joined_at:
+        time_in_server = (datetime.datetime.now(datetime.timezone.utc) - member.joined_at).total_seconds()
+        if time_in_server < 60:  # Less than 1 minute
+            score += 10
+            reasons.append("Just joined")
+    
+    return min(score, 100), reasons
+
+@bot.event
+async def on_member_join_alt_check(member):
+    """Check new members for alt account indicators"""
+    score, reasons = calculate_alt_score(member)
+    
+    if score >= 50:
+        alt_flags[str(member.id)] = {
+            "score": score,
+            "reasons": reasons,
+            "flagged_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        }
+        
+        # Alert staff
+        log_channel = discord.utils.get(member.guild.text_channels, name=LOG_CHANNEL_NAME)
+        if not log_channel:
+            log_channel = discord.utils.get(member.guild.text_channels, name="fallen-logs")
+        
+        if log_channel:
+            embed = discord.Embed(
+                title="🔍 Potential Alt Account Detected",
+                description=f"{member.mention} has been flagged as a potential alt account.",
+                color=0xe74c3c if score >= 70 else 0xf39c12
+            )
+            embed.add_field(name="👤 User", value=f"{member} ({member.id})", inline=True)
+            embed.add_field(name="⚠️ Risk Score", value=f"{score}/100", inline=True)
+            embed.add_field(name="📅 Account Age", value=f"{(datetime.datetime.now(datetime.timezone.utc) - member.created_at).days} days", inline=True)
+            embed.add_field(name="🚩 Flags", value="\n".join(f"• {r}" for r in reasons), inline=False)
+            embed.set_thumbnail(url=member.display_avatar.url)
+            embed.set_footer(text="Use !altcheck @user for detailed check")
+            
+            await log_channel.send(embed=embed)
+
+# Hook into on_member_join
+original_on_member_join = bot.get_listeners('on_member_join')
+
+@bot.command(name="altcheck")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def alt_check_cmd(ctx, member: discord.Member):
+    """Check if a user might be an alt account"""
+    score, reasons = calculate_alt_score(member)
+    
+    # Determine risk level
+    if score >= 70:
+        risk = "🔴 HIGH"
+        color = 0xe74c3c
+    elif score >= 50:
+        risk = "🟠 MEDIUM"
+        color = 0xf39c12
+    elif score >= 30:
+        risk = "🟡 LOW"
+        color = 0xf1c40f
+    else:
+        risk = "🟢 MINIMAL"
+        color = 0x2ecc71
+    
+    embed = discord.Embed(
+        title="🔍 Alt Account Analysis",
+        description=f"Analysis for {member.mention}",
+        color=color
+    )
+    
+    embed.add_field(name="⚠️ Risk Level", value=risk, inline=True)
+    embed.add_field(name="📊 Score", value=f"{score}/100", inline=True)
+    embed.add_field(name="📅 Account Age", value=f"{(datetime.datetime.now(datetime.timezone.utc) - member.created_at).days} days", inline=True)
+    embed.add_field(name="📅 Account Created", value=f"<t:{int(member.created_at.timestamp())}:F>", inline=False)
+    
+    if member.joined_at:
+        embed.add_field(name="📥 Joined Server", value=f"<t:{int(member.joined_at.timestamp())}:F>", inline=False)
+    
+    if reasons:
+        embed.add_field(name="🚩 Risk Factors", value="\n".join(f"• {r}" for r in reasons), inline=False)
+    else:
+        embed.add_field(name="✅ Status", value="No risk factors detected", inline=False)
+    
+    embed.set_thumbnail(url=member.display_avatar.url)
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="altflags")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def alt_flags_cmd(ctx):
+    """View all flagged potential alt accounts"""
+    if not alt_flags:
+        return await ctx.send("✅ No accounts currently flagged.")
+    
+    embed = discord.Embed(
+        title="🔍 Flagged Alt Accounts",
+        color=0xe74c3c
+    )
+    
+    lines = []
+    for uid, data in list(alt_flags.items())[-15:]:  # Last 15
+        member = ctx.guild.get_member(int(uid))
+        name = member.mention if member else f"User {uid}"
+        lines.append(f"{name} - Score: {data['score']}/100")
+    
+    embed.description = "\n".join(lines) or "No flags"
+    embed.set_footer(text="Use !altcheck @user for details")
+    
+    await ctx.send(embed=embed)
+
+
+# ==========================================
+# LEGACY SYSTEM
+# ==========================================
+
+def load_legacy_data():
+    """Load legacy data"""
+    try:
+        with open(LEGACY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"members": {}, "milestones": []}
+
+def save_legacy_data(data):
+    """Save legacy data"""
+    with open(LEGACY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def get_legacy_status(member):
+    """Calculate legacy status based on join date"""
+    if not member.joined_at:
+        return None, 0
+    
+    days_in_server = (datetime.datetime.now(datetime.timezone.utc) - member.joined_at).days
+    
+    # Legacy tiers
+    if days_in_server >= 730:  # 2 years
+        return "Eternal Legend", days_in_server
+    elif days_in_server >= 365:  # 1 year
+        return "Fallen Veteran", days_in_server
+    elif days_in_server >= 180:  # 6 months
+        return "Loyal Guardian", days_in_server
+    elif days_in_server >= 90:  # 3 months
+        return "Rising Fallen", days_in_server
+    elif days_in_server >= 30:  # 1 month
+        return "New Blood", days_in_server
+    else:
+        return "Fresh Recruit", days_in_server
+
+def get_legacy_perks(legacy_tier):
+    """Get perks for each legacy tier"""
+    perks = {
+        "Eternal Legend": ["2x Daily Coins", "Exclusive Legacy Role", "Custom Role Color", "Priority Support", "Legacy Badge"],
+        "Fallen Veteran": ["1.5x Daily Coins", "Veteran Role", "Legacy Badge", "Priority Support"],
+        "Loyal Guardian": ["1.25x Daily Coins", "Guardian Role", "Legacy Badge"],
+        "Rising Fallen": ["1.1x Daily Coins", "Rising Role"],
+        "New Blood": ["Standard perks"],
+        "Fresh Recruit": ["Welcome bonus"]
+    }
+    return perks.get(legacy_tier, [])
+
+def get_legacy_multiplier(legacy_tier):
+    """Get coin multiplier for legacy tier"""
+    multipliers = {
+        "Eternal Legend": 2.0,
+        "Fallen Veteran": 1.5,
+        "Loyal Guardian": 1.25,
+        "Rising Fallen": 1.1,
+        "New Blood": 1.0,
+        "Fresh Recruit": 1.0
+    }
+    return multipliers.get(legacy_tier, 1.0)
+
+@bot.hybrid_command(name="legacy", description="View your legacy status")
+async def legacy_cmd(ctx, member: discord.Member = None):
+    """View legacy status and perks"""
+    target = member or ctx.author
+    
+    tier, days = get_legacy_status(target)
+    perks = get_legacy_perks(tier)
+    multiplier = get_legacy_multiplier(tier)
+    
+    # Tier colors
+    tier_colors = {
+        "Eternal Legend": 0xFFD700,  # Gold
+        "Fallen Veteran": 0x9B59B6,  # Purple
+        "Loyal Guardian": 0x3498DB,  # Blue
+        "Rising Fallen": 0x2ECC71,   # Green
+        "New Blood": 0x95A5A6,       # Gray
+        "Fresh Recruit": 0x7F8C8D    # Dark Gray
+    }
+    
+    # Progress to next tier
+    tier_days = {
+        "Fresh Recruit": 30,
+        "New Blood": 90,
+        "Rising Fallen": 180,
+        "Loyal Guardian": 365,
+        "Fallen Veteran": 730,
+        "Eternal Legend": None
+    }
+    
+    next_tier_days = tier_days.get(tier)
+    
+    embed = discord.Embed(
+        title=f"📜 {target.display_name}'s Legacy",
+        color=tier_colors.get(tier, 0x8B0000)
+    )
+    
+    embed.add_field(name="🏆 Legacy Tier", value=f"**{tier}**", inline=True)
+    embed.add_field(name="📅 Days in Server", value=f"{days:,} days", inline=True)
+    embed.add_field(name="💰 Coin Multiplier", value=f"{multiplier}x", inline=True)
+    
+    if target.joined_at:
+        embed.add_field(name="📥 Joined", value=f"<t:{int(target.joined_at.timestamp())}:D>", inline=True)
+    
+    embed.add_field(name="✨ Perks", value="\n".join(f"• {p}" for p in perks), inline=False)
+    
+    # Progress bar to next tier
+    if next_tier_days:
+        current_tier_start = {
+            "Fresh Recruit": 0,
+            "New Blood": 30,
+            "Rising Fallen": 90,
+            "Loyal Guardian": 180,
+            "Fallen Veteran": 365
+        }.get(tier, 0)
+        
+        progress = min((days - current_tier_start) / (next_tier_days - current_tier_start) * 100, 100)
+        bar_filled = int(progress / 10)
+        bar = "█" * bar_filled + "░" * (10 - bar_filled)
+        
+        days_left = next_tier_days - days
+        next_tier_name = list(tier_days.keys())[list(tier_days.values()).index(next_tier_days) + 1] if next_tier_days else "Max"
+        
+        embed.add_field(
+            name=f"📈 Progress to {next_tier_name}",
+            value=f"`{bar}` {progress:.1f}%\n{days_left} days remaining",
+            inline=False
+        )
+    else:
+        embed.add_field(name="🎉 Status", value="**MAX TIER ACHIEVED!**", inline=False)
+    
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.set_footer(text="✝ The Fallen Legacy System ✝")
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="legacytop")
+async def legacy_top(ctx, limit: int = 10):
+    """View members with longest tenure"""
+    members_with_dates = []
+    
+    for member in ctx.guild.members:
+        if member.joined_at and not member.bot:
+            days = (datetime.datetime.now(datetime.timezone.utc) - member.joined_at).days
+            tier, _ = get_legacy_status(member)
+            members_with_dates.append((member, days, tier))
+    
+    # Sort by days
+    members_with_dates.sort(key=lambda x: x[1], reverse=True)
+    
+    embed = discord.Embed(
+        title="📜 Legacy Leaderboard",
+        description="Members with longest tenure",
+        color=0xFFD700
+    )
+    
+    lines = []
+    for i, (member, days, tier) in enumerate(members_with_dates[:limit], 1):
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
+        lines.append(f"{medal} **{member.display_name}** - {days:,} days ({tier})")
+    
+    embed.description = "\n".join(lines)
+    embed.set_footer(text="Use /legacy to view your status")
+    
+    await ctx.send(embed=embed)
+
+
+# ==========================================
+# PRACTICE MODE / SPARRING SYSTEM
+# ==========================================
+
+def load_practice_data():
+    """Load practice session data"""
+    try:
+        with open(PRACTICE_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"sessions": [], "ratings": {}, "queue": [], "stats": {}}
+
+def save_practice_data(data):
+    """Save practice session data"""
+    with open(PRACTICE_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+# Practice queue
+practice_queue = []  # [{user_id, skill_level, queued_at, server_link}]
+
+class PracticeQueueView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="🎯 Join Queue", style=discord.ButtonStyle.success, custom_id="practice_join_queue")
+    async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(PracticeJoinModal())
+    
+    @discord.ui.button(label="📋 View Queue", style=discord.ButtonStyle.primary, custom_id="practice_view_queue")
+    async def view_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not practice_queue:
+            return await interaction.response.send_message("📋 The practice queue is currently empty!", ephemeral=True)
+        
+        embed = discord.Embed(
+            title="🎯 Practice Queue",
+            color=0x3498db
+        )
+        
+        lines = []
+        for i, entry in enumerate(practice_queue[:10], 1):
+            user = interaction.guild.get_member(int(entry["user_id"]))
+            name = user.display_name if user else f"User {entry['user_id']}"
+            elo = entry.get("elo", "?")
+            lines.append(f"{i}. **{name}** (ELO: {elo})")
+        
+        embed.description = "\n".join(lines)
+        embed.set_footer(text=f"{len(practice_queue)} player(s) in queue")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="🚪 Leave Queue", style=discord.ButtonStyle.danger, custom_id="practice_leave_queue")
+    async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
+        global practice_queue
+        
+        user_id = str(interaction.user.id)
+        initial_len = len(practice_queue)
+        practice_queue = [p for p in practice_queue if p["user_id"] != user_id]
+        
+        if len(practice_queue) < initial_len:
+            await interaction.response.send_message("✅ You've left the practice queue.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ You're not in the queue.", ephemeral=True)
+
+class PracticeJoinModal(discord.ui.Modal, title="🎯 Join Practice Queue"):
+    server_link = discord.ui.TextInput(
+        label="Private Server Link (Optional)",
+        placeholder="https://www.roblox.com/share?code=... or ro.pro/...",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=200
+    )
+    
+    notes = discord.ui.TextInput(
+        label="Notes (Optional)",
+        placeholder="e.g., 'Looking to practice combos' or 'Training 2H'",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=100
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        global practice_queue
+        
+        user_id = str(interaction.user.id)
+        
+        # Check if already in queue
+        for entry in practice_queue:
+            if entry["user_id"] == user_id:
+                return await interaction.response.send_message("❌ You're already in the queue!", ephemeral=True)
+        
+        # Get user's ELO
+        user_data = get_user_data(interaction.user.id)
+        elo = user_data.get("elo", 1000)
+        
+        # Add to queue
+        practice_queue.append({
+            "user_id": user_id,
+            "elo": elo,
+            "server_link": self.server_link.value if self.server_link.value else None,
+            "notes": self.notes.value if self.notes.value else None,
+            "queued_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        })
+        
+        # Check for match
+        if len(practice_queue) >= 2:
+            # Find closest ELO match
+            current_entry = practice_queue[-1]
+            best_match = None
+            best_diff = float('inf')
+            
+            for entry in practice_queue[:-1]:
+                diff = abs(entry["elo"] - current_entry["elo"])
+                if diff < best_diff:
+                    best_diff = diff
+                    best_match = entry
+            
+            if best_match and best_diff <= 300:  # Match if within 300 ELO
+                # Create match
+                player1 = interaction.guild.get_member(int(current_entry["user_id"]))
+                player2 = interaction.guild.get_member(int(best_match["user_id"]))
+                
+                if player1 and player2:
+                    # Remove both from queue
+                    practice_queue = [p for p in practice_queue if p["user_id"] not in [current_entry["user_id"], best_match["user_id"]]]
+                    
+                    # Determine server link
+                    server_link = current_entry.get("server_link") or best_match.get("server_link")
+                    
+                    # Create practice session
+                    session_id = f"practice_{int(datetime.datetime.now().timestamp())}"
+                    
+                    data = load_practice_data()
+                    data["sessions"].append({
+                        "id": session_id,
+                        "player1": str(player1.id),
+                        "player2": str(player2.id),
+                        "player1_elo": current_entry["elo"],
+                        "player2_elo": best_match["elo"],
+                        "server_link": server_link,
+                        "status": "active",
+                        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "rounds": [],
+                        "ratings": {}
+                    })
+                    save_practice_data(data)
+                    
+                    # Notify both players
+                    match_embed = discord.Embed(
+                        title="🎯 Practice Match Found!",
+                        description=f"**{player1.display_name}** vs **{player2.display_name}**",
+                        color=0x2ecc71
+                    )
+                    match_embed.add_field(name="📊 ELO Difference", value=f"{best_diff} points", inline=True)
+                    match_embed.add_field(name="🆔 Session ID", value=f"`{session_id}`", inline=True)
+                    
+                    if server_link:
+                        match_embed.add_field(name="🔗 Server Link", value=f"[Click to Join]({server_link})", inline=False)
+                    else:
+                        match_embed.add_field(name="⚠️ No Server", value="One of you needs to provide a private server link!", inline=False)
+                    
+                    match_embed.add_field(
+                        name="📋 After Practice",
+                        value=f"Use `!practice_log {session_id} @winner <rounds_won> <rounds_lost>` to log results",
+                        inline=False
+                    )
+                    
+                    match_embed.set_footer(text="Good luck! Rate your partner after with !practice_rate")
+                    
+                    # Try to DM both players
+                    try:
+                        await player1.send(embed=match_embed)
+                    except:
+                        pass
+                    try:
+                        await player2.send(embed=match_embed)
+                    except:
+                        pass
+                    
+                    await interaction.response.send_message(
+                        f"🎯 **Match Found!** You've been paired with {player2.mention}!\nCheck your DMs for details.",
+                        ephemeral=True
+                    )
+                    return
+        
+        await interaction.response.send_message(
+            f"✅ You've joined the practice queue!\n**Your ELO:** {elo}\n**Position:** #{len(practice_queue)}\n\nYou'll be notified when a match is found.",
+            ephemeral=True
+        )
+
+@bot.command(name="practice_log")
+async def practice_log(ctx, session_id: str, winner: discord.Member, rounds_won: int, rounds_lost: int):
+    """Log practice session results"""
+    data = load_practice_data()
+    
+    # Find session
+    session = None
+    for s in data["sessions"]:
+        if s["id"] == session_id:
+            session = s
+            break
+    
+    if not session:
+        return await ctx.send(f"❌ Session `{session_id}` not found.")
+    
+    if session["status"] != "active":
+        return await ctx.send("❌ This session has already been logged.")
+    
+    # Verify user is part of session
+    if str(ctx.author.id) not in [session["player1"], session["player2"]]:
+        return await ctx.send("❌ You're not part of this practice session.")
+    
+    # Verify winner is part of session
+    if str(winner.id) not in [session["player1"], session["player2"]]:
+        return await ctx.send("❌ Winner must be one of the session participants.")
+    
+    # Update session
+    loser_id = session["player1"] if str(winner.id) == session["player2"] else session["player2"]
+    loser = ctx.guild.get_member(int(loser_id))
+    
+    session["status"] = "completed"
+    session["winner"] = str(winner.id)
+    session["loser"] = loser_id
+    session["rounds_won"] = rounds_won
+    session["rounds_lost"] = rounds_lost
+    session["completed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    session["logged_by"] = str(ctx.author.id)
+    
+    # Update stats
+    winner_id = str(winner.id)
+    if winner_id not in data["stats"]:
+        data["stats"][winner_id] = {"wins": 0, "losses": 0, "rounds_won": 0, "rounds_lost": 0, "sessions": 0}
+    if loser_id not in data["stats"]:
+        data["stats"][loser_id] = {"wins": 0, "losses": 0, "rounds_won": 0, "rounds_lost": 0, "sessions": 0}
+    
+    data["stats"][winner_id]["wins"] += 1
+    data["stats"][winner_id]["rounds_won"] += rounds_won
+    data["stats"][winner_id]["rounds_lost"] += rounds_lost
+    data["stats"][winner_id]["sessions"] += 1
+    
+    data["stats"][loser_id]["losses"] += 1
+    data["stats"][loser_id]["rounds_won"] += rounds_lost
+    data["stats"][loser_id]["rounds_lost"] += rounds_won
+    data["stats"][loser_id]["sessions"] += 1
+    
+    save_practice_data(data)
+    
+    embed = discord.Embed(
+        title="🎯 Practice Session Logged",
+        color=0x2ecc71
+    )
+    embed.add_field(name="🏆 Winner", value=winner.mention, inline=True)
+    embed.add_field(name="💀 Loser", value=loser.mention if loser else "Unknown", inline=True)
+    embed.add_field(name="📊 Score", value=f"{rounds_won} - {rounds_lost}", inline=True)
+    embed.add_field(name="🆔 Session", value=f"`{session_id}`", inline=True)
+    embed.set_footer(text="Don't forget to rate your partner with !practice_rate")
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="practice_rate")
+async def practice_rate(ctx, session_id: str, partner: discord.Member, rating: int, *, feedback: str = ""):
+    """Rate your practice partner (1-5 stars)"""
+    if rating < 1 or rating > 5:
+        return await ctx.send("❌ Rating must be between 1 and 5 stars.")
+    
+    data = load_practice_data()
+    
+    # Find session
+    session = None
+    for s in data["sessions"]:
+        if s["id"] == session_id:
+            session = s
+            break
+    
+    if not session:
+        return await ctx.send(f"❌ Session `{session_id}` not found.")
+    
+    # Verify user is part of session
+    if str(ctx.author.id) not in [session["player1"], session["player2"]]:
+        return await ctx.send("❌ You're not part of this practice session.")
+    
+    # Verify partner is the other player
+    if str(partner.id) not in [session["player1"], session["player2"]] or str(partner.id) == str(ctx.author.id):
+        return await ctx.send("❌ You can only rate your practice partner.")
+    
+    # Check if already rated
+    if "ratings" not in session:
+        session["ratings"] = {}
+    
+    if str(ctx.author.id) in session["ratings"]:
+        return await ctx.send("❌ You've already rated this session.")
+    
+    # Save rating
+    session["ratings"][str(ctx.author.id)] = {
+        "rated_user": str(partner.id),
+        "rating": rating,
+        "feedback": feedback,
+        "rated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+    
+    # Update user's overall rating
+    partner_id = str(partner.id)
+    if partner_id not in data["ratings"]:
+        data["ratings"][partner_id] = {"total": 0, "count": 0, "feedback": []}
+    
+    data["ratings"][partner_id]["total"] += rating
+    data["ratings"][partner_id]["count"] += 1
+    if feedback:
+        data["ratings"][partner_id]["feedback"].append({
+            "from": str(ctx.author.id),
+            "rating": rating,
+            "feedback": feedback[:200]
+        })
+    
+    save_practice_data(data)
+    
+    stars = "⭐" * rating + "☆" * (5 - rating)
+    
+    embed = discord.Embed(
+        title="✅ Rating Submitted",
+        description=f"You rated {partner.mention} {stars}",
+        color=0x2ecc71
+    )
+    if feedback:
+        embed.add_field(name="💬 Feedback", value=feedback[:200], inline=False)
+    
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="practice_stats", description="View your practice statistics")
+async def practice_stats(ctx, member: discord.Member = None):
+    """View practice session statistics"""
+    target = member or ctx.author
+    target_id = str(target.id)
+    
+    data = load_practice_data()
+    
+    stats = data["stats"].get(target_id, {"wins": 0, "losses": 0, "rounds_won": 0, "rounds_lost": 0, "sessions": 0})
+    rating_data = data["ratings"].get(target_id, {"total": 0, "count": 0})
+    
+    total_sessions = stats["sessions"]
+    wins = stats["wins"]
+    losses = stats["losses"]
+    win_rate = (wins / total_sessions * 100) if total_sessions > 0 else 0
+    
+    rounds_won = stats["rounds_won"]
+    rounds_lost = stats["rounds_lost"]
+    total_rounds = rounds_won + rounds_lost
+    round_win_rate = (rounds_won / total_rounds * 100) if total_rounds > 0 else 0
+    
+    avg_rating = (rating_data["total"] / rating_data["count"]) if rating_data["count"] > 0 else 0
+    stars = "⭐" * round(avg_rating) + "☆" * (5 - round(avg_rating)) if avg_rating > 0 else "No ratings yet"
+    
+    embed = discord.Embed(
+        title=f"🎯 {target.display_name}'s Practice Stats",
+        color=0x3498db
+    )
+    
+    embed.add_field(name="📊 Sessions", value=f"{total_sessions}", inline=True)
+    embed.add_field(name="🏆 Wins", value=f"{wins}", inline=True)
+    embed.add_field(name="💀 Losses", value=f"{losses}", inline=True)
+    embed.add_field(name="📈 Win Rate", value=f"{win_rate:.1f}%", inline=True)
+    embed.add_field(name="🎯 Rounds Won", value=f"{rounds_won}", inline=True)
+    embed.add_field(name="❌ Rounds Lost", value=f"{rounds_lost}", inline=True)
+    embed.add_field(name="📊 Round Win Rate", value=f"{round_win_rate:.1f}%", inline=True)
+    embed.add_field(name="⭐ Partner Rating", value=f"{stars} ({avg_rating:.1f}/5)" if avg_rating > 0 else "No ratings", inline=True)
+    embed.add_field(name="📝 Reviews", value=f"{rating_data['count']}", inline=True)
+    
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.set_footer(text="✝ The Fallen Practice System ✝")
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="setup_practice")
+@commands.has_permissions(administrator=True)
+async def setup_practice(ctx):
+    """Setup practice queue panel"""
+    embed = discord.Embed(
+        title="🎯 Practice Mode Matchmaking",
+        description=(
+            "Looking for a sparring partner? Join the queue!\n\n"
+            "**How it works:**\n"
+            "1️⃣ Click **Join Queue** below\n"
+            "2️⃣ Optionally provide your private server link\n"
+            "3️⃣ Get matched with someone near your skill level\n"
+            "4️⃣ Practice and log your results!\n\n"
+            "**After Practice:**\n"
+            "• Log results: `!practice_log <session_id> @winner <wins> <losses>`\n"
+            "• Rate partner: `!practice_rate <session_id> @partner <1-5>`\n"
+            "• View stats: `/practice_stats`"
+        ),
+        color=0x3498db
+    )
+    embed.set_footer(text="✝ The Fallen Practice System ✝")
+    
+    await ctx.send(embed=embed, view=PracticeQueueView())
+    await ctx.message.delete()
+
+
+# ==========================================
+# CUSTOM EMBEDS BUILDER
+# ==========================================
+
+def load_custom_embeds():
+    """Load saved custom embeds"""
+    try:
+        with open(EMBEDS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"embeds": {}}
+
+def save_custom_embeds(data):
+    """Save custom embeds"""
+    with open(EMBEDS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+class EmbedBuilderView(discord.ui.View):
+    def __init__(self, author_id, embed_data=None):
+        super().__init__(timeout=300)
+        self.author_id = author_id
+        self.embed_data = embed_data or {
+            "title": "",
+            "description": "",
+            "color": "8B0000",
+            "fields": [],
+            "footer": "",
+            "thumbnail": "",
+            "image": ""
+        }
+    
+    @discord.ui.button(label="📝 Set Title", style=discord.ButtonStyle.primary, row=0)
+    async def set_title(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        await interaction.response.send_modal(EmbedTitleModal(self))
+    
+    @discord.ui.button(label="📄 Set Description", style=discord.ButtonStyle.primary, row=0)
+    async def set_desc(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        await interaction.response.send_modal(EmbedDescriptionModal(self))
+    
+    @discord.ui.button(label="🎨 Set Color", style=discord.ButtonStyle.primary, row=0)
+    async def set_color(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        await interaction.response.send_modal(EmbedColorModal(self))
+    
+    @discord.ui.button(label="➕ Add Field", style=discord.ButtonStyle.success, row=1)
+    async def add_field(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        if len(self.embed_data["fields"]) >= 25:
+            return await interaction.response.send_message("❌ Max 25 fields.", ephemeral=True)
+        await interaction.response.send_modal(EmbedFieldModal(self))
+    
+    @discord.ui.button(label="🖼️ Set Images", style=discord.ButtonStyle.secondary, row=1)
+    async def set_images(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        await interaction.response.send_modal(EmbedImageModal(self))
+    
+    @discord.ui.button(label="📋 Set Footer", style=discord.ButtonStyle.secondary, row=1)
+    async def set_footer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        await interaction.response.send_modal(EmbedFooterModal(self))
+    
+    @discord.ui.button(label="👁️ Preview", style=discord.ButtonStyle.primary, row=2)
+    async def preview(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        embed = self.build_embed()
+        await interaction.response.send_message("**Preview:**", embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="📤 Send to Channel", style=discord.ButtonStyle.success, row=2)
+    async def send_embed(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        await interaction.response.send_modal(EmbedSendModal(self))
+    
+    @discord.ui.button(label="💾 Save Template", style=discord.ButtonStyle.secondary, row=2)
+    async def save_template(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        await interaction.response.send_modal(EmbedSaveModal(self))
+    
+    @discord.ui.button(label="🗑️ Clear All", style=discord.ButtonStyle.danger, row=2)
+    async def clear_all(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Not your embed builder.", ephemeral=True)
+        self.embed_data = {
+            "title": "",
+            "description": "",
+            "color": "8B0000",
+            "fields": [],
+            "footer": "",
+            "thumbnail": "",
+            "image": ""
+        }
+        await interaction.response.send_message("🗑️ Embed cleared!", ephemeral=True)
+    
+    def build_embed(self):
+        """Build discord.Embed from data"""
+        try:
+            color = int(self.embed_data["color"], 16)
+        except:
+            color = 0x8B0000
+        
+        embed = discord.Embed(
+            title=self.embed_data["title"] or None,
+            description=self.embed_data["description"] or None,
+            color=color
+        )
+        
+        for field in self.embed_data["fields"]:
+            embed.add_field(
+                name=field["name"],
+                value=field["value"],
+                inline=field.get("inline", True)
+            )
+        
+        if self.embed_data["footer"]:
+            embed.set_footer(text=self.embed_data["footer"])
+        
+        if self.embed_data["thumbnail"]:
+            embed.set_thumbnail(url=self.embed_data["thumbnail"])
+        
+        if self.embed_data["image"]:
+            embed.set_image(url=self.embed_data["image"])
+        
+        return embed
+
+class EmbedTitleModal(discord.ui.Modal, title="Set Embed Title"):
+    embed_title = discord.ui.TextInput(label="Title", max_length=256, required=False)
+    
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+        self.embed_title.default = view.embed_data.get("title", "")
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        self.view.embed_data["title"] = self.embed_title.value
+        await interaction.response.send_message("✅ Title updated!", ephemeral=True)
+
+class EmbedDescriptionModal(discord.ui.Modal, title="Set Embed Description"):
+    desc = discord.ui.TextInput(label="Description", style=discord.TextStyle.paragraph, max_length=4000, required=False)
+    
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+        self.desc.default = view.embed_data.get("description", "")
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        self.view.embed_data["description"] = self.desc.value
+        await interaction.response.send_message("✅ Description updated!", ephemeral=True)
+
+class EmbedColorModal(discord.ui.Modal, title="Set Embed Color"):
+    color = discord.ui.TextInput(label="Color (Hex)", placeholder="8B0000", max_length=6)
+    
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+        self.color.default = view.embed_data.get("color", "8B0000")
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            int(self.color.value, 16)
+            self.view.embed_data["color"] = self.color.value
+            await interaction.response.send_message("✅ Color updated!", ephemeral=True)
+        except:
+            await interaction.response.send_message("❌ Invalid hex color. Use format like: 8B0000", ephemeral=True)
+
+class EmbedFieldModal(discord.ui.Modal, title="Add Field"):
+    name = discord.ui.TextInput(label="Field Name", max_length=256)
+    value = discord.ui.TextInput(label="Field Value", style=discord.TextStyle.paragraph, max_length=1024)
+    inline = discord.ui.TextInput(label="Inline? (yes/no)", default="yes", max_length=3)
+    
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        self.view.embed_data["fields"].append({
+            "name": self.name.value,
+            "value": self.value.value,
+            "inline": self.inline.value.lower() in ["yes", "y", "true"]
+        })
+        await interaction.response.send_message(f"✅ Field added! ({len(self.view.embed_data['fields'])} total)", ephemeral=True)
+
+class EmbedImageModal(discord.ui.Modal, title="Set Images"):
+    thumbnail = discord.ui.TextInput(label="Thumbnail URL", required=False, placeholder="https://...")
+    image = discord.ui.TextInput(label="Image URL", required=False, placeholder="https://...")
+    
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+        self.thumbnail.default = view.embed_data.get("thumbnail", "")
+        self.image.default = view.embed_data.get("image", "")
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        self.view.embed_data["thumbnail"] = self.thumbnail.value
+        self.view.embed_data["image"] = self.image.value
+        await interaction.response.send_message("✅ Images updated!", ephemeral=True)
+
+class EmbedFooterModal(discord.ui.Modal, title="Set Footer"):
+    footer = discord.ui.TextInput(label="Footer Text", max_length=2048, required=False)
+    
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+        self.footer.default = view.embed_data.get("footer", "")
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        self.view.embed_data["footer"] = self.footer.value
+        await interaction.response.send_message("✅ Footer updated!", ephemeral=True)
+
+class EmbedSendModal(discord.ui.Modal, title="Send Embed"):
+    channel_id = discord.ui.TextInput(label="Channel ID or #channel", placeholder="#announcements or 123456789")
+    
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Parse channel
+        channel = None
+        channel_input = self.channel_id.value.strip()
+        
+        # Try channel mention
+        if channel_input.startswith("<#") and channel_input.endswith(">"):
+            try:
+                ch_id = int(channel_input[2:-1])
+                channel = interaction.guild.get_channel(ch_id)
+            except:
+                pass
+        # Try channel ID
+        elif channel_input.isdigit():
+            channel = interaction.guild.get_channel(int(channel_input))
+        # Try channel name
+        else:
+            channel = discord.utils.get(interaction.guild.text_channels, name=channel_input.replace("#", ""))
+        
+        if not channel:
+            return await interaction.response.send_message("❌ Channel not found.", ephemeral=True)
+        
+        embed = self.view.build_embed()
+        await channel.send(embed=embed)
+        await interaction.response.send_message(f"✅ Embed sent to {channel.mention}!", ephemeral=True)
+
+class EmbedSaveModal(discord.ui.Modal, title="Save Template"):
+    name = discord.ui.TextInput(label="Template Name", max_length=50, placeholder="my_template")
+    
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        data = load_custom_embeds()
+        data["embeds"][self.name.value] = self.view.embed_data
+        save_custom_embeds(data)
+        await interaction.response.send_message(f"✅ Template saved as `{self.name.value}`!", ephemeral=True)
+
+@bot.command(name="embedbuilder")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def embed_builder(ctx):
+    """Open the custom embed builder"""
+    embed = discord.Embed(
+        title="🎨 Custom Embed Builder",
+        description="Use the buttons below to build your custom embed!",
+        color=0x8B0000
+    )
+    embed.add_field(name="📝 Current Status", value="Empty embed - click buttons to add content", inline=False)
+    embed.set_footer(text="Embed builder will timeout after 5 minutes of inactivity")
+    
+    view = EmbedBuilderView(ctx.author.id)
+    await ctx.send(embed=embed, view=view)
+
+@bot.command(name="embedload")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def embed_load(ctx, template_name: str):
+    """Load a saved embed template"""
+    data = load_custom_embeds()
+    
+    if template_name not in data["embeds"]:
+        return await ctx.send(f"❌ Template `{template_name}` not found.")
+    
+    embed_data = data["embeds"][template_name]
+    view = EmbedBuilderView(ctx.author.id, embed_data.copy())
+    
+    embed = discord.Embed(
+        title="🎨 Custom Embed Builder",
+        description=f"Loaded template: **{template_name}**",
+        color=0x8B0000
+    )
+    
+    await ctx.send(embed=embed, view=view)
+
+@bot.command(name="embedlist")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def embed_list(ctx):
+    """List saved embed templates"""
+    data = load_custom_embeds()
+    
+    if not data["embeds"]:
+        return await ctx.send("📋 No saved templates.")
+    
+    embed = discord.Embed(
+        title="📋 Saved Embed Templates",
+        description="\n".join(f"• `{name}`" for name in data["embeds"].keys()),
+        color=0x3498db
+    )
+    embed.set_footer(text="Use !embedload <name> to load a template")
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="embeddelete")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def embed_delete(ctx, template_name: str):
+    """Delete a saved embed template"""
+    data = load_custom_embeds()
+    
+    if template_name not in data["embeds"]:
+        return await ctx.send(f"❌ Template `{template_name}` not found.")
+    
+    del data["embeds"][template_name]
+    save_custom_embeds(data)
+    
+    await ctx.send(f"✅ Template `{template_name}` deleted.")
+
+
+# ==========================================
+# ADD PERSISTENT VIEWS TO SETUP_HOOK
+# ==========================================
+
+# Note: PracticeQueueView needs to be added to setup_hook
+# This is handled in the existing setup_hook function
+
 
 # Run the bot with reconnect enabled
 if __name__ == "__main__":
