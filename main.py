@@ -15819,6 +15819,215 @@ async def allow_domain_cmd(ctx, domain: str):
     await ctx.send(f"✅ Added `{domain}` to allowed domains.")
 
 
+# Auto-Mod Panel View
+class AutoModPanelView(discord.ui.View):
+    """Visual configuration panel for auto-moderation"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="🔗 Link Filter", style=discord.ButtonStyle.primary, custom_id="automod_link", row=0)
+    async def toggle_link(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
+        
+        settings = load_automod_settings()
+        settings["link_filter"] = not settings.get("link_filter", True)
+        save_automod_settings(settings)
+        
+        status = "✅ Enabled" if settings["link_filter"] else "❌ Disabled"
+        await interaction.response.send_message(f"🔗 **Link Filter** is now {status}", ephemeral=True)
+    
+    @discord.ui.button(label="📢 Spam Filter", style=discord.ButtonStyle.primary, custom_id="automod_spam", row=0)
+    async def toggle_spam(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
+        
+        settings = load_automod_settings()
+        settings["spam_filter"] = not settings.get("spam_filter", True)
+        save_automod_settings(settings)
+        
+        status = "✅ Enabled" if settings["spam_filter"] else "❌ Disabled"
+        await interaction.response.send_message(f"📢 **Spam Filter** is now {status}", ephemeral=True)
+    
+    @discord.ui.button(label="@ Mention Spam", style=discord.ButtonStyle.primary, custom_id="automod_mention", row=0)
+    async def toggle_mention(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
+        
+        settings = load_automod_settings()
+        settings["mention_spam_filter"] = not settings.get("mention_spam_filter", True)
+        save_automod_settings(settings)
+        
+        status = "✅ Enabled" if settings["mention_spam_filter"] else "❌ Disabled"
+        await interaction.response.send_message(f"@ **Mention Spam Filter** is now {status}", ephemeral=True)
+    
+    @discord.ui.button(label="🔁 Duplicate Filter", style=discord.ButtonStyle.primary, custom_id="automod_dup", row=0)
+    async def toggle_duplicate(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
+        
+        settings = load_automod_settings()
+        settings["duplicate_filter"] = not settings.get("duplicate_filter", True)
+        save_automod_settings(settings)
+        
+        status = "✅ Enabled" if settings["duplicate_filter"] else "❌ Disabled"
+        await interaction.response.send_message(f"🔁 **Duplicate Filter** is now {status}", ephemeral=True)
+    
+    @discord.ui.button(label="⚙️ Edit Thresholds", style=discord.ButtonStyle.secondary, custom_id="automod_thresholds", row=1)
+    async def edit_thresholds(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
+        
+        await interaction.response.send_modal(AutoModThresholdsModal())
+    
+    @discord.ui.button(label="➕ Add Domain", style=discord.ButtonStyle.success, custom_id="automod_add_domain", row=1)
+    async def add_domain(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
+        
+        await interaction.response.send_modal(AddAllowedDomainModal())
+    
+    @discord.ui.button(label="📊 View Status", style=discord.ButtonStyle.secondary, custom_id="automod_status", row=1)
+    async def view_status(self, interaction: discord.Interaction, button: discord.ui.Button):
+        settings = load_automod_settings()
+        
+        embed = discord.Embed(
+            title="🤖 Auto-Mod Status",
+            color=0x3498db
+        )
+        
+        filters = []
+        filters.append(f"{'✅' if settings.get('link_filter', True) else '❌'} Link Filter")
+        filters.append(f"{'✅' if settings.get('spam_filter', True) else '❌'} Spam Filter")
+        filters.append(f"{'✅' if settings.get('mention_spam_filter', True) else '❌'} Mention Spam")
+        filters.append(f"{'✅' if settings.get('duplicate_filter', True) else '❌'} Duplicate Filter")
+        
+        embed.add_field(name="🛡️ Filters", value="\n".join(filters), inline=True)
+        
+        thresholds = []
+        thresholds.append(f"Max mentions: **{settings.get('max_mentions', 5)}**")
+        thresholds.append(f"Spam: **{settings.get('spam_threshold', 5)}** msgs / **{settings.get('spam_interval', 5)}**s")
+        thresholds.append(f"Duplicates: **{settings.get('duplicate_threshold', 3)}**")
+        
+        embed.add_field(name="⚙️ Thresholds", value="\n".join(thresholds), inline=True)
+        
+        embed.add_field(
+            name="✅ Allowed Domains",
+            value=", ".join(ALLOWED_DOMAINS[:10]) + ("..." if len(ALLOWED_DOMAINS) > 10 else ""),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚠️ Auto-Punishments",
+            value="• 3 warnings → Auto-Mute\n• 5 warnings → Auto-Kick",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class AutoModThresholdsModal(discord.ui.Modal, title="⚙️ Edit Auto-Mod Thresholds"):
+    max_mentions = discord.ui.TextInput(
+        label="Max Mentions (before warning)",
+        placeholder="Default: 5",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=3
+    )
+    
+    spam_threshold = discord.ui.TextInput(
+        label="Spam Threshold (messages)",
+        placeholder="Default: 5",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=3
+    )
+    
+    spam_interval = discord.ui.TextInput(
+        label="Spam Interval (seconds)",
+        placeholder="Default: 5",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=3
+    )
+    
+    duplicate_threshold = discord.ui.TextInput(
+        label="Duplicate Threshold (same messages)",
+        placeholder="Default: 3",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=3
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        settings = load_automod_settings()
+        changes = []
+        
+        if self.max_mentions.value:
+            try:
+                val = int(self.max_mentions.value)
+                if 1 <= val <= 50:
+                    settings["max_mentions"] = val
+                    changes.append(f"Max mentions: {val}")
+            except:
+                pass
+        
+        if self.spam_threshold.value:
+            try:
+                val = int(self.spam_threshold.value)
+                if 2 <= val <= 20:
+                    settings["spam_threshold"] = val
+                    changes.append(f"Spam threshold: {val}")
+            except:
+                pass
+        
+        if self.spam_interval.value:
+            try:
+                val = int(self.spam_interval.value)
+                if 2 <= val <= 60:
+                    settings["spam_interval"] = val
+                    changes.append(f"Spam interval: {val}s")
+            except:
+                pass
+        
+        if self.duplicate_threshold.value:
+            try:
+                val = int(self.duplicate_threshold.value)
+                if 2 <= val <= 10:
+                    settings["duplicate_threshold"] = val
+                    changes.append(f"Duplicate threshold: {val}")
+            except:
+                pass
+        
+        save_automod_settings(settings)
+        
+        if changes:
+            await interaction.response.send_message(f"✅ Updated:\n" + "\n".join(changes), ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ No valid changes made.", ephemeral=True)
+
+
+class AddAllowedDomainModal(discord.ui.Modal, title="➕ Add Allowed Domain"):
+    domain = discord.ui.TextInput(
+        label="Domain to allow",
+        placeholder="example.com (no https://)",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=100
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        global ALLOWED_DOMAINS
+        
+        domain = self.domain.value.lower().replace("https://", "").replace("http://", "").split("/")[0]
+        
+        if domain in ALLOWED_DOMAINS:
+            return await interaction.response.send_message(f"✅ `{domain}` is already allowed!", ephemeral=True)
+        
+        ALLOWED_DOMAINS.append(domain)
+        await interaction.response.send_message(f"✅ Added `{domain}` to allowed domains.", ephemeral=True)
+
+
 @bot.command(name="setup_automod")
 @commands.has_permissions(administrator=True)
 async def setup_automod_panel(ctx):
