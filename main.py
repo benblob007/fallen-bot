@@ -6275,25 +6275,18 @@ class HelpSelect(discord.ui.Select):
                 "**📋 Setup Panels** (prefix: `!`)\n"
                 "`!setup_verify` `!setup_tickets`\n"
                 "`!setup_shop` `!setup_transfer`\n"
-                "`!setup_roster` `!setup_logs`\n"
                 "`!setup_practice` `!setup_attendance`\n"
-                "`!ticket_panel`\n"
-                "`!apply_panel` `!top10_setup`\n\n"
-                "**🏆 Tournaments**\n"
-                "`/tournament create <size>`\n"
-                "`!tournament_panel`\n\n"
-                "**🎨 Custom Embeds**\n"
-                "`!embedbuilder` - Create custom embeds\n"
-                "`!embedlist` - View saved templates\n"
-                "`!embedload <name>` - Load template\n\n"
+                "`!setup_staffpanel` `!setup_applications`\n"
+                "`!setup_modlog`\n\n"
+                "**🤖 Auto-Moderation**\n"
+                "`!automod` - View settings\n"
+                "`!automod_toggle <setting>` - Toggle\n"
+                "`!allowdomain <domain>` - Allow a domain\n\n"
                 "**📊 Management**\n"
-                "`!bulkimport` - Import guide\n"
-                "`!reset_weekly` `!reset_monthly`\n"
-                "`!elo_reset confirm`\n"
+                "`!archive_old_apps <days>` - Archive old apps\n"
                 "`!db_status` - Database status\n\n"
                 "**⚙️ Sync**\n"
-                "`!sync` - Sync slash commands\n"
-                "`!clearsync` - Clear & re-sync"
+                "`!sync` `!clearsync`"
             )
         
         e.set_footer(text="The Fallen Bot • / = slash • ! = prefix")
@@ -7867,6 +7860,8 @@ class PersistentBot(commands.Bot):
         self.add_view(PracticeQueueView())
         # Note: PracticeControlView requires session data, so persistent views are re-added when needed
         self.add_view(AttendanceLoggingView())
+        self.add_view(StaffQuickActionsView())
+        self.add_view(ApplicationPanelView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -9073,6 +9068,31 @@ async def on_member_join(member):
 @bot.event
 async def on_message(message):
     if not message.author.bot and message.guild:
+        # === AUTO-MODERATION ===
+        if not is_exempt_from_automod(message.author):
+            settings = load_automod_settings()
+            
+            # Check for forbidden links
+            if settings.get("link_filter", True):
+                has_forbidden, url = contains_forbidden_link(message.content)
+                if has_forbidden:
+                    await handle_automod_violation(message, "forbidden_link", url)
+                    return  # Don't process further
+            
+            # Check for spam
+            if settings.get("spam_filter", True):
+                is_spam, spam_type = check_spam(message.author.id, message.content)
+                if is_spam:
+                    await handle_automod_violation(message, spam_type)
+                    return
+            
+            # Check for mention spam
+            if settings.get("mention_spam_filter", True):
+                if check_mention_spam(message):
+                    await handle_automod_violation(message, "mention_spam")
+                    return
+        
+        # === XP & ACTIVITY ===
         # Check cooldown before giving XP
         if check_xp_cooldown(message.author.id, "message"):
             xp = random.randint(*XP_TEXT_RANGE)
@@ -13995,6 +14015,1266 @@ async def setup_attendance_panel(ctx):
     
     await ctx.send(embed=embed, view=AttendanceLoggingView())
     await ctx.message.delete()
+
+
+# ==========================================
+# AUTO-MODERATION SYSTEM
+# ==========================================
+
+# Auto-mod settings
+AUTOMOD_SETTINGS = {
+    "link_filter": True,
+    "spam_filter": True,
+    "caps_filter": False,  # Optional
+    "mention_spam_filter": True,
+    "duplicate_filter": True,
+    "max_mentions": 5,
+    "max_caps_percent": 70,
+    "spam_threshold": 5,  # messages in spam_interval
+    "spam_interval": 5,   # seconds
+    "duplicate_threshold": 3,  # same message count
+}
+
+# Allowed link domains (won't trigger filter)
+ALLOWED_DOMAINS = [
+    "roblox.com",
+    "ro.pro",
+    "discord.gg",
+    "discord.com",
+    "tenor.com",
+    "giphy.com",
+    "imgur.com",
+    "youtube.com",
+    "youtu.be",
+]
+
+# Roles exempt from auto-mod
+AUTOMOD_EXEMPT_ROLES = HIGH_STAFF_ROLES + [STAFF_ROLE_NAME]
+
+# Track message history for spam detection
+user_message_history = {}  # {user_id: [(timestamp, content), ...]}
+
+def load_automod_settings():
+    """Load auto-mod settings"""
+    try:
+        with open("automod_settings.json", "r") as f:
+            return json.load(f)
+    except:
+        return AUTOMOD_SETTINGS.copy()
+
+def save_automod_settings(settings):
+    """Save auto-mod settings"""
+    with open("automod_settings.json", "w") as f:
+        json.dump(settings, f, indent=2)
+
+def is_exempt_from_automod(member):
+    """Check if member is exempt from auto-moderation"""
+    if member.bot:
+        return True
+    if member.guild_permissions.administrator:
+        return True
+    for role in member.roles:
+        if role.name in AUTOMOD_EXEMPT_ROLES:
+            return True
+    return False
+
+def contains_forbidden_link(content):
+    """Check if message contains forbidden links"""
+    # URL patterns
+    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+    discord_invite = r'discord\.gg/[a-zA-Z0-9]+'
+    discord_invite2 = r'discord\.com/invite/[a-zA-Z0-9]+'
+    
+    urls = re.findall(url_pattern, content.lower())
+    urls += re.findall(discord_invite, content.lower())
+    urls += re.findall(discord_invite2, content.lower())
+    
+    for url in urls:
+        is_allowed = False
+        for domain in ALLOWED_DOMAINS:
+            if domain in url.lower():
+                is_allowed = True
+                break
+        if not is_allowed:
+            return True, url
+    
+    return False, None
+
+def check_spam(user_id, content):
+    """Check if user is spamming"""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    settings = load_automod_settings()
+    
+    if user_id not in user_message_history:
+        user_message_history[user_id] = []
+    
+    # Clean old messages
+    cutoff = now - datetime.timedelta(seconds=settings.get("spam_interval", 5))
+    user_message_history[user_id] = [
+        (ts, msg) for ts, msg in user_message_history[user_id]
+        if ts > cutoff
+    ]
+    
+    # Add current message
+    user_message_history[user_id].append((now, content))
+    
+    # Check spam threshold
+    if len(user_message_history[user_id]) >= settings.get("spam_threshold", 5):
+        return True, "rapid_messages"
+    
+    # Check duplicate messages
+    recent_contents = [msg for ts, msg in user_message_history[user_id]]
+    if recent_contents.count(content) >= settings.get("duplicate_threshold", 3):
+        return True, "duplicate_messages"
+    
+    return False, None
+
+def check_mention_spam(message):
+    """Check for mention spam"""
+    settings = load_automod_settings()
+    max_mentions = settings.get("max_mentions", 5)
+    
+    total_mentions = len(message.mentions) + len(message.role_mentions)
+    if message.mention_everyone:
+        total_mentions += 100  # Heavily penalize @everyone
+    
+    return total_mentions > max_mentions
+
+async def handle_automod_violation(message, violation_type, details=None):
+    """Handle an auto-mod violation"""
+    # Delete the message
+    try:
+        await message.delete()
+    except:
+        pass
+    
+    # Determine action based on violation
+    warn_reason = ""
+    if violation_type == "forbidden_link":
+        warn_reason = f"Posted forbidden link: {details[:50]}..." if details else "Posted forbidden link"
+    elif violation_type == "rapid_messages":
+        warn_reason = "Spam detected (rapid messages)"
+    elif violation_type == "duplicate_messages":
+        warn_reason = "Spam detected (duplicate messages)"
+    elif violation_type == "mention_spam":
+        warn_reason = "Mention spam detected"
+    
+    # Add warning
+    user_data = get_user_data(message.author.id)
+    warnings = user_data.get("warnings", [])
+    warnings.append({
+        "reason": warn_reason,
+        "moderator": "Auto-Mod",
+        "moderator_id": str(message.guild.me.id),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    })
+    update_user_data(message.author.id, "warnings", warnings)
+    
+    # Notify user
+    try:
+        warn_embed = discord.Embed(
+            title="⚠️ Auto-Moderation Warning",
+            description=f"You have been automatically warned in **{message.guild.name}**",
+            color=0xe74c3c
+        )
+        warn_embed.add_field(name="Reason", value=warn_reason, inline=False)
+        warn_embed.add_field(name="Total Warnings", value=str(len(warnings)), inline=True)
+        warn_embed.set_footer(text="Repeated violations may result in further action")
+        
+        await message.author.send(embed=warn_embed)
+    except:
+        pass
+    
+    # Notify in channel briefly
+    try:
+        notify_msg = await message.channel.send(
+            f"⚠️ {message.author.mention} - {warn_reason}. This is warning #{len(warnings)}.",
+            delete_after=10
+        )
+    except:
+        pass
+    
+    # Log to mod log
+    await log_mod_action(message.guild, "Auto-Mod", message.author, warn_reason, message.guild.me)
+    
+    # Check for auto-punishment thresholds
+    await check_warning_thresholds(message.guild, message.author, len(warnings))
+
+async def check_warning_thresholds(guild, member, warning_count):
+    """Check if warning count triggers auto-punishment"""
+    if warning_count >= 5:
+        # Auto-kick at 5 warnings
+        try:
+            await member.send(
+                f"⛔ You have been kicked from **{guild.name}** for reaching 5 warnings.\n"
+                f"You may rejoin, but further violations will result in a ban."
+            )
+        except:
+            pass
+        
+        try:
+            await member.kick(reason=f"Auto-kick: Reached {warning_count} warnings")
+            await log_mod_action(guild, "Auto-Kick", member, f"Reached {warning_count} warnings", guild.me)
+        except:
+            pass
+    
+    elif warning_count >= 3:
+        # Auto-mute at 3 warnings (if muted role exists)
+        muted_role = discord.utils.get(guild.roles, name="Muted")
+        if muted_role and muted_role not in member.roles:
+            try:
+                await member.add_roles(muted_role, reason=f"Auto-mute: Reached {warning_count} warnings")
+                await log_mod_action(guild, "Auto-Mute", member, f"Reached {warning_count} warnings", guild.me)
+                
+                # Notify user
+                try:
+                    await member.send(
+                        f"🔇 You have been muted in **{guild.name}** for reaching 3 warnings.\n"
+                        f"Staff will review your case."
+                    )
+                except:
+                    pass
+            except:
+                pass
+
+
+# Store mod log channel
+MOD_LOG_CHANNEL_NAME = "mod-logs"
+
+async def log_mod_action(guild, action_type, target, reason, moderator):
+    """Log a moderation action to the mod log channel"""
+    log_channel = discord.utils.get(guild.text_channels, name=MOD_LOG_CHANNEL_NAME)
+    if not log_channel:
+        log_channel = discord.utils.get(guild.text_channels, name="mod-log")
+    if not log_channel:
+        return
+    
+    # Color based on action
+    colors = {
+        "Auto-Mod": 0xf39c12,
+        "Auto-Mute": 0xe67e22,
+        "Auto-Kick": 0xe74c3c,
+        "Warn": 0xf1c40f,
+        "Mute": 0xe67e22,
+        "Kick": 0xe74c3c,
+        "Ban": 0xc0392b,
+        "Unmute": 0x2ecc71,
+        "Unban": 0x2ecc71,
+        "Promote": 0x3498db,
+        "Demote": 0x9b59b6,
+    }
+    
+    embed = discord.Embed(
+        title=f"🔨 {action_type}",
+        color=colors.get(action_type, 0x95a5a6),
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    
+    if isinstance(target, discord.Member) or isinstance(target, discord.User):
+        embed.add_field(name="👤 User", value=f"{target.mention} ({target.id})", inline=True)
+    else:
+        embed.add_field(name="👤 User", value=str(target), inline=True)
+    
+    if isinstance(moderator, discord.Member) or isinstance(moderator, discord.User):
+        embed.add_field(name="👮 Moderator", value=moderator.mention, inline=True)
+    else:
+        embed.add_field(name="👮 Moderator", value=str(moderator), inline=True)
+    
+    embed.add_field(name="📝 Reason", value=reason[:1000], inline=False)
+    
+    if isinstance(target, discord.Member) or isinstance(target, discord.User):
+        embed.set_thumbnail(url=target.display_avatar.url)
+    
+    try:
+        await log_channel.send(embed=embed)
+    except:
+        pass
+
+
+# ==========================================
+# STAFF QUICK ACTIONS PANEL
+# ==========================================
+
+class StaffQuickActionsView(discord.ui.View):
+    """Quick actions panel for staff"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="⚠️ Quick Warn", style=discord.ButtonStyle.danger, custom_id="staff_quick_warn", row=0)
+    async def quick_warn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        await interaction.response.send_modal(QuickWarnModal())
+    
+    @discord.ui.button(label="📈 Promote", style=discord.ButtonStyle.success, custom_id="staff_quick_promote", row=0)
+    async def quick_promote(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        await interaction.response.send_modal(QuickPromoteModal())
+    
+    @discord.ui.button(label="📉 Demote", style=discord.ButtonStyle.secondary, custom_id="staff_quick_demote", row=0)
+    async def quick_demote(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        await interaction.response.send_modal(QuickDemoteModal())
+    
+    @discord.ui.button(label="📊 Check Stats", style=discord.ButtonStyle.primary, custom_id="staff_check_stats", row=1)
+    async def check_stats(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        await interaction.response.send_modal(CheckStatsModal())
+    
+    @discord.ui.button(label="😴 Inactivity List", style=discord.ButtonStyle.secondary, custom_id="staff_inactivity_list", row=1)
+    async def inactivity_list(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Get inactive members
+        inactive_members = []
+        threshold_days = 3  # Default
+        now = datetime.datetime.now(datetime.timezone.utc)
+        
+        for member in interaction.guild.members:
+            if member.bot:
+                continue
+            
+            user_data = get_user_data(member.id)
+            last_active = user_data.get("last_active")
+            
+            if last_active:
+                try:
+                    last_dt = datetime.datetime.fromisoformat(last_active.replace('Z', '+00:00'))
+                    days_inactive = (now - last_dt).days
+                    if days_inactive >= threshold_days:
+                        strikes = user_data.get("inactivity_strikes", 0)
+                        inactive_members.append((member, days_inactive, strikes))
+                except:
+                    pass
+        
+        # Sort by days inactive
+        inactive_members.sort(key=lambda x: x[1], reverse=True)
+        
+        if not inactive_members:
+            return await interaction.followup.send("✅ No inactive members found!", ephemeral=True)
+        
+        embed = discord.Embed(
+            title="😴 Inactive Members",
+            description=f"Members inactive for {threshold_days}+ days",
+            color=0xe74c3c
+        )
+        
+        lines = []
+        for member, days, strikes in inactive_members[:15]:
+            strike_emoji = "🔴" if strikes >= 3 else "🟡" if strikes >= 1 else "🟢"
+            lines.append(f"{strike_emoji} **{member.display_name}** - {days}d ({strikes}/5 strikes)")
+        
+        embed.description = "\n".join(lines)
+        embed.set_footer(text=f"Showing {min(15, len(inactive_members))} of {len(inactive_members)} inactive")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="📋 Recent Mod Actions", style=discord.ButtonStyle.secondary, custom_id="staff_mod_log", row=1)
+    async def mod_log(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        embed = discord.Embed(
+            title="📋 Mod Log Info",
+            description=(
+                f"Mod actions are logged to **#{MOD_LOG_CHANNEL_NAME}**\n\n"
+                f"**What's Logged:**\n"
+                f"• Auto-Mod warnings\n"
+                f"• Manual warns, mutes, kicks, bans\n"
+                f"• Promotions & demotions\n"
+                f"• Auto-punishments (3 warns = mute, 5 = kick)\n\n"
+                f"**Auto-Mod Filters:**\n"
+                f"• 🔗 Forbidden links\n"
+                f"• 📢 Spam detection\n"
+                f"• 🔁 Duplicate messages\n"
+                f"• @ Mention spam"
+            ),
+            color=0x3498db
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class QuickWarnModal(discord.ui.Modal, title="⚠️ Quick Warn"):
+    user_id = discord.ui.TextInput(
+        label="User ID or @mention",
+        placeholder="123456789 or username",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    
+    reason = discord.ui.TextInput(
+        label="Reason",
+        placeholder="Why are you warning this user?",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=500
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Parse user
+        user_input = self.user_id.value.strip()
+        member = None
+        
+        # Try as ID
+        if user_input.isdigit():
+            member = interaction.guild.get_member(int(user_input))
+        
+        # Try as mention
+        if not member and user_input.startswith("<@"):
+            try:
+                uid = int(user_input.replace("<@", "").replace(">", "").replace("!", ""))
+                member = interaction.guild.get_member(uid)
+            except:
+                pass
+        
+        # Try as username
+        if not member:
+            member = discord.utils.get(interaction.guild.members, name=user_input)
+            if not member:
+                member = discord.utils.get(interaction.guild.members, display_name=user_input)
+        
+        if not member:
+            return await interaction.response.send_message("❌ User not found!", ephemeral=True)
+        
+        # Add warning
+        user_data = get_user_data(member.id)
+        warnings = user_data.get("warnings", [])
+        warnings.append({
+            "reason": self.reason.value,
+            "moderator": interaction.user.display_name,
+            "moderator_id": str(interaction.user.id),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        })
+        update_user_data(member.id, "warnings", warnings)
+        
+        # Log
+        await log_mod_action(interaction.guild, "Warn", member, self.reason.value, interaction.user)
+        
+        # DM user
+        try:
+            dm_embed = discord.Embed(
+                title="⚠️ Warning Received",
+                description=f"You have been warned in **{interaction.guild.name}**",
+                color=0xf1c40f
+            )
+            dm_embed.add_field(name="Reason", value=self.reason.value, inline=False)
+            dm_embed.add_field(name="Total Warnings", value=str(len(warnings)), inline=True)
+            await member.send(embed=dm_embed)
+        except:
+            pass
+        
+        # Check thresholds
+        await check_warning_thresholds(interaction.guild, member, len(warnings))
+        
+        await interaction.response.send_message(
+            f"✅ Warned **{member.display_name}** (Warning #{len(warnings)})",
+            ephemeral=True
+        )
+
+
+class QuickPromoteModal(discord.ui.Modal, title="📈 Quick Promote"):
+    user_id = discord.ui.TextInput(
+        label="User ID or username",
+        placeholder="123456789 or username",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        user_input = self.user_id.value.strip()
+        member = None
+        
+        if user_input.isdigit():
+            member = interaction.guild.get_member(int(user_input))
+        if not member:
+            member = discord.utils.get(interaction.guild.members, name=user_input)
+        if not member:
+            member = discord.utils.get(interaction.guild.members, display_name=user_input)
+        
+        if not member:
+            return await interaction.response.send_message("❌ User not found!", ephemeral=True)
+        
+        # Find current stage and promote
+        current_stage = None
+        for role in member.roles:
+            for stage_num, stage_name in STAGE_ROLES.items():
+                if stage_name in role.name:
+                    current_stage = stage_num
+                    break
+        
+        if current_stage is None:
+            return await interaction.response.send_message("❌ User has no stage role!", ephemeral=True)
+        
+        if current_stage <= 0:
+            return await interaction.response.send_message("❌ User is already at max stage!", ephemeral=True)
+        
+        new_stage = current_stage - 1
+        old_role_name = STAGE_ROLES.get(current_stage)
+        new_role_name = STAGE_ROLES.get(new_stage)
+        
+        old_role = discord.utils.get(interaction.guild.roles, name=old_role_name)
+        new_role = discord.utils.get(interaction.guild.roles, name=new_role_name)
+        
+        if old_role:
+            await member.remove_roles(old_role)
+            await asyncio.sleep(0.5)
+        if new_role:
+            await member.add_roles(new_role)
+        
+        await log_mod_action(interaction.guild, "Promote", member, f"Stage {current_stage} → Stage {new_stage}", interaction.user)
+        
+        await interaction.response.send_message(
+            f"✅ Promoted **{member.display_name}** to Stage {new_stage}!",
+            ephemeral=True
+        )
+
+
+class QuickDemoteModal(discord.ui.Modal, title="📉 Quick Demote"):
+    user_id = discord.ui.TextInput(
+        label="User ID or username",
+        placeholder="123456789 or username",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        user_input = self.user_id.value.strip()
+        member = None
+        
+        if user_input.isdigit():
+            member = interaction.guild.get_member(int(user_input))
+        if not member:
+            member = discord.utils.get(interaction.guild.members, name=user_input)
+        if not member:
+            member = discord.utils.get(interaction.guild.members, display_name=user_input)
+        
+        if not member:
+            return await interaction.response.send_message("❌ User not found!", ephemeral=True)
+        
+        # Find current stage and demote
+        current_stage = None
+        for role in member.roles:
+            for stage_num, stage_name in STAGE_ROLES.items():
+                if stage_name in role.name:
+                    current_stage = stage_num
+                    break
+        
+        if current_stage is None:
+            return await interaction.response.send_message("❌ User has no stage role!", ephemeral=True)
+        
+        if current_stage >= 5:
+            return await interaction.response.send_message("❌ User is already at lowest stage!", ephemeral=True)
+        
+        new_stage = current_stage + 1
+        old_role_name = STAGE_ROLES.get(current_stage)
+        new_role_name = STAGE_ROLES.get(new_stage)
+        
+        old_role = discord.utils.get(interaction.guild.roles, name=old_role_name)
+        new_role = discord.utils.get(interaction.guild.roles, name=new_role_name)
+        
+        if old_role:
+            await member.remove_roles(old_role)
+            await asyncio.sleep(0.5)
+        if new_role:
+            await member.add_roles(new_role)
+        
+        await log_mod_action(interaction.guild, "Demote", member, f"Stage {current_stage} → Stage {new_stage}", interaction.user)
+        
+        await interaction.response.send_message(
+            f"✅ Demoted **{member.display_name}** to Stage {new_stage}",
+            ephemeral=True
+        )
+
+
+class CheckStatsModal(discord.ui.Modal, title="📊 Check Member Stats"):
+    user_id = discord.ui.TextInput(
+        label="User ID or username",
+        placeholder="123456789 or username",
+        style=discord.TextStyle.short,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        user_input = self.user_id.value.strip()
+        member = None
+        
+        if user_input.isdigit():
+            member = interaction.guild.get_member(int(user_input))
+        if not member:
+            member = discord.utils.get(interaction.guild.members, name=user_input)
+        if not member:
+            member = discord.utils.get(interaction.guild.members, display_name=user_input)
+        
+        if not member:
+            return await interaction.response.send_message("❌ User not found!", ephemeral=True)
+        
+        user_data = get_user_data(member.id)
+        
+        embed = discord.Embed(
+            title=f"📊 Stats: {member.display_name}",
+            color=0x3498db
+        )
+        
+        # Basic stats
+        embed.add_field(name="💰 Coins", value=str(user_data.get("coins", 0)), inline=True)
+        embed.add_field(name="⭐ Level", value=str(user_data.get("level", 1)), inline=True)
+        embed.add_field(name="📊 XP", value=str(user_data.get("xp", 0)), inline=True)
+        embed.add_field(name="🎖️ ELO", value=str(user_data.get("elo", 1000)), inline=True)
+        
+        # Activity
+        embed.add_field(name="📚 Trainings", value=str(user_data.get("training_attendance", 0)), inline=True)
+        embed.add_field(name="🎯 Tryouts", value=str(user_data.get("tryout_attendance", 0)), inline=True)
+        
+        # Warnings
+        warnings = user_data.get("warnings", [])
+        embed.add_field(name="⚠️ Warnings", value=str(len(warnings)), inline=True)
+        
+        # Inactivity
+        strikes = user_data.get("inactivity_strikes", 0)
+        embed.add_field(name="😴 Inactivity Strikes", value=f"{strikes}/5", inline=True)
+        
+        # Last active
+        last_active = user_data.get("last_active")
+        if last_active:
+            try:
+                last_dt = datetime.datetime.fromisoformat(last_active.replace('Z', '+00:00'))
+                embed.add_field(name="🕐 Last Active", value=f"<t:{int(last_dt.timestamp())}:R>", inline=True)
+            except:
+                pass
+        
+        embed.set_thumbnail(url=member.display_avatar.url)
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.command(name="setup_staffpanel")
+@commands.has_permissions(administrator=True)
+async def setup_staff_panel(ctx):
+    """Setup the staff quick actions panel"""
+    embed = discord.Embed(
+        title="🛡️ Staff Quick Actions",
+        description=(
+            "Use these buttons for quick moderation!\n\n"
+            "**Actions:**\n"
+            "• ⚠️ **Quick Warn** - Warn a user\n"
+            "• 📈 **Promote** - Promote user's stage\n"
+            "• 📉 **Demote** - Demote user's stage\n"
+            "• 📊 **Check Stats** - View user's full stats\n"
+            "• 😴 **Inactivity List** - See inactive members\n"
+            "• 📋 **Mod Log** - View mod log info"
+        ),
+        color=0x8B0000
+    )
+    embed.set_footer(text="✝ The Fallen Staff Tools ✝")
+    
+    await ctx.send(embed=embed, view=StaffQuickActionsView())
+    await ctx.message.delete()
+
+
+# ==========================================
+# APPLICATION SYSTEM IMPROVEMENTS
+# ==========================================
+
+# Application templates
+APPLICATION_TEMPLATES = {
+    "staff": {
+        "name": "Staff Application",
+        "emoji": "🛡️",
+        "color": 0x3498db,
+        "questions": [
+            "What is your Roblox username?",
+            "How old are you?",
+            "What timezone are you in?",
+            "Why do you want to be staff?",
+            "Do you have any previous staff experience?",
+            "How active can you be per week?",
+        ],
+        "cooldown_days": 14,
+        "required_level": 10,
+    },
+    "tryout_host": {
+        "name": "Tryout Host Application",
+        "emoji": "🎯",
+        "color": 0x2ecc71,
+        "questions": [
+            "What is your Roblox username?",
+            "What stage are you currently?",
+            "How long have you been in The Fallen?",
+            "Why do you want to host tryouts?",
+            "What times are you available to host?",
+        ],
+        "cooldown_days": 7,
+        "required_level": 5,
+    },
+    "event_host": {
+        "name": "Event Host Application",
+        "emoji": "📅",
+        "color": 0xf1c40f,
+        "questions": [
+            "What is your Roblox username?",
+            "What events would you like to host?",
+            "Do you have experience hosting events?",
+            "How often can you host events?",
+        ],
+        "cooldown_days": 7,
+        "required_level": 5,
+    }
+}
+
+# Store applications
+APPLICATIONS_FILE = "applications_data.json"
+
+def load_applications():
+    try:
+        with open(APPLICATIONS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"applications": [], "cooldowns": {}, "archived": []}
+
+def save_applications(data):
+    with open(APPLICATIONS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def check_application_cooldown(user_id, app_type):
+    """Check if user is on cooldown for an application type"""
+    data = load_applications()
+    cooldowns = data.get("cooldowns", {})
+    
+    key = f"{user_id}_{app_type}"
+    if key in cooldowns:
+        try:
+            cooldown_end = datetime.datetime.fromisoformat(cooldowns[key].replace('Z', '+00:00'))
+            if datetime.datetime.now(datetime.timezone.utc) < cooldown_end:
+                return True, cooldown_end
+        except:
+            pass
+    
+    return False, None
+
+def set_application_cooldown(user_id, app_type, days):
+    """Set cooldown for user's application type"""
+    data = load_applications()
+    if "cooldowns" not in data:
+        data["cooldowns"] = {}
+    
+    key = f"{user_id}_{app_type}"
+    cooldown_end = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=days)
+    data["cooldowns"][key] = cooldown_end.isoformat()
+    save_applications(data)
+
+
+class ApplicationPanelView(discord.ui.View):
+    """Panel for submitting applications"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="🛡️ Staff", style=discord.ButtonStyle.primary, custom_id="app_staff", row=0)
+    async def staff_app(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.start_application(interaction, "staff")
+    
+    @discord.ui.button(label="🎯 Tryout Host", style=discord.ButtonStyle.success, custom_id="app_tryout_host", row=0)
+    async def tryout_host_app(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.start_application(interaction, "tryout_host")
+    
+    @discord.ui.button(label="📅 Event Host", style=discord.ButtonStyle.secondary, custom_id="app_event_host", row=0)
+    async def event_host_app(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.start_application(interaction, "event_host")
+    
+    async def start_application(self, interaction: discord.Interaction, app_type: str):
+        template = APPLICATION_TEMPLATES.get(app_type)
+        if not template:
+            return await interaction.response.send_message("❌ Invalid application type!", ephemeral=True)
+        
+        # Check cooldown
+        on_cooldown, cooldown_end = check_application_cooldown(interaction.user.id, app_type)
+        if on_cooldown:
+            return await interaction.response.send_message(
+                f"❌ You're on cooldown for this application!\n"
+                f"You can apply again <t:{int(cooldown_end.timestamp())}:R>",
+                ephemeral=True
+            )
+        
+        # Check level requirement
+        user_data = get_user_data(interaction.user.id)
+        user_level = user_data.get("level", 1)
+        if user_level < template.get("required_level", 1):
+            return await interaction.response.send_message(
+                f"❌ You need to be level {template['required_level']} to apply!\n"
+                f"Your current level: {user_level}",
+                ephemeral=True
+            )
+        
+        # Start application modal
+        await interaction.response.send_modal(ApplicationModal(app_type, template))
+
+
+class ApplicationModal(discord.ui.Modal):
+    def __init__(self, app_type: str, template: dict):
+        super().__init__(title=template["name"][:45])
+        self.app_type = app_type
+        self.template = template
+        
+        # Add up to 5 questions (Discord limit)
+        for i, question in enumerate(template["questions"][:5]):
+            self.add_item(discord.ui.TextInput(
+                label=question[:45],
+                style=discord.TextStyle.paragraph if i >= 3 else discord.TextStyle.short,
+                required=True,
+                max_length=500
+            ))
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Collect answers
+        answers = {}
+        for i, child in enumerate(self.children):
+            if i < len(self.template["questions"]):
+                answers[self.template["questions"][i]] = child.value
+        
+        # Save application
+        data = load_applications()
+        app_id = f"app_{int(datetime.datetime.now().timestamp())}"
+        
+        application = {
+            "id": app_id,
+            "type": self.app_type,
+            "user_id": str(interaction.user.id),
+            "user_name": interaction.user.display_name,
+            "answers": answers,
+            "status": "pending",
+            "submitted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "reviewed_by": None,
+            "review_notes": None
+        }
+        
+        data["applications"].append(application)
+        save_applications(data)
+        
+        # Set cooldown
+        set_application_cooldown(interaction.user.id, self.app_type, self.template.get("cooldown_days", 7))
+        
+        # Create application channel/thread or send to staff
+        await self.send_application_to_staff(interaction, application)
+        
+        await interaction.response.send_message(
+            f"✅ Your **{self.template['name']}** has been submitted!\n"
+            f"You will be notified when it's reviewed.",
+            ephemeral=True
+        )
+    
+    async def send_application_to_staff(self, interaction: discord.Interaction, application: dict):
+        """Send application to staff channel"""
+        # Find applications channel
+        app_channel = discord.utils.get(interaction.guild.text_channels, name="applications")
+        if not app_channel:
+            app_channel = discord.utils.get(interaction.guild.text_channels, name="staff-applications")
+        
+        if not app_channel:
+            return
+        
+        embed = discord.Embed(
+            title=f"{self.template['emoji']} {self.template['name']}",
+            description=f"**Applicant:** {interaction.user.mention}",
+            color=self.template["color"],
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        
+        for question, answer in application["answers"].items():
+            embed.add_field(name=question, value=answer[:1024], inline=False)
+        
+        embed.add_field(name="🆔 Application ID", value=f"`{application['id']}`", inline=True)
+        
+        user_data = get_user_data(interaction.user.id)
+        embed.add_field(name="📊 Level", value=str(user_data.get("level", 1)), inline=True)
+        embed.add_field(name="⏰ Account Age", value=f"<t:{int(interaction.user.created_at.timestamp())}:R>", inline=True)
+        
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text="Use the buttons below to review")
+        
+        await app_channel.send(
+            embed=embed,
+            view=ApplicationReviewView(application["id"])
+        )
+
+
+class ApplicationReviewView(discord.ui.View):
+    def __init__(self, app_id: str):
+        super().__init__(timeout=None)
+        self.app_id = app_id
+    
+    @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.success, custom_id="app_approve")
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await self.review_application(interaction, "approved")
+    
+    @discord.ui.button(label="❌ Deny", style=discord.ButtonStyle.danger, custom_id="app_deny")
+    async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await interaction.response.send_modal(ApplicationDenyModal(self.app_id))
+    
+    @discord.ui.button(label="📦 Archive", style=discord.ButtonStyle.secondary, custom_id="app_archive")
+    async def archive(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await self.archive_application(interaction)
+    
+    async def review_application(self, interaction: discord.Interaction, status: str, notes: str = None):
+        data = load_applications()
+        
+        # Find and update application
+        app = None
+        for a in data["applications"]:
+            if a["id"] == self.app_id:
+                app = a
+                a["status"] = status
+                a["reviewed_by"] = str(interaction.user.id)
+                a["reviewed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                if notes:
+                    a["review_notes"] = notes
+                break
+        
+        if not app:
+            return await interaction.response.send_message("❌ Application not found!", ephemeral=True)
+        
+        save_applications(data)
+        
+        # Notify applicant
+        applicant = interaction.guild.get_member(int(app["user_id"]))
+        if applicant:
+            template = APPLICATION_TEMPLATES.get(app["type"], {})
+            
+            if status == "approved":
+                dm_embed = discord.Embed(
+                    title="✅ Application Approved!",
+                    description=f"Your **{template.get('name', 'application')}** has been approved!",
+                    color=0x2ecc71
+                )
+            else:
+                dm_embed = discord.Embed(
+                    title="❌ Application Denied",
+                    description=f"Your **{template.get('name', 'application')}** has been denied.",
+                    color=0xe74c3c
+                )
+                if notes:
+                    dm_embed.add_field(name="Reason", value=notes, inline=False)
+            
+            dm_embed.set_footer(text=f"Reviewed by {interaction.user.display_name}")
+            
+            try:
+                await applicant.send(embed=dm_embed)
+            except:
+                pass
+        
+        # Update the message
+        embed = interaction.message.embeds[0] if interaction.message.embeds else None
+        if embed:
+            embed.color = 0x2ecc71 if status == "approved" else 0xe74c3c
+            embed.add_field(
+                name="📋 Status",
+                value=f"**{status.upper()}** by {interaction.user.mention}",
+                inline=False
+            )
+            await interaction.message.edit(embed=embed, view=None)
+        
+        await interaction.response.send_message(f"✅ Application {status}!", ephemeral=True)
+    
+    async def archive_application(self, interaction: discord.Interaction):
+        data = load_applications()
+        
+        # Find and move to archive
+        for i, app in enumerate(data["applications"]):
+            if app["id"] == self.app_id:
+                app["archived_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                app["archived_by"] = str(interaction.user.id)
+                data["archived"].append(app)
+                data["applications"].pop(i)
+                break
+        
+        save_applications(data)
+        
+        # Update message
+        embed = interaction.message.embeds[0] if interaction.message.embeds else None
+        if embed:
+            embed.color = 0x95a5a6
+            embed.add_field(name="📦 Status", value=f"ARCHIVED by {interaction.user.mention}", inline=False)
+            await interaction.message.edit(embed=embed, view=None)
+        
+        await interaction.response.send_message("📦 Application archived!", ephemeral=True)
+
+
+class ApplicationDenyModal(discord.ui.Modal, title="Deny Application"):
+    reason = discord.ui.TextInput(
+        label="Reason for denial",
+        placeholder="Why is this application being denied?",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=500
+    )
+    
+    def __init__(self, app_id: str):
+        super().__init__()
+        self.app_id = app_id
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        data = load_applications()
+        
+        app = None
+        for a in data["applications"]:
+            if a["id"] == self.app_id:
+                app = a
+                a["status"] = "denied"
+                a["reviewed_by"] = str(interaction.user.id)
+                a["reviewed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                a["review_notes"] = self.reason.value
+                break
+        
+        if not app:
+            return await interaction.response.send_message("❌ Application not found!", ephemeral=True)
+        
+        save_applications(data)
+        
+        # Notify applicant
+        applicant = interaction.guild.get_member(int(app["user_id"]))
+        if applicant:
+            template = APPLICATION_TEMPLATES.get(app["type"], {})
+            dm_embed = discord.Embed(
+                title="❌ Application Denied",
+                description=f"Your **{template.get('name', 'application')}** has been denied.",
+                color=0xe74c3c
+            )
+            dm_embed.add_field(name="Reason", value=self.reason.value, inline=False)
+            dm_embed.set_footer(text=f"Reviewed by {interaction.user.display_name}")
+            
+            try:
+                await applicant.send(embed=dm_embed)
+            except:
+                pass
+        
+        # Update message
+        embed = interaction.message.embeds[0] if interaction.message.embeds else None
+        if embed:
+            embed.color = 0xe74c3c
+            embed.add_field(
+                name="📋 Status",
+                value=f"**DENIED** by {interaction.user.mention}\n**Reason:** {self.reason.value}",
+                inline=False
+            )
+            await interaction.message.edit(embed=embed, view=None)
+        
+        await interaction.response.send_message("❌ Application denied!", ephemeral=True)
+
+
+@bot.command(name="setup_applications")
+@commands.has_permissions(administrator=True)
+async def setup_applications_panel(ctx):
+    """Setup the applications panel"""
+    embed = discord.Embed(
+        title="📋 Applications",
+        description=(
+            "Apply for positions in The Fallen!\n\n"
+            "**Available Positions:**\n"
+            "🛡️ **Staff** - Help moderate the server\n"
+            "🎯 **Tryout Host** - Host tryouts for new members\n"
+            "📅 **Event Host** - Host events and activities\n\n"
+            "**Requirements:**\n"
+            "• Must meet level requirements\n"
+            "• Can only apply once per cooldown period\n"
+            "• Honest and detailed answers\n\n"
+            "Click a button below to apply!"
+        ),
+        color=0x8B0000
+    )
+    embed.set_footer(text="✝ The Fallen Applications ✝")
+    
+    await ctx.send(embed=embed, view=ApplicationPanelView())
+    await ctx.message.delete()
+
+
+@bot.command(name="archive_old_apps")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def archive_old_applications(ctx, days: int = 30):
+    """Archive applications older than X days"""
+    data = load_applications()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    archived_count = 0
+    
+    apps_to_archive = []
+    for app in data["applications"]:
+        try:
+            submitted = datetime.datetime.fromisoformat(app["submitted_at"].replace('Z', '+00:00'))
+            if (now - submitted).days >= days:
+                apps_to_archive.append(app)
+        except:
+            pass
+    
+    for app in apps_to_archive:
+        app["archived_at"] = now.isoformat()
+        app["archived_by"] = "auto"
+        data["archived"].append(app)
+        data["applications"].remove(app)
+        archived_count += 1
+    
+    save_applications(data)
+    
+    await ctx.send(f"📦 Archived {archived_count} applications older than {days} days.")
+
+
+# ==========================================
+# SETUP MOD LOG CHANNEL
+# ==========================================
+
+@bot.command(name="setup_modlog")
+@commands.has_permissions(administrator=True)
+async def setup_mod_log(ctx):
+    """Setup the mod log channel"""
+    # Check if exists
+    existing = discord.utils.get(ctx.guild.text_channels, name=MOD_LOG_CHANNEL_NAME)
+    if existing:
+        return await ctx.send(f"✅ Mod log channel already exists: {existing.mention}")
+    
+    # Create channel
+    overwrites = {
+        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+    
+    # Add staff access
+    staff_role = discord.utils.get(ctx.guild.roles, name=STAFF_ROLE_NAME)
+    if staff_role:
+        overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=False)
+    
+    for role_name in HIGH_STAFF_ROLES:
+        role = discord.utils.get(ctx.guild.roles, name=role_name)
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    
+    channel = await ctx.guild.create_text_channel(
+        name=MOD_LOG_CHANNEL_NAME,
+        overwrites=overwrites,
+        topic="📋 Automatic moderation log - All mod actions are recorded here"
+    )
+    
+    embed = discord.Embed(
+        title="📋 Mod Log Initialized",
+        description=(
+            "This channel logs all moderation actions.\n\n"
+            "**Logged Actions:**\n"
+            "• ⚠️ Warnings (manual & auto)\n"
+            "• 🔇 Mutes\n"
+            "• 👢 Kicks\n"
+            "• 🔨 Bans\n"
+            "• 📈 Promotions\n"
+            "• 📉 Demotions\n\n"
+            "**Auto-Mod:**\n"
+            "• Link filter\n"
+            "• Spam detection\n"
+            "• Mention spam\n"
+            "• Duplicate messages"
+        ),
+        color=0x3498db
+    )
+    
+    await channel.send(embed=embed)
+    await ctx.send(f"✅ Created mod log channel: {channel.mention}")
+
+
+@bot.command(name="automod")
+@commands.has_permissions(administrator=True)
+async def automod_settings_cmd(ctx):
+    """View current auto-moderation settings"""
+    settings = load_automod_settings()
+    
+    embed = discord.Embed(
+        title="🤖 Auto-Moderation Settings",
+        color=0x3498db
+    )
+    
+    embed.add_field(
+        name="🔗 Link Filter",
+        value="✅ Enabled" if settings.get("link_filter", True) else "❌ Disabled",
+        inline=True
+    )
+    embed.add_field(
+        name="📢 Spam Filter",
+        value="✅ Enabled" if settings.get("spam_filter", True) else "❌ Disabled",
+        inline=True
+    )
+    embed.add_field(
+        name="@ Mention Spam",
+        value="✅ Enabled" if settings.get("mention_spam_filter", True) else "❌ Disabled",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="⚙️ Thresholds",
+        value=(
+            f"• Max mentions: {settings.get('max_mentions', 5)}\n"
+            f"• Spam threshold: {settings.get('spam_threshold', 5)} msgs/{settings.get('spam_interval', 5)}s\n"
+            f"• Duplicate threshold: {settings.get('duplicate_threshold', 3)}"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="✅ Allowed Domains",
+        value=", ".join(ALLOWED_DOMAINS[:8]),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🛡️ Exempt Roles",
+        value=", ".join(AUTOMOD_EXEMPT_ROLES[:5]),
+        inline=False
+    )
+    
+    embed.set_footer(text="Use !automod_toggle <setting> to change")
+    
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="automod_toggle")
+@commands.has_permissions(administrator=True)
+async def automod_toggle_cmd(ctx, setting: str):
+    """Toggle an auto-mod setting (link_filter, spam_filter, mention_spam_filter)"""
+    settings = load_automod_settings()
+    
+    valid_settings = ["link_filter", "spam_filter", "mention_spam_filter", "duplicate_filter"]
+    
+    if setting not in valid_settings:
+        return await ctx.send(f"❌ Invalid setting. Valid options: {', '.join(valid_settings)}")
+    
+    current = settings.get(setting, True)
+    settings[setting] = not current
+    save_automod_settings(settings)
+    
+    status = "✅ Enabled" if settings[setting] else "❌ Disabled"
+    await ctx.send(f"**{setting}** is now {status}")
+
+
+@bot.command(name="allowdomain")
+@commands.has_permissions(administrator=True)
+async def allow_domain_cmd(ctx, domain: str):
+    """Add a domain to the allowed list"""
+    global ALLOWED_DOMAINS
+    
+    domain = domain.lower().replace("https://", "").replace("http://", "").split("/")[0]
+    
+    if domain in ALLOWED_DOMAINS:
+        return await ctx.send(f"✅ `{domain}` is already allowed!")
+    
+    ALLOWED_DOMAINS.append(domain)
+    await ctx.send(f"✅ Added `{domain}` to allowed domains.")
 
 
 # ==========================================
