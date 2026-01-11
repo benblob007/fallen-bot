@@ -6031,6 +6031,7 @@ class HelpSelect(discord.ui.Select):
             discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
             discord.SelectOption(label="Events", emoji="📅", description="Trainings & tryouts"),
             discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
+            discord.SelectOption(label="Practice", emoji="🎯", description="Practice matchmaking"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
             discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
             discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
@@ -6101,6 +6102,31 @@ class HelpSelect(discord.ui.Select):
                 "🥉 Silver (1200+)\n"
                 "⚔️ Bronze (1000+)\n\n"
                 "*Win duels to climb!*"
+            )
+        
+        elif self.values[0] == "Practice":
+            e.title="🎯 Practice Matchmaking"
+            e.description=(
+                "**🎯 How to Practice**\n"
+                "Use the practice panel to find partners!\n\n"
+                "**📋 Panel Buttons**\n"
+                "• **Join Queue** - Enter matchmaking\n"
+                "• **View Queue** - See who's waiting\n"
+                "• **Challenge** - Pick someone directly\n"
+                "• **Leave Queue** - Exit the queue\n\n"
+                "**🎮 In Your Match Channel**\n"
+                "• Post your private server link\n"
+                "• Play your set (e.g., FT5)\n"
+                "• Post proof (screenshot/video)\n"
+                "• Click **Submit Result** to log score\n"
+                "• **Rate Partner** after the match\n\n"
+                "**📊 Commands**\n"
+                "`/practice_stats` - View your stats\n"
+                "`/practice_stats @user` - View someone's\n\n"
+                "**⭐ Rating System**\n"
+                "Rate partners 1-5 stars after matches!\n"
+                "Your rating is shown to future opponents.\n"
+                "You'll receive a DM with your rating!"
             )
         
         elif self.values[0] == "Tournaments":
@@ -6215,23 +6241,30 @@ class HelpSelect(discord.ui.Select):
         elif self.values[0] == "Staff": 
             e.title="🛡️ Staff Commands"
             e.description=(
-                "**📅 Events** (prefix: `!`)\n"
-                "`!event_create <type> <title> <mins> [link]`\n"
-                "`!event_schedule <type> <title> <hr> [link]`\n"
+                "**📅 Attendance Logging**\n"
+                "Use the **Attendance Panel** (easiest!):\n"
+                "`!setup_attendance` creates staff panel\n"
+                "Or use commands:\n"
                 "`/log_training @users` (up to 10)\n"
                 "`/log_tryout @users` (up to 10)\n\n"
+                "**📅 Events** (prefix: `!`)\n"
+                "`!event_create <type> <title> <mins> [link]`\n"
+                "`!event_schedule <type> <title> <hr> [link]`\n\n"
                 "**🔁 Recurring Events**\n"
                 "`/event recurring_add` - Weekly event\n"
                 "`/event recurring_list` - View all\n\n"
                 "**📊 Levels & Economy**\n"
                 "`!addxp` `!removexp` `!setlevel`\n"
-                "`!addfcoins` `!removefcoins`\n"
-                "`!importlevel @user <lvl>`\n\n"
-                "**📋 Results**\n"
-                "`/result @user <stage> [rank] [str]`\n\n"
+                "`!addfcoins` `!removefcoins`\n\n"
+                "**🎯 Practice** (in match channels)\n"
+                "Use buttons to submit results!\n\n"
                 "**🛡️ Inactivity**\n"
                 "`!inactivity_check` `!inactivity_strikes`\n"
                 "`!immunity_add` `!immunity_remove`\n\n"
+                "**📜 Transcripts**\n"
+                "`!transcript <id>` `!transcripts`\n\n"
+                "**🔍 Alt Detection**\n"
+                "`!altcheck @user` `!altflags`\n\n"
                 "**🔨 Moderation**\n"
                 "`/warn` `/warnings` `!promote` `!demote`"
             )
@@ -6243,18 +6276,24 @@ class HelpSelect(discord.ui.Select):
                 "`!setup_verify` `!setup_tickets`\n"
                 "`!setup_shop` `!setup_transfer`\n"
                 "`!setup_roster` `!setup_logs`\n"
-                "`!ticket_panel` `!apply_panel`\n"
-                "`!top10_setup`\n\n"
+                "`!setup_practice` `!setup_attendance`\n"
+                "`!ticket_panel`\n"
+                "`!apply_panel` `!top10_setup`\n\n"
                 "**🏆 Tournaments**\n"
                 "`/tournament create <size>`\n"
                 "`!tournament_panel`\n\n"
+                "**🎨 Custom Embeds**\n"
+                "`!embedbuilder` - Create custom embeds\n"
+                "`!embedlist` - View saved templates\n"
+                "`!embedload <name>` - Load template\n\n"
                 "**📊 Management**\n"
                 "`!bulkimport` - Import guide\n"
                 "`!reset_weekly` `!reset_monthly`\n"
                 "`!elo_reset confirm`\n"
                 "`!db_status` - Database status\n\n"
                 "**⚙️ Sync**\n"
-                "`!sync` - Sync slash commands"
+                "`!sync` - Sync slash commands\n"
+                "`!clearsync` - Clear & re-sync"
             )
         
         e.set_footer(text="The Fallen Bot • / = slash • ! = prefix")
@@ -7827,6 +7866,7 @@ class PersistentBot(commands.Bot):
         self.add_view(StageTransferControlView())
         self.add_view(PracticeQueueView())
         # Note: PracticeControlView requires session data, so persistent views are re-added when needed
+        self.add_view(AttendanceLoggingView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -12894,7 +12934,38 @@ class PracticeQueueView(discord.ui.View):
     
     @discord.ui.button(label="🎯 Join Queue", style=discord.ButtonStyle.success, custom_id="practice_join_queue")
     async def join_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(PracticeJoinModal())
+        global practice_queue
+        user_id = str(interaction.user.id)
+        
+        # Check if already in queue
+        for entry in practice_queue:
+            if entry["user_id"] == user_id:
+                return await interaction.response.send_message("❌ You're already in the queue!", ephemeral=True)
+        
+        # Get user's ELO and rating
+        user_data = get_user_data(interaction.user.id)
+        elo = user_data.get("elo", 1000)
+        
+        data = load_practice_data()
+        rating_data = data["ratings"].get(user_id, {"total": 0, "count": 0})
+        avg_rating = (rating_data["total"] / rating_data["count"]) if rating_data["count"] > 0 else 0
+        
+        # Add to queue
+        practice_queue.append({
+            "user_id": user_id,
+            "elo": elo,
+            "avg_rating": avg_rating,
+            "queued_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        })
+        
+        await interaction.response.send_message(
+            f"✅ You've joined the practice queue!\n"
+            f"**Your ELO:** {elo}\n"
+            f"**Your Rating:** {'⭐' * round(avg_rating) if avg_rating > 0 else 'No ratings yet'}\n"
+            f"**Position:** #{len(practice_queue)}\n\n"
+            f"You'll be notified when a match is found, or challenge someone directly!",
+            ephemeral=True
+        )
     
     @discord.ui.button(label="📋 View Queue", style=discord.ButtonStyle.primary, custom_id="practice_view_queue")
     async def view_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -12907,17 +12978,51 @@ class PracticeQueueView(discord.ui.View):
         )
         
         lines = []
-        for i, entry in enumerate(practice_queue[:10], 1):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for i, entry in enumerate(practice_queue[:15], 1):
             user = interaction.guild.get_member(int(entry["user_id"]))
             name = user.display_name if user else f"User {entry['user_id']}"
             elo = entry.get("elo", "?")
-            has_link = "✅" if entry.get("server_link") else "❌"
-            lines.append(f"{i}. **{name}** (ELO: {elo}) Link: {has_link}")
+            
+            # Calculate wait time
+            try:
+                queued_at = datetime.datetime.fromisoformat(entry["queued_at"].replace('Z', '+00:00'))
+                wait_mins = int((now - queued_at).total_seconds() / 60)
+                wait_str = f"{wait_mins}m" if wait_mins > 0 else "<1m"
+            except:
+                wait_str = "?"
+            
+            # Rating stars
+            avg_rating = entry.get("avg_rating", 0)
+            if avg_rating >= 4:
+                rating_str = "⭐"
+            elif avg_rating >= 2:
+                rating_str = "☆"
+            else:
+                rating_str = ""
+            
+            lines.append(f"{i}. **{name}** {rating_str} | ELO: {elo} | ⏱️ {wait_str}")
         
         embed.description = "\n".join(lines)
-        embed.set_footer(text=f"{len(practice_queue)} player(s) in queue")
+        embed.set_footer(text=f"{len(practice_queue)} player(s) in queue • Use ⚔️ Challenge to directly challenge someone")
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, view=ChallengeSelectView(practice_queue, interaction.user.id), ephemeral=True)
+    
+    @discord.ui.button(label="⚔️ Challenge", style=discord.ButtonStyle.secondary, custom_id="practice_challenge")
+    async def challenge_player(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not practice_queue:
+            return await interaction.response.send_message("📋 No one is in the queue to challenge!", ephemeral=True)
+        
+        # Filter out self
+        available = [p for p in practice_queue if p["user_id"] != str(interaction.user.id)]
+        if not available:
+            return await interaction.response.send_message("📋 No other players in queue to challenge!", ephemeral=True)
+        
+        await interaction.response.send_message(
+            "**Select a player to challenge:**",
+            view=ChallengeSelectView(available, interaction.user.id),
+            ephemeral=True
+        )
     
     @discord.ui.button(label="🚪 Leave Queue", style=discord.ButtonStyle.danger, custom_id="practice_leave_queue")
     async def leave_queue(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -12933,241 +13038,266 @@ class PracticeQueueView(discord.ui.View):
             await interaction.response.send_message("❌ You're not in the queue.", ephemeral=True)
 
 
-class PracticeJoinModal(discord.ui.Modal, title="🎯 Join Practice Queue"):
-    server_link = discord.ui.TextInput(
-        label="Private Server Link (REQUIRED)",
-        placeholder="https://www.roblox.com/share?code=... or ro.pro/...",
-        style=discord.TextStyle.short,
-        required=True,
-        min_length=10,
-        max_length=200
-    )
-    
-    notes = discord.ui.TextInput(
-        label="Notes (Optional)",
-        placeholder="e.g., 'Looking to practice combos' or 'Training 2H'",
-        style=discord.TextStyle.short,
-        required=False,
-        max_length=100
-    )
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        global practice_queue
+class ChallengeSelectView(discord.ui.View):
+    def __init__(self, queue_entries, challenger_id):
+        super().__init__(timeout=60)
+        self.challenger_id = challenger_id
         
-        user_id = str(interaction.user.id)
+        # Create dropdown options
+        options = []
+        for entry in queue_entries[:25]:  # Max 25 options
+            if entry["user_id"] != str(challenger_id):
+                elo = entry.get("elo", 1000)
+                avg_rating = entry.get("avg_rating", 0)
+                stars = f"{'⭐' * round(avg_rating)}" if avg_rating > 0 else "No rating"
+                options.append(discord.SelectOption(
+                    label=f"User {entry['user_id'][-4:]}",  # Last 4 digits
+                    value=entry["user_id"],
+                    description=f"ELO: {elo} | {stars}"
+                ))
         
-        # Validate link
-        link = self.server_link.value.strip()
-        valid_link = (
-            ("roblox.com/share" in link.lower() and "code=" in link.lower()) or
-            ("ro.pro/" in link.lower()) or
-            ("roblox.com/games" in link.lower() and "privateserverlinkcode" in link.lower())
-        )
-        
-        if not valid_link:
-            return await interaction.response.send_message(
-                "❌ **Invalid link!** Please provide a valid:\n"
-                "• Roblox Invite: `roblox.com/share?code=...`\n"
-                "• RO-PRO: `ro.pro/XXXXXX`\n"
-                "• Private Server: `roblox.com/games/...?privateServerLinkCode=...`",
-                ephemeral=True
+        if options:
+            self.select = discord.ui.Select(
+                placeholder="Select a player to challenge...",
+                options=options
             )
+            self.select.callback = self.select_callback
+            self.add_item(self.select)
+    
+    async def select_callback(self, interaction: discord.Interaction):
+        target_id = self.select.values[0]
+        target = interaction.guild.get_member(int(target_id))
         
-        # Check if already in queue
-        for entry in practice_queue:
-            if entry["user_id"] == user_id:
-                return await interaction.response.send_message("❌ You're already in the queue!", ephemeral=True)
+        if not target:
+            return await interaction.response.send_message("❌ Player not found!", ephemeral=True)
         
-        # Get user's ELO
-        user_data = get_user_data(interaction.user.id)
-        elo = user_data.get("elo", 1000)
-        
-        # Add to queue
-        practice_queue.append({
-            "user_id": user_id,
-            "elo": elo,
-            "server_link": link,
-            "notes": self.notes.value if self.notes.value else None,
-            "queued_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-        })
-        
-        # Check for match
-        if len(practice_queue) >= 2:
-            # Find closest ELO match
-            current_entry = practice_queue[-1]
-            best_match = None
-            best_diff = float('inf')
-            
-            for entry in practice_queue[:-1]:
-                diff = abs(entry["elo"] - current_entry["elo"])
-                if diff < best_diff:
-                    best_diff = diff
-                    best_match = entry
-            
-            if best_match and best_diff <= 500:  # Match if within 500 ELO
-                # Create match
-                player1 = interaction.guild.get_member(int(current_entry["user_id"]))
-                player2 = interaction.guild.get_member(int(best_match["user_id"]))
-                
-                if player1 and player2:
-                    # Remove both from queue
-                    practice_queue = [p for p in practice_queue if p["user_id"] not in [current_entry["user_id"], best_match["user_id"]]]
-                    
-                    # Create practice session
-                    session_id = f"practice_{int(datetime.datetime.now().timestamp())}"
-                    
-                    # Use the link from whoever provided one (prefer current user's link)
-                    server_link = current_entry.get("server_link") or best_match.get("server_link")
-                    
-                    data = load_practice_data()
-                    session_data = {
-                        "id": session_id,
-                        "player1": str(player1.id),
-                        "player2": str(player2.id),
-                        "player1_elo": current_entry["elo"],
-                        "player2_elo": best_match["elo"],
-                        "server_link": server_link,
-                        "status": "active",
-                        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "rounds_won": 0,
-                        "rounds_lost": 0,
-                        "ratings": {}
-                    }
-                    data["sessions"].append(session_data)
-                    save_practice_data(data)
-                    
-                    # Create ticket channel for the match
-                    await interaction.response.defer(ephemeral=True)
-                    
-                    try:
-                        # Get or create practice category
-                        cat = discord.utils.get(interaction.guild.categories, name="Practice Matches")
-                        if not cat:
-                            cat = await interaction.guild.create_category("Practice Matches", overwrites={
-                                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False)
-                            })
-                            await asyncio.sleep(0.5)
-                        
-                        # Create channel overwrites
-                        overwrites = {
-                            interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                            player1: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
-                            player2: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
-                            interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True)
-                        }
-                        
-                        # Add staff access
-                        staff_role = discord.utils.get(interaction.guild.roles, name=STAFF_ROLE_NAME)
-                        if staff_role:
-                            overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-                        
-                        for role_name in HIGH_STAFF_ROLES:
-                            role = discord.utils.get(interaction.guild.roles, name=role_name)
-                            if role:
-                                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-                        
-                        # Create channel
-                        channel = await interaction.guild.create_text_channel(
-                            name=f"practice-{player1.name[:10]}-vs-{player2.name[:10]}",
-                            category=cat,
-                            overwrites=overwrites
-                        )
-                        
-                        # Update session with channel ID
-                        for s in data["sessions"]:
-                            if s["id"] == session_id:
-                                s["channel_id"] = channel.id
-                                break
-                        save_practice_data(data)
-                        
-                        # Create match embed
-                        match_embed = discord.Embed(
-                            title="🎯 Practice Match",
-                            description=(
-                                f"**{player1.mention}** vs **{player2.mention}**\n\n"
-                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                            ),
-                            color=0x3498db
-                        )
-                        match_embed.add_field(
-                            name="📊 ELO",
-                            value=f"{player1.display_name}: {current_entry['elo']}\n{player2.display_name}: {best_match['elo']}",
-                            inline=True
-                        )
-                        match_embed.add_field(name="📈 ELO Difference", value=f"{int(best_diff)} points", inline=True)
-                        match_embed.add_field(name="🆔 Session ID", value=f"`{session_id}`", inline=True)
-                        
-                        match_embed.add_field(
-                            name="🔗 Server Link",
-                            value=f"**[CLICK TO JOIN]({server_link})**",
-                            inline=False
-                        )
-                        
-                        if current_entry.get("notes") or best_match.get("notes"):
-                            notes = []
-                            if current_entry.get("notes"):
-                                notes.append(f"**{player1.display_name}:** {current_entry['notes']}")
-                            if best_match.get("notes"):
-                                notes.append(f"**{player2.display_name}:** {best_match['notes']}")
-                            match_embed.add_field(name="📝 Notes", value="\n".join(notes), inline=False)
-                        
-                        match_embed.add_field(
-                            name="📋 Instructions",
-                            value=(
-                                "1️⃣ Join the server using the link above\n"
-                                "2️⃣ Complete your practice session\n"
-                                "3️⃣ Post **proof** (screenshot/video) of results\n"
-                                "4️⃣ Staff will confirm the winner\n"
-                                "5️⃣ Rate your partner after!"
-                            ),
-                            inline=False
-                        )
-                        
-                        match_embed.set_footer(text="✝ The Fallen Practice System ✝")
-                        
-                        # Send embed with control buttons
-                        await channel.send(
-                            f"{player1.mention} {player2.mention}",
-                            embed=match_embed,
-                            view=PracticeControlView(session_id, player1.id, player2.id)
-                        )
-                        
-                        # DM both players about the channel
-                        dm_embed = discord.Embed(
-                            title="🎯 Practice Match Found!",
-                            description=f"You've been matched with a practice partner!\n\n**Go to:** {channel.mention}",
-                            color=0x2ecc71
-                        )
-                        dm_embed.set_footer(text="Good luck!")
-                        
-                        try:
-                            await player1.send(embed=dm_embed)
-                            await asyncio.sleep(0.5)
-                        except:
-                            pass
-                        try:
-                            await player2.send(embed=dm_embed)
-                        except:
-                            pass
-                        
-                        await interaction.followup.send(
-                            f"🎯 **Match Found!** Go to {channel.mention} for your practice session!",
-                            ephemeral=True
-                        )
-                        return
-                        
-                    except Exception as e:
-                        print(f"Error creating practice channel: {e}")
-                        await interaction.followup.send(
-                            f"❌ Error creating match channel. Please try again.",
-                            ephemeral=True
-                        )
-                        return
-        
+        # Send challenge
         await interaction.response.send_message(
-            f"✅ You've joined the practice queue!\n**Your ELO:** {elo}\n**Position:** #{len(practice_queue)}\n\nYou'll be notified when a match is found.",
+            f"⚔️ Challenge sent to {target.mention}!",
             ephemeral=True
         )
+        
+        # DM the target
+        challenge_embed = discord.Embed(
+            title="⚔️ Practice Challenge!",
+            description=f"**{interaction.user.display_name}** has challenged you to a practice match!",
+            color=0xf39c12
+        )
+        
+        challenger_data = get_user_data(interaction.user.id)
+        challenge_embed.add_field(name="Challenger ELO", value=str(challenger_data.get("elo", 1000)), inline=True)
+        challenge_embed.set_footer(text="Accept or Decline below")
+        
+        try:
+            await target.send(
+                embed=challenge_embed,
+                view=ChallengeResponseView(str(interaction.user.id), target_id, interaction.guild.id)
+            )
+        except:
+            await interaction.followup.send(f"⚠️ Couldn't DM {target.mention}. They may have DMs disabled.", ephemeral=True)
+
+
+class ChallengeResponseView(discord.ui.View):
+    def __init__(self, challenger_id: str, target_id: str, guild_id: int):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.challenger_id = challenger_id
+        self.target_id = target_id
+        self.guild_id = guild_id
+    
+    @discord.ui.button(label="✅ Accept", style=discord.ButtonStyle.success)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        global practice_queue
+        
+        # Remove both from queue if they're in it
+        practice_queue = [p for p in practice_queue if p["user_id"] not in [self.challenger_id, self.target_id]]
+        
+        guild = interaction.client.get_guild(self.guild_id)
+        if not guild:
+            return await interaction.response.send_message("❌ Server not found!", ephemeral=True)
+        
+        challenger = guild.get_member(int(self.challenger_id))
+        target = guild.get_member(int(self.target_id))
+        
+        if not challenger or not target:
+            return await interaction.response.send_message("❌ Players not found!", ephemeral=True)
+        
+        # Create the match
+        await interaction.response.edit_message(content="✅ Challenge accepted! Creating match...", view=None)
+        
+        await create_practice_match(guild, challenger, target)
+    
+    @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.danger)
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.client.get_guild(self.guild_id)
+        challenger = guild.get_member(int(self.challenger_id)) if guild else None
+        
+        await interaction.response.edit_message(content="❌ Challenge declined.", view=None)
+        
+        # Notify challenger
+        if challenger:
+            try:
+                await challenger.send(f"❌ {interaction.user.display_name} declined your practice challenge.")
+            except:
+                pass
+
+
+async def create_practice_match(guild, player1, player2):
+    """Create a practice match between two players"""
+    global practice_queue
+    
+    # Get ELO and ratings
+    p1_data = get_user_data(player1.id)
+    p2_data = get_user_data(player2.id)
+    p1_elo = p1_data.get("elo", 1000)
+    p2_elo = p2_data.get("elo", 1000)
+    
+    data = load_practice_data()
+    p1_rating = data["ratings"].get(str(player1.id), {"total": 0, "count": 0})
+    p2_rating = data["ratings"].get(str(player2.id), {"total": 0, "count": 0})
+    p1_avg = (p1_rating["total"] / p1_rating["count"]) if p1_rating["count"] > 0 else 0
+    p2_avg = (p2_rating["total"] / p2_rating["count"]) if p2_rating["count"] > 0 else 0
+    
+    # Create session
+    session_id = f"practice_{int(datetime.datetime.now().timestamp())}"
+    session_data = {
+        "id": session_id,
+        "player1": str(player1.id),
+        "player2": str(player2.id),
+        "player1_elo": p1_elo,
+        "player2_elo": p2_elo,
+        "player1_rating": p1_avg,
+        "player2_rating": p2_avg,
+        "status": "active",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "rounds_won": 0,
+        "rounds_lost": 0,
+        "ratings": {},
+        "result_confirmed": False
+    }
+    data["sessions"].append(session_data)
+    save_practice_data(data)
+    
+    # Create ticket channel
+    try:
+        cat = discord.utils.get(guild.categories, name="Practice Matches")
+        if not cat:
+            cat = await guild.create_category("Practice Matches", overwrites={
+                guild.default_role: discord.PermissionOverwrite(read_messages=False)
+            })
+            await asyncio.sleep(1)  # Rate limit protection
+        
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            player1: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
+            player2: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True)
+        }
+        
+        staff_role = discord.utils.get(guild.roles, name=STAFF_ROLE_NAME)
+        if staff_role:
+            overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        
+        for role_name in HIGH_STAFF_ROLES:
+            role = discord.utils.get(guild.roles, name=role_name)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        
+        await asyncio.sleep(0.5)  # Rate limit protection before channel create
+        channel = await guild.create_text_channel(
+            name=f"practice-{player1.name[:8]}-vs-{player2.name[:8]}",
+            category=cat,
+            overwrites=overwrites
+        )
+        
+        # Update session with channel ID
+        for s in data["sessions"]:
+            if s["id"] == session_id:
+                s["channel_id"] = channel.id
+                break
+        save_practice_data(data)
+        
+        # Create match embed
+        elo_diff = abs(p1_elo - p2_elo)
+        
+        match_embed = discord.Embed(
+            title="🎯 Practice Match",
+            description=f"**{player1.mention}** vs **{player2.mention}**",
+            color=0x3498db,
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        
+        # Player 1 info
+        p1_stars = "⭐" * round(p1_avg) + "☆" * (5 - round(p1_avg)) if p1_avg > 0 else "No ratings"
+        match_embed.add_field(
+            name=f"👤 {player1.display_name}",
+            value=f"ELO: **{p1_elo}**\nRating: {p1_stars}",
+            inline=True
+        )
+        
+        # Player 2 info
+        p2_stars = "⭐" * round(p2_avg) + "☆" * (5 - round(p2_avg)) if p2_avg > 0 else "No ratings"
+        match_embed.add_field(
+            name=f"👤 {player2.display_name}",
+            value=f"ELO: **{p2_elo}**\nRating: {p2_stars}",
+            inline=True
+        )
+        
+        match_embed.add_field(name="📈 ELO Difference", value=f"{elo_diff} points", inline=True)
+        
+        match_embed.add_field(
+            name="🔗 Server Link",
+            value="**Please post your private server link below!**\nOne of you must provide a link to practice.",
+            inline=False
+        )
+        
+        match_embed.add_field(
+            name="📋 Instructions",
+            value=(
+                "1️⃣ Post your **private server link** below\n"
+                "2️⃣ Complete your practice session\n"
+                "3️⃣ Post **screenshot/video proof** of the final score\n"
+                "4️⃣ Click **📊 Submit Result** to log the score\n"
+                "5️⃣ Rate your partner after!\n\n"
+                "⚠️ **Proof is required** before results can be confirmed!"
+            ),
+            inline=False
+        )
+        
+        match_embed.add_field(name="🆔 Session", value=f"`{session_id}`", inline=True)
+        match_embed.add_field(name="⏱️ Started", value=f"<t:{int(datetime.datetime.now().timestamp())}:R>", inline=True)
+        
+        match_embed.set_footer(text="✝ The Fallen Practice System ✝")
+        
+        await asyncio.sleep(0.5)  # Rate limit protection
+        await channel.send(
+            f"{player1.mention} {player2.mention}",
+            embed=match_embed,
+            view=PracticeControlView(session_id, player1.id, player2.id)
+        )
+        
+        # DM both players with rate limit protection
+        dm_embed = discord.Embed(
+            title="🎯 Practice Match Created!",
+            description=f"Your practice match is ready!\n\n**Go to:** {channel.mention}",
+            color=0x2ecc71
+        )
+        
+        await asyncio.sleep(0.5)  # Rate limit protection before DMs
+        try:
+            await player1.send(embed=dm_embed)
+            await asyncio.sleep(1)  # Rate limit protection between DMs
+        except:
+            pass
+        try:
+            await player2.send(embed=dm_embed)
+        except:
+            pass
+        
+        return channel
+        
+    except Exception as e:
+        print(f"Error creating practice match: {e}")
+        return None
 
 
 class PracticeControlView(discord.ui.View):
@@ -13177,38 +13307,72 @@ class PracticeControlView(discord.ui.View):
         self.player1_id = player1_id
         self.player2_id = player2_id
     
-    @discord.ui.button(label="🏆 Declare Winner", style=discord.ButtonStyle.success, custom_id="practice_declare_winner")
-    async def declare_winner(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Staff only
-        if not is_staff(interaction.user):
-            return await interaction.response.send_message("❌ Only staff can declare winners!", ephemeral=True)
+    @discord.ui.button(label="📊 Submit Result", style=discord.ButtonStyle.success, custom_id="practice_submit_result", row=0)
+    async def submit_result(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Either player or staff can submit
+        if interaction.user.id not in [self.player1_id, self.player2_id] and not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Only match participants or staff can submit results!", ephemeral=True)
         
-        # Show winner selection
-        await interaction.response.send_message(
-            "**Select the winner:**",
-            view=PracticeWinnerSelectView(self.session_id, self.player1_id, self.player2_id),
-            ephemeral=True
+        await interaction.response.send_modal(PracticeResultModal(self.session_id, self.player1_id, self.player2_id))
+    
+    @discord.ui.button(label="🚨 Request Staff", style=discord.ButtonStyle.secondary, custom_id="practice_request_staff", row=0)
+    async def request_staff(self, interaction: discord.Interaction, button: discord.ui.Button):
+        staff_role = discord.utils.get(interaction.guild.roles, name=STAFF_ROLE_NAME)
+        
+        embed = discord.Embed(
+            title="🚨 Staff Assistance Requested",
+            description=f"{interaction.user.mention} is requesting staff assistance for this practice match.",
+            color=0xe74c3c
         )
-    
-    @discord.ui.button(label="⭐ Rate Player 1", style=discord.ButtonStyle.primary, custom_id="practice_rate_p1")
-    async def rate_player1(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Only player 2 can rate player 1
-        if interaction.user.id != self.player2_id:
-            return await interaction.response.send_message("❌ Only your opponent can rate you!", ephemeral=True)
+        embed.add_field(name="Reason", value="Please describe the issue below", inline=False)
         
-        await interaction.response.send_modal(PracticeRatingModal(self.session_id, self.player1_id))
-    
-    @discord.ui.button(label="⭐ Rate Player 2", style=discord.ButtonStyle.primary, custom_id="practice_rate_p2")
-    async def rate_player2(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Only player 1 can rate player 2
-        if interaction.user.id != self.player1_id:
-            return await interaction.response.send_message("❌ Only your opponent can rate you!", ephemeral=True)
+        if staff_role:
+            await interaction.channel.send(f"{staff_role.mention}", embed=embed)
+        else:
+            await interaction.channel.send(embed=embed)
         
-        await interaction.response.send_modal(PracticeRatingModal(self.session_id, self.player2_id))
+        await interaction.response.send_message("✅ Staff has been notified!", ephemeral=True)
     
-    @discord.ui.button(label="🔒 Close", style=discord.ButtonStyle.danger, custom_id="practice_close")
+    @discord.ui.button(label="⭐ Rate Partner", style=discord.ButtonStyle.primary, custom_id="practice_rate_partner", row=1)
+    async def rate_partner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Determine who to rate
+        if interaction.user.id == self.player1_id:
+            rated_id = self.player2_id
+        elif interaction.user.id == self.player2_id:
+            rated_id = self.player1_id
+        else:
+            return await interaction.response.send_message("❌ Only match participants can rate!", ephemeral=True)
+        
+        await interaction.response.send_modal(PracticeRatingModal(self.session_id, rated_id, interaction.user.id))
+    
+    @discord.ui.button(label="⏱️ Match Time", style=discord.ButtonStyle.secondary, custom_id="practice_match_time", row=1)
+    async def match_time(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = load_practice_data()
+        
+        session = None
+        for s in data["sessions"]:
+            if s["id"] == self.session_id:
+                session = s
+                break
+        
+        if not session:
+            return await interaction.response.send_message("❌ Session not found!", ephemeral=True)
+        
+        try:
+            created = datetime.datetime.fromisoformat(session["created_at"].replace('Z', '+00:00'))
+            elapsed = datetime.datetime.now(datetime.timezone.utc) - created
+            mins = int(elapsed.total_seconds() / 60)
+            secs = int(elapsed.total_seconds() % 60)
+            
+            await interaction.response.send_message(
+                f"⏱️ **Match Duration:** {mins}m {secs}s",
+                ephemeral=True
+            )
+        except:
+            await interaction.response.send_message("⏱️ Unable to calculate time", ephemeral=True)
+    
+    @discord.ui.button(label="🔒 Close (Staff)", style=discord.ButtonStyle.danger, custom_id="practice_close", row=1)
     async def close_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Staff only
         if not is_staff(interaction.user):
             return await interaction.response.send_message("❌ Only staff can close this channel!", ephemeral=True)
         
@@ -13221,69 +13385,61 @@ class PracticeControlView(discord.ui.View):
             pass
 
 
-class PracticeWinnerSelectView(discord.ui.View):
+class PracticeResultModal(discord.ui.Modal, title="📊 Submit Match Result"):
+    winner = discord.ui.TextInput(
+        label="Who won? (1 or 2)",
+        placeholder="Enter 1 for Player 1, or 2 for Player 2",
+        style=discord.TextStyle.short,
+        required=True,
+        min_length=1,
+        max_length=1
+    )
+    
+    winner_rounds = discord.ui.TextInput(
+        label="Winner's Rounds (e.g., 5 for FT5)",
+        placeholder="How many rounds did the winner win?",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=3
+    )
+    
+    loser_rounds = discord.ui.TextInput(
+        label="Loser's Rounds",
+        placeholder="How many rounds did the loser win?",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=3
+    )
+    
     def __init__(self, session_id: str, player1_id: int, player2_id: int):
-        super().__init__(timeout=60)
+        super().__init__()
         self.session_id = session_id
         self.player1_id = player1_id
         self.player2_id = player2_id
     
-    @discord.ui.button(label="Player 1 Wins", style=discord.ButtonStyle.success)
-    async def player1_wins(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(
-            PracticeScoreModal(self.session_id, self.player1_id, self.player2_id)
-        )
-    
-    @discord.ui.button(label="Player 2 Wins", style=discord.ButtonStyle.success)
-    async def player2_wins(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(
-            PracticeScoreModal(self.session_id, self.player2_id, self.player1_id)
-        )
-    
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="❌ Cancelled.", view=None)
-
-
-class PracticeScoreModal(discord.ui.Modal, title="📊 Enter Match Score"):
-    rounds_won = discord.ui.TextInput(
-        label="Winner's Rounds Won",
-        placeholder="e.g., 5",
-        style=discord.TextStyle.short,
-        required=True,
-        max_length=3
-    )
-    
-    rounds_lost = discord.ui.TextInput(
-        label="Winner's Rounds Lost",
-        placeholder="e.g., 2",
-        style=discord.TextStyle.short,
-        required=True,
-        max_length=3
-    )
-    
-    def __init__(self, session_id: str, winner_id: int, loser_id: int):
-        super().__init__()
-        self.session_id = session_id
-        self.winner_id = winner_id
-        self.loser_id = loser_id
-    
     async def on_submit(self, interaction: discord.Interaction):
+        # Validate inputs
         try:
-            won = int(self.rounds_won.value)
-            lost = int(self.rounds_lost.value)
+            winner_num = int(self.winner.value)
+            won = int(self.winner_rounds.value)
+            lost = int(self.loser_rounds.value)
         except ValueError:
             return await interaction.response.send_message("❌ Please enter valid numbers!", ephemeral=True)
+        
+        if winner_num not in [1, 2]:
+            return await interaction.response.send_message("❌ Winner must be 1 or 2!", ephemeral=True)
         
         if won < 0 or lost < 0:
             return await interaction.response.send_message("❌ Rounds cannot be negative!", ephemeral=True)
         
         if won <= lost:
-            return await interaction.response.send_message("❌ Winner must have more rounds won!", ephemeral=True)
+            return await interaction.response.send_message("❌ Winner must have more rounds!", ephemeral=True)
+        
+        winner_id = self.player1_id if winner_num == 1 else self.player2_id
+        loser_id = self.player2_id if winner_num == 1 else self.player1_id
         
         data = load_practice_data()
         
-        # Find and update session
         session = None
         for s in data["sessions"]:
             if s["id"] == self.session_id:
@@ -13293,59 +13449,77 @@ class PracticeScoreModal(discord.ui.Modal, title="📊 Enter Match Score"):
         if not session:
             return await interaction.response.send_message("❌ Session not found!", ephemeral=True)
         
-        if session["status"] != "active":
-            return await interaction.response.send_message("❌ This session has already been completed!", ephemeral=True)
+        if session.get("result_confirmed"):
+            return await interaction.response.send_message("❌ Result already confirmed!", ephemeral=True)
         
         # Update session
         session["status"] = "completed"
-        session["winner"] = str(self.winner_id)
-        session["loser"] = str(self.loser_id)
+        session["winner"] = str(winner_id)
+        session["loser"] = str(loser_id)
         session["rounds_won"] = won
         session["rounds_lost"] = lost
         session["completed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        session["confirmed_by"] = str(interaction.user.id)
+        session["submitted_by"] = str(interaction.user.id)
+        session["result_confirmed"] = True
         
         # Update stats
-        winner_id = str(self.winner_id)
-        loser_id = str(self.loser_id)
+        w_id = str(winner_id)
+        l_id = str(loser_id)
         
-        if winner_id not in data["stats"]:
-            data["stats"][winner_id] = {"wins": 0, "losses": 0, "rounds_won": 0, "rounds_lost": 0, "sessions": 0}
-        if loser_id not in data["stats"]:
-            data["stats"][loser_id] = {"wins": 0, "losses": 0, "rounds_won": 0, "rounds_lost": 0, "sessions": 0}
+        if w_id not in data["stats"]:
+            data["stats"][w_id] = {"wins": 0, "losses": 0, "rounds_won": 0, "rounds_lost": 0, "sessions": 0}
+        if l_id not in data["stats"]:
+            data["stats"][l_id] = {"wins": 0, "losses": 0, "rounds_won": 0, "rounds_lost": 0, "sessions": 0}
         
-        data["stats"][winner_id]["wins"] += 1
-        data["stats"][winner_id]["rounds_won"] += won
-        data["stats"][winner_id]["rounds_lost"] += lost
-        data["stats"][winner_id]["sessions"] += 1
+        data["stats"][w_id]["wins"] += 1
+        data["stats"][w_id]["rounds_won"] += won
+        data["stats"][w_id]["rounds_lost"] += lost
+        data["stats"][w_id]["sessions"] += 1
         
-        data["stats"][loser_id]["losses"] += 1
-        data["stats"][loser_id]["rounds_won"] += lost
-        data["stats"][loser_id]["rounds_lost"] += won
-        data["stats"][loser_id]["sessions"] += 1
+        data["stats"][l_id]["losses"] += 1
+        data["stats"][l_id]["rounds_won"] += lost
+        data["stats"][l_id]["rounds_lost"] += won
+        data["stats"][l_id]["sessions"] += 1
         
         save_practice_data(data)
         
-        winner = interaction.guild.get_member(self.winner_id)
-        loser = interaction.guild.get_member(self.loser_id)
+        winner = interaction.guild.get_member(winner_id)
+        loser = interaction.guild.get_member(loser_id)
+        
+        # Calculate match duration
+        try:
+            created = datetime.datetime.fromisoformat(session["created_at"].replace('Z', '+00:00'))
+            elapsed = datetime.datetime.now(datetime.timezone.utc) - created
+            duration = f"{int(elapsed.total_seconds() / 60)}m {int(elapsed.total_seconds() % 60)}s"
+        except:
+            duration = "Unknown"
         
         result_embed = discord.Embed(
-            title="🏆 Practice Match Complete!",
+            title="🏆 Match Complete!",
             color=0x2ecc71
         )
         result_embed.add_field(name="🥇 Winner", value=winner.mention if winner else "Unknown", inline=True)
         result_embed.add_field(name="🥈 Loser", value=loser.mention if loser else "Unknown", inline=True)
         result_embed.add_field(name="📊 Score", value=f"**{won}** - {lost}", inline=True)
-        result_embed.add_field(name="✅ Confirmed By", value=interaction.user.mention, inline=True)
-        result_embed.set_footer(text="Don't forget to rate your partner!")
+        result_embed.add_field(name="⏱️ Duration", value=duration, inline=True)
+        result_embed.add_field(name="📝 Submitted By", value=interaction.user.mention, inline=True)
+        result_embed.add_field(
+            name="⭐ Rate Your Partner",
+            value="Click the **Rate Partner** button to rate your opponent!",
+            inline=False
+        )
+        result_embed.set_footer(text="Channel will auto-close once both players have rated (or click Skip Rating)")
         
         await interaction.response.send_message(embed=result_embed)
+        
+        # Check if should auto-close (both rated or skipped)
+        await check_practice_auto_close(interaction.channel, self.session_id, data)
 
 
 class PracticeRatingModal(discord.ui.Modal, title="⭐ Rate Your Partner"):
     rating = discord.ui.TextInput(
         label="Rating (1-5 stars)",
-        placeholder="Enter a number 1-5",
+        placeholder="Enter 1, 2, 3, 4, or 5",
         style=discord.TextStyle.short,
         required=True,
         min_length=1,
@@ -13354,16 +13528,17 @@ class PracticeRatingModal(discord.ui.Modal, title="⭐ Rate Your Partner"):
     
     feedback = discord.ui.TextInput(
         label="Feedback (Optional)",
-        placeholder="How was your practice session?",
+        placeholder="How was your practice session? Good sportsmanship? Helpful?",
         style=discord.TextStyle.paragraph,
         required=False,
         max_length=200
     )
     
-    def __init__(self, session_id: str, rated_user_id: int):
+    def __init__(self, session_id: str, rated_user_id: int, rater_id: int):
         super().__init__()
         self.session_id = session_id
         self.rated_user_id = rated_user_id
+        self.rater_id = rater_id
     
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -13372,11 +13547,10 @@ class PracticeRatingModal(discord.ui.Modal, title="⭐ Rate Your Partner"):
             return await interaction.response.send_message("❌ Please enter a number 1-5!", ephemeral=True)
         
         if rating_val < 1 or rating_val > 5:
-            return await interaction.response.send_message("❌ Rating must be between 1 and 5!", ephemeral=True)
+            return await interaction.response.send_message("❌ Rating must be 1-5!", ephemeral=True)
         
         data = load_practice_data()
         
-        # Find session
         session = None
         for s in data["sessions"]:
             if s["id"] == self.session_id:
@@ -13386,18 +13560,17 @@ class PracticeRatingModal(discord.ui.Modal, title="⭐ Rate Your Partner"):
         if not session:
             return await interaction.response.send_message("❌ Session not found!", ephemeral=True)
         
-        # Check if already rated
         if "ratings" not in session:
             session["ratings"] = {}
         
-        if str(interaction.user.id) in session["ratings"]:
-            return await interaction.response.send_message("❌ You've already rated this session!", ephemeral=True)
+        if str(self.rater_id) in session["ratings"]:
+            return await interaction.response.send_message("❌ You've already rated!", ephemeral=True)
         
         # Save rating
-        session["ratings"][str(interaction.user.id)] = {
+        session["ratings"][str(self.rater_id)] = {
             "rated_user": str(self.rated_user_id),
             "rating": rating_val,
-            "feedback": self.feedback.value if self.feedback.value else "",
+            "feedback": self.feedback.value or "",
             "rated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
         
@@ -13410,7 +13583,7 @@ class PracticeRatingModal(discord.ui.Modal, title="⭐ Rate Your Partner"):
         data["ratings"][rated_id]["count"] += 1
         if self.feedback.value:
             data["ratings"][rated_id]["feedback"].append({
-                "from": str(interaction.user.id),
+                "from": str(self.rater_id),
                 "rating": rating_val,
                 "feedback": self.feedback.value[:200]
             })
@@ -13420,11 +13593,73 @@ class PracticeRatingModal(discord.ui.Modal, title="⭐ Rate Your Partner"):
         stars = "⭐" * rating_val + "☆" * (5 - rating_val)
         rated_user = interaction.guild.get_member(self.rated_user_id)
         
+        # Notify the rated user via DM
+        if rated_user:
+            try:
+                dm_embed = discord.Embed(
+                    title="⭐ You Received a Rating!",
+                    description=f"**{interaction.user.display_name}** rated you after your practice match!",
+                    color=0xf1c40f
+                )
+                dm_embed.add_field(name="Rating", value=stars, inline=True)
+                if self.feedback.value:
+                    dm_embed.add_field(name="Feedback", value=self.feedback.value, inline=False)
+                dm_embed.set_footer(text="Keep up the good sportsmanship!")
+                
+                await rated_user.send(embed=dm_embed)
+            except:
+                pass
+        
         await interaction.response.send_message(
-            f"✅ You rated {rated_user.mention if rated_user else 'your partner'} {stars}\n"
-            f"{f'**Feedback:** {self.feedback.value}' if self.feedback.value else ''}",
+            f"✅ You rated {rated_user.mention if rated_user else 'your partner'} {stars}",
             ephemeral=True
         )
+        
+        # Post in channel
+        channel_embed = discord.Embed(
+            title="⭐ Rating Submitted",
+            description=f"{interaction.user.mention} rated their partner {stars}",
+            color=0xf1c40f
+        )
+        await interaction.channel.send(embed=channel_embed)
+        
+        # Check if should auto-close
+        await check_practice_auto_close(interaction.channel, self.session_id, data)
+
+
+async def check_practice_auto_close(channel, session_id, data):
+    """Check if practice channel should auto-close (result confirmed + both rated or timeout)"""
+    session = None
+    for s in data["sessions"]:
+        if s["id"] == session_id:
+            session = s
+            break
+    
+    if not session:
+        return
+    
+    # Check if result confirmed
+    if not session.get("result_confirmed"):
+        return
+    
+    # Check if both players rated
+    ratings = session.get("ratings", {})
+    if len(ratings) >= 2:
+        # Both rated, auto-close
+        await asyncio.sleep(3)
+        
+        close_embed = discord.Embed(
+            title="✅ Practice Complete!",
+            description="Both players have rated. Channel closing in 10 seconds...",
+            color=0x2ecc71
+        )
+        await channel.send(embed=close_embed)
+        
+        await asyncio.sleep(10)
+        try:
+            await channel.delete()
+        except:
+            pass
 
 
 @bot.hybrid_command(name="practice_stats", description="View your practice statistics")
@@ -13480,20 +13715,285 @@ async def setup_practice(ctx):
         description=(
             "Looking for a sparring partner? Join the queue!\n\n"
             "**How it works:**\n"
-            "1️⃣ Click **Join Queue** below\n"
-            "2️⃣ Optionally provide your private server link\n"
-            "3️⃣ Get matched with someone near your skill level\n"
-            "4️⃣ Practice and log your results!\n\n"
-            "**After Practice:**\n"
-            "• Log results: `!practice_log <session_id> @winner <wins> <losses>`\n"
-            "• Rate partner: `!practice_rate <session_id> @partner <1-5>`\n"
-            "• View stats: `/practice_stats`"
+            "1️⃣ Click **Join Queue** to enter the queue\n"
+            "2️⃣ Wait for a match OR click **Challenge** to pick someone\n"
+            "3️⃣ A private channel will be created for your match\n"
+            "4️⃣ Post your server link & play your set\n"
+            "5️⃣ Post proof and submit results!\n\n"
+            "**Features:**\n"
+            "• ⚔️ Direct challenge other players\n"
+            "• ⏱️ See wait times in queue\n"
+            "• ⭐ Rate your partner after matches\n"
+            "• 📊 Track your practice stats with `/practice_stats`"
         ),
         color=0x3498db
     )
     embed.set_footer(text="✝ The Fallen Practice System ✝")
     
     await ctx.send(embed=embed, view=PracticeQueueView())
+    await ctx.message.delete()
+
+
+# ==========================================
+# ATTENDANCE LOGGING PANEL (Efficient Staff Tool)
+# ==========================================
+
+class AttendanceLoggingView(discord.ui.View):
+    """Staff panel for efficiently logging attendance"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="📚 Log Training", style=discord.ButtonStyle.success, custom_id="attendance_log_training", row=0)
+    async def log_training_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await interaction.response.send_message(
+            "**📚 Log Training Attendance**\n\n"
+            "Select members who attended (up to 25 at a time).\n"
+            "You can run this multiple times for large trainings.",
+            view=AttendanceMemberSelectView("training", interaction.user.id),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="🎯 Log Tryout", style=discord.ButtonStyle.primary, custom_id="attendance_log_tryout", row=0)
+    async def log_tryout_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await interaction.response.send_message(
+            "**🎯 Log Tryout Attendance**\n\n"
+            "Select members who attended (up to 25 at a time).\n"
+            "You can run this multiple times for large tryouts.",
+            view=AttendanceMemberSelectView("tryout", interaction.user.id),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="📊 Quick Stats", style=discord.ButtonStyle.secondary, custom_id="attendance_quick_stats", row=0)
+    async def quick_stats_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        # Show today's logging stats
+        embed = discord.Embed(
+            title="📊 Attendance Quick Stats",
+            color=0x3498db
+        )
+        
+        # Get global stats
+        total_members = len([m for m in interaction.guild.members if not m.bot])
+        
+        embed.add_field(name="👥 Total Members", value=str(total_members), inline=True)
+        embed.add_field(name="📚 Training Reward", value="100 coins + 50 XP", inline=True)
+        embed.add_field(name="🎯 Tryout Reward", value="150 coins + 75 XP", inline=True)
+        embed.add_field(name="👑 Host Reward", value="300 coins + 100 XP", inline=True)
+        
+        embed.add_field(
+            name="🔥 Streak Bonuses",
+            value="3: +50 | 5: +100 | 7: +200 | 10: +500",
+            inline=False
+        )
+        
+        embed.set_footer(text="Use the buttons above to log attendance!")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class AttendanceMemberSelectView(discord.ui.View):
+    """View with member select dropdown for attendance logging"""
+    def __init__(self, event_type: str, staff_id: int):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.event_type = event_type
+        self.staff_id = staff_id
+        self.selected_members = []
+        
+        # Add the user select
+        self.member_select = discord.ui.UserSelect(
+            placeholder="Select attendees...",
+            min_values=1,
+            max_values=25,
+            row=0
+        )
+        self.member_select.callback = self.member_select_callback
+        self.add_item(self.member_select)
+    
+    async def member_select_callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.staff_id:
+            return await interaction.response.send_message("❌ Not your panel!", ephemeral=True)
+        
+        self.selected_members = list(self.member_select.values)
+        
+        # Show confirmation
+        member_names = [m.display_name for m in self.selected_members[:10]]
+        preview = ", ".join(member_names)
+        if len(self.selected_members) > 10:
+            preview += f" +{len(self.selected_members) - 10} more"
+        
+        await interaction.response.edit_message(
+            content=(
+                f"**{'📚 Training' if self.event_type == 'training' else '🎯 Tryout'} Attendance**\n\n"
+                f"**Selected ({len(self.selected_members)}):** {preview}\n\n"
+                f"Click **✅ Confirm** to log attendance, or select different members."
+            ),
+            view=self
+        )
+    
+    @discord.ui.button(label="✅ Confirm & Log", style=discord.ButtonStyle.success, row=1)
+    async def confirm_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.staff_id:
+            return await interaction.response.send_message("❌ Not your panel!", ephemeral=True)
+        
+        if not self.selected_members:
+            return await interaction.response.send_message("❌ Select at least one member first!", ephemeral=True)
+        
+        await interaction.response.edit_message(
+            content=f"⏳ Logging {len(self.selected_members)} attendees... Please wait.",
+            view=None
+        )
+        
+        # Process attendance with rate limiting
+        await process_attendance_batch(
+            interaction, 
+            self.selected_members, 
+            self.event_type,
+            interaction.user
+        )
+    
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, row=1)
+    async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.staff_id:
+            return await interaction.response.send_message("❌ Not your panel!", ephemeral=True)
+        
+        await interaction.response.edit_message(content="❌ Cancelled.", view=None)
+
+
+async def process_attendance_batch(interaction, members: list, event_type: str, host):
+    """Process attendance for a batch of members with rate limiting"""
+    rewards = ATTENDANCE_REWARDS.get(event_type, ATTENDANCE_REWARDS["training"])
+    
+    streak_bonuses = []
+    role_rewards = []
+    processed = 0
+    
+    # Process in batches with delays
+    batch_size = 5
+    for i in range(0, len(members), batch_size):
+        batch = members[i:i + batch_size]
+        
+        for m in batch:
+            if m.bot:
+                continue
+                
+            # Add rewards
+            add_user_stat(m.id, "coins", rewards["coins"])
+            add_xp_to_user(m.id, rewards["xp"])
+            
+            if event_type == "training":
+                add_user_stat(m.id, "training_attendance", 1)
+            else:
+                add_user_stat(m.id, "tryout_attendance", 1)
+            
+            # Reset activity
+            reset_member_activity(m.id)
+            
+            # Update streak
+            streak = update_attendance_streak(m.id)
+            bonus = get_streak_bonus(streak)
+            if bonus > 0:
+                add_user_stat(m.id, "coins", bonus)
+                if len(streak_bonuses) < 5:
+                    streak_bonuses.append(f"🔥 {m.display_name}: {streak} streak (+{bonus})")
+            
+            # Check for attendance role rewards (with rate limiting)
+            try:
+                new_roles = await check_attendance_roles(m, interaction.guild)
+                if new_roles and len(role_rewards) < 5:
+                    role_rewards.append(f"🎖️ {m.display_name}: **{new_roles[0]}**")
+                await asyncio.sleep(0.3)  # Rate limit protection for role changes
+            except:
+                pass
+            
+            # Check for streak role rewards
+            try:
+                streak_roles = await check_streak_roles(m, interaction.guild, streak)
+                if streak_roles and len(role_rewards) < 5:
+                    role_rewards.append(f"🔥 {m.display_name}: **{streak_roles[0]}**")
+            except:
+                pass
+            
+            # Level up check
+            await check_level_up(m.id, interaction.guild)
+            
+            processed += 1
+        
+        # Delay between batches
+        if i + batch_size < len(members):
+            await asyncio.sleep(1)  # 1 second between batches
+    
+    # Host rewards
+    host_rewards = ATTENDANCE_REWARDS["host"]
+    add_user_stat(host.id, "coins", host_rewards["coins"])
+    add_xp_to_user(host.id, host_rewards["xp"])
+    add_user_stat(host.id, "events_hosted", 1)
+    reset_member_activity(host.id)
+    
+    # Build result embed
+    attendee_names = [m.display_name for m in members[:15] if not m.bot]
+    attendee_list = ", ".join(attendee_names)
+    if len(members) > 15:
+        attendee_list += f" +{len(members) - 15} more"
+    
+    title = "📚 Training Attendance Logged" if event_type == "training" else "🎯 Tryout Attendance Logged"
+    
+    embed = discord.Embed(
+        title=title,
+        description=f"**{processed} attendees** rewarded!",
+        color=0x2ecc71
+    )
+    embed.add_field(name="👥 Attendees", value=attendee_list, inline=False)
+    embed.add_field(name="💰 Each Received", value=f"{rewards['coins']} coins + {rewards['xp']} XP", inline=True)
+    embed.add_field(name="👑 Host Received", value=f"{host_rewards['coins']} coins + {host_rewards['xp']} XP", inline=True)
+    
+    if streak_bonuses:
+        embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_bonuses), inline=False)
+    
+    if role_rewards:
+        embed.add_field(name="🎉 Role Rewards Earned!", value="\n".join(role_rewards), inline=False)
+    
+    embed.set_footer(text=f"Logged by {host.display_name}")
+    
+    # Send to channel (not ephemeral) so everyone can see
+    await interaction.channel.send(embed=embed)
+    
+    # Update the ephemeral message
+    await interaction.edit_original_response(
+        content=f"✅ Successfully logged {processed} attendees!"
+    )
+
+
+@bot.command(name="setup_attendance")
+@commands.has_permissions(administrator=True)
+async def setup_attendance_panel(ctx):
+    """Setup the attendance logging panel for staff"""
+    embed = discord.Embed(
+        title="📋 Staff Attendance Logger",
+        description=(
+            "Use this panel to efficiently log training & tryout attendance!\n\n"
+            "**How to use:**\n"
+            "1️⃣ Click **Log Training** or **Log Tryout**\n"
+            "2️⃣ Select members from the dropdown (up to 25)\n"
+            "3️⃣ Click **Confirm** to reward them\n\n"
+            "**Rewards:**\n"
+            "• 📚 Training: 100 coins + 50 XP\n"
+            "• 🎯 Tryout: 150 coins + 75 XP\n"
+            "• 👑 Host: 300 coins + 100 XP\n\n"
+            "**Streak Bonuses:** 3→+50 | 5→+100 | 7→+200 | 10→+500"
+        ),
+        color=0x8B0000
+    )
+    embed.set_footer(text="✝ The Fallen Staff Tools ✝")
+    
+    await ctx.send(embed=embed, view=AttendanceLoggingView())
     await ctx.message.delete()
 
 
