@@ -6031,7 +6031,7 @@ class HelpSelect(discord.ui.Select):
             discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
             discord.SelectOption(label="Events", emoji="📅", description="Trainings & tryouts"),
             discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
-            discord.SelectOption(label="Practice", emoji="🎯", description="Practice matchmaking"),
+            discord.SelectOption(label="Spar Finder", emoji="⚔️", description="Tier-based spar matchmaking"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
             discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
             discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
@@ -6104,29 +6104,28 @@ class HelpSelect(discord.ui.Select):
                 "*Win duels to climb!*"
             )
         
-        elif self.values[0] == "Practice":
-            e.title="🎯 Practice Matchmaking"
+        elif self.values[0] == "Spar Finder":
+            e.title="⚔️ Spar Finder"
             e.description=(
-                "**🎯 How to Practice**\n"
-                "Use the practice panel to find partners!\n\n"
+                "**⚔️ Tier-Based Matchmaking**\n"
+                "Your Stage + Rank + Strength = Your Tier\n"
+                "54 tiers total (lower = stronger)\n\n"
+                "**Match Types:**\n"
+                "⭐ Perfect (±1 tier)\n"
+                "✅ Good (±2-3 tiers)\n"
+                "⚠️ Fair (±4-6 tiers)\n\n"
                 "**📋 Panel Buttons**\n"
-                "• **Join Queue** - Enter matchmaking\n"
-                "• **View Queue** - See who's waiting\n"
-                "• **Challenge** - Pick someone directly\n"
-                "• **Leave Queue** - Exit the queue\n\n"
-                "**🎮 In Your Match Channel**\n"
-                "• Post your private server link\n"
-                "• Play your set (e.g., FT5)\n"
-                "• Post proof (screenshot/video)\n"
-                "• Click **Submit Result** to log score\n"
-                "• **Rate Partner** after the match\n\n"
+                "• **🎯 Find Spar** - Join queue\n"
+                "• **📋 View Queue** - See who's waiting\n"
+                "• **🔍 Find Match** - Auto-find opponents\n"
+                "• **⚔️ Challenge** - Pick directly\n\n"
+                "**🎮 In Match Channel**\n"
+                "• Post private server link\n"
+                "• Play your set (FT5, FT10, etc.)\n"
+                "• Post proof & submit result\n"
+                "• Rate your partner!\n\n"
                 "**📊 Commands**\n"
-                "`/practice_stats` - View your stats\n"
-                "`/practice_stats @user` - View someone's\n\n"
-                "**⭐ Rating System**\n"
-                "Rate partners 1-5 stars after matches!\n"
-                "Your rating is shown to future opponents.\n"
-                "You'll receive a DM with your rating!"
+                "`/practice_stats` - View your stats"
             )
         
         elif self.values[0] == "Tournaments":
@@ -6241,30 +6240,24 @@ class HelpSelect(discord.ui.Select):
         elif self.values[0] == "Staff": 
             e.title="🛡️ Staff Commands"
             e.description=(
-                "**📅 Attendance Logging**\n"
-                "Use the **Attendance Panel** (easiest!):\n"
-                "`!setup_attendance` creates staff panel\n"
-                "Or use commands:\n"
-                "`/log_training @users` (up to 10)\n"
-                "`/log_tryout @users` (up to 10)\n\n"
+                "**📢 Activity Checks**\n"
+                "`!activitycheck [duration] [msg]`\n"
+                "`!activitystats` `!checkparticipation @user`\n\n"
+                "**🎉 Giveaways**\n"
+                "`!giveaway <duration> <winners> <prize>`\n"
+                "`!giveaway_req <dur> <win> <lvl> <prize>`\n\n"
+                "**📅 Attendance Panel**\n"
+                "`!setup_attendance` - Staff panel\n\n"
                 "**📅 Events** (prefix: `!`)\n"
                 "`!event_create <type> <title> <mins> [link]`\n"
                 "`!event_schedule <type> <title> <hr> [link]`\n\n"
-                "**🔁 Recurring Events**\n"
-                "`/event recurring_add` - Weekly event\n"
-                "`/event recurring_list` - View all\n\n"
                 "**📊 Levels & Economy**\n"
                 "`!addxp` `!removexp` `!setlevel`\n"
                 "`!addfcoins` `!removefcoins`\n\n"
-                "**🎯 Practice** (in match channels)\n"
-                "Use buttons to submit results!\n\n"
                 "**🛡️ Inactivity**\n"
-                "`!inactivity_check` `!inactivity_strikes`\n"
-                "`!immunity_add` `!immunity_remove`\n\n"
+                "`!inactivity_check` `!inactivity_strikes`\n\n"
                 "**📜 Transcripts**\n"
                 "`!transcript <id>` `!transcripts`\n\n"
-                "**🔍 Alt Detection**\n"
-                "`!altcheck @user` `!altflags`\n\n"
                 "**🔨 Moderation**\n"
                 "`/warn` `/warnings` `!promote` `!demote`"
             )
@@ -6278,15 +6271,12 @@ class HelpSelect(discord.ui.Select):
                 "`!setup_practice` `!setup_attendance`\n"
                 "`!setup_staffpanel` `!setup_applications`\n"
                 "`!setup_modlog`\n\n"
-                "**🤖 Auto-Moderation**\n"
-                "`!automod` - View settings\n"
-                "`!automod_toggle <setting>` - Toggle\n"
-                "`!allowdomain <domain>` - Allow a domain\n\n"
                 "**📊 Management**\n"
                 "`!archive_old_apps <days>` - Archive old apps\n"
                 "`!db_status` - Database status\n\n"
                 "**⚙️ Sync**\n"
-                "`!sync` `!clearsync`"
+                "`!sync` `!clearsync`\n\n"
+                "**💡 Tip:** Use Wick bot for auto-moderation!"
             )
         
         e.set_footer(text="The Fallen Bot • / = slash • ! = prefix")
@@ -7860,7 +7850,10 @@ class PersistentBot(commands.Bot):
         self.add_view(PracticeQueueView())
         self.add_view(AttendanceLoggingView())
         self.add_view(StaffQuickActionsView())
-        self.add_view(AutoModPanelView())
+        self.add_view(ActivityCheckView())
+        self.add_view(ActivityCheckControlView())
+        self.add_view(GiveawayView())
+        self.add_view(GiveawayControlView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -9067,30 +9060,6 @@ async def on_member_join(member):
 @bot.event
 async def on_message(message):
     if not message.author.bot and message.guild:
-        # === AUTO-MODERATION ===
-        if not is_exempt_from_automod(message.author):
-            settings = load_automod_settings()
-            
-            # Check for forbidden links
-            if settings.get("link_filter", True):
-                has_forbidden, url = contains_forbidden_link(message.content)
-                if has_forbidden:
-                    await handle_automod_violation(message, "forbidden_link", url)
-                    return  # Don't process further
-            
-            # Check for spam
-            if settings.get("spam_filter", True):
-                is_spam, spam_type = check_spam(message.author.id, message.content)
-                if is_spam:
-                    await handle_automod_violation(message, spam_type)
-                    return
-            
-            # Check for mention spam
-            if settings.get("mention_spam_filter", True):
-                if check_mention_spam(message):
-                    await handle_automod_violation(message, "mention_spam")
-                    return
-        
         # === XP & ACTIVITY ===
         # Check cooldown before giving XP
         if check_xp_cooldown(message.author.id, "message"):
@@ -14235,6 +14204,797 @@ async def setup_practice(ctx):
 
 
 # ==========================================
+# ACTIVITY CHECK SYSTEM
+# ==========================================
+
+ACTIVITY_CHECK_FILE = "activity_checks.json"
+
+def load_activity_checks():
+    """Load activity check data"""
+    try:
+        with open(ACTIVITY_CHECK_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"checks": [], "current": None}
+
+def save_activity_checks(data):
+    """Save activity check data"""
+    with open(ACTIVITY_CHECK_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+class ActivityCheckView(discord.ui.View):
+    """View for activity check responses"""
+    def __init__(self, check_id: str = None):
+        super().__init__(timeout=None)
+        self.check_id = check_id
+    
+    @discord.ui.button(label="✅ I'm Active!", style=discord.ButtonStyle.success, custom_id="activity_check_respond")
+    async def respond_active(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = load_activity_checks()
+        
+        # Get current check or find by ID
+        check_id = self.check_id or data.get("current")
+        if not check_id:
+            return await interaction.response.send_message("❌ No active activity check!", ephemeral=True)
+        
+        # Find check
+        check = None
+        for c in data["checks"]:
+            if c["id"] == check_id:
+                check = c
+                break
+        
+        if not check:
+            return await interaction.response.send_message("❌ This activity check has expired!", ephemeral=True)
+        
+        if check.get("ended"):
+            return await interaction.response.send_message("❌ This activity check has ended!", ephemeral=True)
+        
+        user_id = str(interaction.user.id)
+        
+        # Check if already responded
+        if user_id in check.get("responses", []):
+            return await interaction.response.send_message("✅ You've already checked in!", ephemeral=True)
+        
+        # Add response
+        if "responses" not in check:
+            check["responses"] = []
+        check["responses"].append(user_id)
+        
+        # Record response time
+        if "response_times" not in check:
+            check["response_times"] = {}
+        check["response_times"][user_id] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        
+        save_activity_checks(data)
+        
+        # Update user's last_active
+        update_user_data(interaction.user.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
+        
+        # Give small reward for checking in
+        add_coins(interaction.user.id, 25)
+        add_xp_to_user(interaction.user.id, 15)
+        
+        response_count = len(check["responses"])
+        
+        await interaction.response.send_message(
+            f"✅ **Activity Confirmed!**\n"
+            f"Thanks for checking in, {interaction.user.mention}!\n"
+            f"+25 coins, +15 XP\n\n"
+            f"You are response #{response_count}!",
+            ephemeral=True
+        )
+
+
+class ActivityCheckControlView(discord.ui.View):
+    """Staff controls for activity check"""
+    def __init__(self, check_id: str = None):
+        super().__init__(timeout=None)
+        self.check_id = check_id
+    
+    @discord.ui.button(label="📊 View Results", style=discord.ButtonStyle.primary, custom_id="activity_check_results")
+    async def view_results(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_activity_checks()
+        check_id = self.check_id or data.get("current")
+        
+        check = None
+        for c in data["checks"]:
+            if c["id"] == check_id:
+                check = c
+                break
+        
+        if not check:
+            return await interaction.response.send_message("❌ Check not found!", ephemeral=True)
+        
+        responses = check.get("responses", [])
+        
+        embed = discord.Embed(
+            title="📊 Activity Check Results",
+            color=0x2ecc71
+        )
+        
+        embed.add_field(name="✅ Responses", value=str(len(responses)), inline=True)
+        embed.add_field(name="🆔 Check ID", value=f"`{check_id}`", inline=True)
+        
+        # Show recent responders
+        if responses:
+            recent = responses[-10:]  # Last 10
+            names = []
+            for uid in recent:
+                member = interaction.guild.get_member(int(uid))
+                if member:
+                    names.append(member.display_name)
+            if names:
+                embed.add_field(name="Recent Check-ins", value="\n".join(names), inline=False)
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="🛑 End Check", style=discord.ButtonStyle.danger, custom_id="activity_check_end")
+    async def end_check(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_activity_checks()
+        check_id = self.check_id or data.get("current")
+        
+        check = None
+        for c in data["checks"]:
+            if c["id"] == check_id:
+                check = c
+                break
+        
+        if not check:
+            return await interaction.response.send_message("❌ Check not found!", ephemeral=True)
+        
+        if check.get("ended"):
+            return await interaction.response.send_message("❌ Already ended!", ephemeral=True)
+        
+        check["ended"] = True
+        check["ended_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        check["ended_by"] = str(interaction.user.id)
+        data["current"] = None
+        save_activity_checks(data)
+        
+        responses = check.get("responses", [])
+        
+        # Find who didn't respond
+        all_members = [m for m in interaction.guild.members if not m.bot]
+        responded_ids = set(responses)
+        not_responded = [m for m in all_members if str(m.id) not in responded_ids]
+        
+        # Create results embed
+        results_embed = discord.Embed(
+            title="📊 Activity Check Ended",
+            description=f"Ended by {interaction.user.mention}",
+            color=0xe74c3c,
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        
+        total_members = len(all_members)
+        results_embed.add_field(name="✅ Responded", value=str(len(responses)), inline=True)
+        results_embed.add_field(name="❌ No Response", value=str(len(not_responded)), inline=True)
+        rate = (len(responses)/total_members*100) if total_members > 0 else 0
+        results_embed.add_field(name="📈 Response Rate", value=f"{rate:.1f}%", inline=True)
+        
+        # Update original message
+        try:
+            original_embed = interaction.message.embeds[0] if interaction.message.embeds else None
+            if original_embed:
+                original_embed.color = 0x95a5a6
+                original_embed.set_footer(text=f"✝ Ended • {len(responses)} responses ✝")
+            await interaction.message.edit(embed=original_embed, view=None)
+        except:
+            pass
+        
+        await interaction.response.send_message(embed=results_embed)
+    
+    @discord.ui.button(label="📋 Export No-Shows", style=discord.ButtonStyle.secondary, custom_id="activity_check_export")
+    async def export_noshows(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        data = load_activity_checks()
+        check_id = self.check_id or data.get("current")
+        
+        check = None
+        for c in data["checks"]:
+            if c["id"] == check_id:
+                check = c
+                break
+        
+        if not check:
+            return await interaction.followup.send("❌ Check not found!", ephemeral=True)
+        
+        responses = set(check.get("responses", []))
+        
+        # Find who didn't respond (exclude bots and staff optionally)
+        all_members = [m for m in interaction.guild.members if not m.bot]
+        not_responded = [m for m in all_members if str(m.id) not in responses]
+        
+        if not not_responded:
+            return await interaction.followup.send("✅ Everyone responded!", ephemeral=True)
+        
+        # Create embed with no-shows
+        embed = discord.Embed(
+            title="❌ Members Who Didn't Respond",
+            description=f"**{len(not_responded)}** members didn't check in",
+            color=0xe74c3c
+        )
+        
+        # Group by role/stage if possible
+        no_show_names = []
+        for member in not_responded[:50]:  # Limit to 50
+            # Get their stage
+            stage = "?"
+            for role in member.roles:
+                if "Stage" in role.name:
+                    stage = role.name.split("〢")[0] if "〢" in role.name else role.name
+                    break
+            no_show_names.append(f"• {member.display_name} ({stage})")
+        
+        # Split into chunks if needed
+        chunk = "\n".join(no_show_names[:25])
+        embed.add_field(name="No-Shows (1-25)", value=chunk or "None", inline=False)
+        
+        if len(no_show_names) > 25:
+            chunk2 = "\n".join(no_show_names[25:50])
+            embed.add_field(name="No-Shows (26-50)", value=chunk2, inline=False)
+        
+        if len(not_responded) > 50:
+            embed.set_footer(text=f"Showing 50 of {len(not_responded)} no-shows")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@bot.command(name="activitycheck")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def start_activity_check(ctx, duration: str = "1h", *, message: str = None):
+    """
+    Start an activity check
+    Usage: !activitycheck [duration] [message]
+    Duration: 30m, 1h, 2h, 6h, 12h, 24h
+    """
+    # Parse duration
+    duration_map = {
+        "30m": 30, "1h": 60, "2h": 120, "3h": 180,
+        "6h": 360, "12h": 720, "24h": 1440
+    }
+    
+    minutes = duration_map.get(duration.lower(), 60)
+    
+    data = load_activity_checks()
+    
+    # Check if there's already an active check
+    if data.get("current"):
+        return await ctx.send("❌ There's already an active activity check! End it first with the 🛑 button.")
+    
+    # Create check
+    check_id = f"ac_{int(datetime.datetime.now().timestamp())}"
+    end_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
+    
+    check_data = {
+        "id": check_id,
+        "started_by": str(ctx.author.id),
+        "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "ends_at": end_time.isoformat(),
+        "duration_minutes": minutes,
+        "message": message,
+        "responses": [],
+        "response_times": {},
+        "ended": False
+    }
+    
+    data["checks"].append(check_data)
+    data["current"] = check_id
+    save_activity_checks(data)
+    
+    # Create embed
+    custom_msg = message or "React to confirm you're active in The Fallen!"
+    
+    embed = discord.Embed(
+        title="📢 ACTIVITY CHECK",
+        description=(
+            f"{custom_msg}\n\n"
+            f"**Click the button below to confirm you're active!**\n\n"
+            f"⏰ **Ends:** <t:{int(end_time.timestamp())}:R>\n"
+            f"🎁 **Reward:** 25 coins + 15 XP for checking in!"
+        ),
+        color=0x2ecc71,
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    embed.set_footer(text=f"✝ The Fallen Activity Check • ID: {check_id} ✝")
+    
+    # Send with ping
+    msg = await ctx.send("@everyone", embed=embed, view=ActivityCheckView(check_id))
+    
+    # Send staff controls
+    staff_embed = discord.Embed(
+        title="🔧 Staff Controls",
+        description="Use these buttons to manage the activity check",
+        color=0x3498db
+    )
+    await ctx.send(embed=staff_embed, view=ActivityCheckControlView(check_id))
+    
+    await ctx.message.delete()
+
+
+@bot.command(name="activitystats")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def activity_check_stats(ctx):
+    """View activity check history"""
+    data = load_activity_checks()
+    
+    if not data["checks"]:
+        return await ctx.send("📊 No activity checks have been run yet!")
+    
+    embed = discord.Embed(
+        title="📊 Activity Check History",
+        color=0x3498db
+    )
+    
+    # Show last 5 checks
+    recent = data["checks"][-5:]
+    recent.reverse()
+    
+    for check in recent:
+        responses = len(check.get("responses", []))
+        status = "🟢 Active" if not check.get("ended") else "🔴 Ended"
+        
+        try:
+            started = datetime.datetime.fromisoformat(check["started_at"].replace('Z', '+00:00'))
+            date_str = started.strftime("%m/%d %H:%M")
+        except:
+            date_str = "Unknown"
+        
+        embed.add_field(
+            name=f"{status} {date_str}",
+            value=f"✅ {responses} responses\nID: `{check['id']}`",
+            inline=True
+        )
+    
+    # Current check
+    if data.get("current"):
+        embed.set_footer(text=f"Current active check: {data['current']}")
+    
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="checkparticipation")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def check_member_participation(ctx, member: discord.Member):
+    """Check how many activity checks a member has responded to"""
+    data = load_activity_checks()
+    
+    user_id = str(member.id)
+    total_checks = len([c for c in data["checks"] if c.get("ended")])
+    responded = len([c for c in data["checks"] if user_id in c.get("responses", [])])
+    
+    rate = (responded / total_checks * 100) if total_checks > 0 else 0
+    
+    embed = discord.Embed(
+        title=f"📊 {member.display_name}'s Participation",
+        color=0x3498db
+    )
+    embed.add_field(name="Activity Checks Responded", value=f"{responded}/{total_checks}", inline=True)
+    embed.add_field(name="Response Rate", value=f"{rate:.1f}%", inline=True)
+    
+    # Rating
+    if rate >= 80:
+        rating = "⭐ Excellent"
+    elif rate >= 60:
+        rating = "✅ Good"
+    elif rate >= 40:
+        rating = "⚠️ Fair"
+    else:
+        rating = "❌ Poor"
+    
+    embed.add_field(name="Rating", value=rating, inline=True)
+    embed.set_thumbnail(url=member.display_avatar.url)
+    
+    await ctx.send(embed=embed)
+
+
+# ==========================================
+# GIVEAWAY SYSTEM
+# ==========================================
+
+GIVEAWAY_FILE = "giveaways.json"
+
+def load_giveaways():
+    """Load giveaway data"""
+    try:
+        with open(GIVEAWAY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"giveaways": [], "current": []}
+
+def save_giveaways(data):
+    """Save giveaway data"""
+    with open(GIVEAWAY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+class GiveawayView(discord.ui.View):
+    """View for giveaway entries"""
+    def __init__(self, giveaway_id: str = None):
+        super().__init__(timeout=None)
+        self.giveaway_id = giveaway_id
+    
+    @discord.ui.button(label="🎉 Enter Giveaway", style=discord.ButtonStyle.success, custom_id="giveaway_enter")
+    async def enter_giveaway(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = load_giveaways()
+        
+        # Find giveaway
+        giveaway = None
+        for g in data["giveaways"]:
+            if g.get("message_id") == str(interaction.message.id) or g.get("id") == self.giveaway_id:
+                giveaway = g
+                break
+        
+        if not giveaway:
+            return await interaction.response.send_message("❌ This giveaway has ended!", ephemeral=True)
+        
+        if giveaway.get("ended"):
+            return await interaction.response.send_message("❌ This giveaway has ended!", ephemeral=True)
+        
+        user_id = str(interaction.user.id)
+        
+        # Check requirements
+        min_level = giveaway.get("min_level", 0)
+        if min_level > 0:
+            user_data = get_user_data(interaction.user.id)
+            if user_data.get("level", 1) < min_level:
+                return await interaction.response.send_message(
+                    f"❌ You need to be level {min_level}+ to enter!",
+                    ephemeral=True
+                )
+        
+        # Check if already entered
+        if user_id in giveaway.get("entries", []):
+            return await interaction.response.send_message("✅ You're already entered!", ephemeral=True)
+        
+        # Add entry
+        if "entries" not in giveaway:
+            giveaway["entries"] = []
+        giveaway["entries"].append(user_id)
+        save_giveaways(data)
+        
+        entry_count = len(giveaway["entries"])
+        
+        await interaction.response.send_message(
+            f"🎉 **You're in!**\n"
+            f"You've entered the giveaway for **{giveaway.get('prize', 'Unknown Prize')}**!\n"
+            f"Total entries: {entry_count}",
+            ephemeral=True
+        )
+        
+        # Update embed with entry count
+        try:
+            embed = interaction.message.embeds[0]
+            # Update footer with entry count
+            embed.set_footer(text=f"✝ {entry_count} entries • ID: {giveaway['id']} ✝")
+            await interaction.message.edit(embed=embed)
+        except:
+            pass
+
+
+class GiveawayControlView(discord.ui.View):
+    """Staff controls for giveaway"""
+    def __init__(self, giveaway_id: str = None):
+        super().__init__(timeout=None)
+        self.giveaway_id = giveaway_id
+    
+    @discord.ui.button(label="🏆 Draw Winner", style=discord.ButtonStyle.success, custom_id="giveaway_draw")
+    async def draw_winner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_giveaways()
+        
+        giveaway = None
+        for g in data["giveaways"]:
+            if g.get("id") == self.giveaway_id:
+                giveaway = g
+                break
+        
+        if not giveaway:
+            return await interaction.response.send_message("❌ Giveaway not found!", ephemeral=True)
+        
+        entries = giveaway.get("entries", [])
+        if not entries:
+            return await interaction.response.send_message("❌ No entries yet!", ephemeral=True)
+        
+        # Draw winners
+        num_winners = giveaway.get("winners", 1)
+        winners = random.sample(entries, min(num_winners, len(entries)))
+        
+        giveaway["ended"] = True
+        giveaway["ended_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        giveaway["winner_ids"] = winners
+        save_giveaways(data)
+        
+        # Build winner mentions
+        winner_mentions = []
+        for w_id in winners:
+            member = interaction.guild.get_member(int(w_id))
+            if member:
+                winner_mentions.append(member.mention)
+            else:
+                winner_mentions.append(f"<@{w_id}>")
+        
+        # Create winner embed
+        winner_embed = discord.Embed(
+            title="🎉 GIVEAWAY ENDED!",
+            description=f"**Prize:** {giveaway.get('prize', 'Unknown')}\n\n**Winner(s):**\n" + "\n".join(winner_mentions),
+            color=0xffd700,
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        winner_embed.add_field(name="Total Entries", value=str(len(entries)), inline=True)
+        winner_embed.set_footer(text="✝ The Fallen Giveaways ✝")
+        
+        await interaction.response.send_message(
+            f"🎉 Congratulations {', '.join(winner_mentions)}!",
+            embed=winner_embed
+        )
+        
+        # Update original giveaway message
+        try:
+            # Find the giveaway message
+            if giveaway.get("channel_id") and giveaway.get("message_id"):
+                channel = interaction.guild.get_channel(int(giveaway["channel_id"]))
+                if channel:
+                    msg = await channel.fetch_message(int(giveaway["message_id"]))
+                    embed = msg.embeds[0] if msg.embeds else None
+                    if embed:
+                        embed.color = 0x95a5a6
+                        embed.title = "🎉 GIVEAWAY ENDED"
+                        embed.add_field(name="🏆 Winner(s)", value="\n".join(winner_mentions), inline=False)
+                        await msg.edit(embed=embed, view=None)
+        except:
+            pass
+    
+    @discord.ui.button(label="🔄 Reroll", style=discord.ButtonStyle.primary, custom_id="giveaway_reroll")
+    async def reroll(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_giveaways()
+        
+        giveaway = None
+        for g in data["giveaways"]:
+            if g.get("id") == self.giveaway_id:
+                giveaway = g
+                break
+        
+        if not giveaway:
+            return await interaction.response.send_message("❌ Giveaway not found!", ephemeral=True)
+        
+        entries = giveaway.get("entries", [])
+        previous_winners = giveaway.get("winner_ids", [])
+        
+        # Remove previous winners from pool
+        available = [e for e in entries if e not in previous_winners]
+        
+        if not available:
+            return await interaction.response.send_message("❌ No more entries to reroll from!", ephemeral=True)
+        
+        # Draw new winner
+        new_winner = random.choice(available)
+        member = interaction.guild.get_member(int(new_winner))
+        
+        giveaway["winner_ids"].append(new_winner)
+        save_giveaways(data)
+        
+        await interaction.response.send_message(
+            f"🔄 **Reroll Winner:** {member.mention if member else f'<@{new_winner}>'}\n"
+            f"Congratulations! 🎉"
+        )
+    
+    @discord.ui.button(label="📊 View Entries", style=discord.ButtonStyle.secondary, custom_id="giveaway_entries")
+    async def view_entries(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_giveaways()
+        
+        giveaway = None
+        for g in data["giveaways"]:
+            if g.get("id") == self.giveaway_id:
+                giveaway = g
+                break
+        
+        if not giveaway:
+            return await interaction.response.send_message("❌ Giveaway not found!", ephemeral=True)
+        
+        entries = giveaway.get("entries", [])
+        
+        embed = discord.Embed(
+            title=f"📊 Giveaway Entries",
+            description=f"**Prize:** {giveaway.get('prize', 'Unknown')}\n**Entries:** {len(entries)}",
+            color=0x3498db
+        )
+        
+        if entries:
+            # Show last 10 entries
+            recent = entries[-10:]
+            names = []
+            for uid in recent:
+                member = interaction.guild.get_member(int(uid))
+                names.append(member.display_name if member else f"User {uid}")
+            embed.add_field(name="Recent Entries", value="\n".join(names), inline=False)
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="🗑️ Cancel", style=discord.ButtonStyle.danger, custom_id="giveaway_cancel")
+    async def cancel_giveaway(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_giveaways()
+        
+        for g in data["giveaways"]:
+            if g.get("id") == self.giveaway_id:
+                g["ended"] = True
+                g["cancelled"] = True
+                break
+        
+        save_giveaways(data)
+        
+        await interaction.response.send_message("🗑️ Giveaway cancelled!", ephemeral=True)
+        
+        # Update original message
+        try:
+            if interaction.message:
+                await interaction.message.edit(view=None)
+        except:
+            pass
+
+
+@bot.command(name="giveaway")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def start_giveaway(ctx, duration: str, winners: int, *, prize: str):
+    """
+    Start a giveaway
+    Usage: !giveaway <duration> <winners> <prize>
+    Example: !giveaway 1h 1 500 Coins
+    Example: !giveaway 24h 3 Nitro Classic
+    """
+    # Parse duration
+    duration_map = {
+        "30m": 30, "1h": 60, "2h": 120, "3h": 180,
+        "6h": 360, "12h": 720, "24h": 1440, "48h": 2880, "7d": 10080
+    }
+    
+    minutes = duration_map.get(duration.lower())
+    if not minutes:
+        return await ctx.send("❌ Invalid duration! Use: 30m, 1h, 2h, 3h, 6h, 12h, 24h, 48h, 7d")
+    
+    if winners < 1 or winners > 10:
+        return await ctx.send("❌ Winners must be between 1 and 10!")
+    
+    data = load_giveaways()
+    
+    # Create giveaway
+    giveaway_id = f"gw_{int(datetime.datetime.now().timestamp())}"
+    end_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
+    
+    giveaway_data = {
+        "id": giveaway_id,
+        "prize": prize,
+        "winners": winners,
+        "host_id": str(ctx.author.id),
+        "channel_id": str(ctx.channel.id),
+        "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "ends_at": end_time.isoformat(),
+        "duration_minutes": minutes,
+        "entries": [],
+        "ended": False
+    }
+    
+    # Create embed
+    embed = discord.Embed(
+        title="🎉 GIVEAWAY!",
+        description=(
+            f"**Prize:** {prize}\n\n"
+            f"**Click the button below to enter!**\n\n"
+            f"⏰ **Ends:** <t:{int(end_time.timestamp())}:R>\n"
+            f"🏆 **Winners:** {winners}\n"
+            f"👤 **Hosted by:** {ctx.author.mention}"
+        ),
+        color=0xffd700,
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    embed.set_footer(text=f"✝ 0 entries • ID: {giveaway_id} ✝")
+    
+    # Send giveaway message
+    msg = await ctx.send(embed=embed, view=GiveawayView(giveaway_id))
+    
+    # Update with message ID
+    giveaway_data["message_id"] = str(msg.id)
+    data["giveaways"].append(giveaway_data)
+    data["current"].append(giveaway_id)
+    save_giveaways(data)
+    
+    # Send staff controls (ephemeral-like, in same channel)
+    staff_embed = discord.Embed(
+        title="🔧 Giveaway Controls",
+        description=f"Controls for giveaway `{giveaway_id}`",
+        color=0x3498db
+    )
+    await ctx.send(embed=staff_embed, view=GiveawayControlView(giveaway_id))
+    
+    await ctx.message.delete()
+
+
+@bot.command(name="giveaway_req")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def giveaway_with_requirements(ctx, duration: str, winners: int, min_level: int, *, prize: str):
+    """
+    Start a giveaway with level requirement
+    Usage: !giveaway_req <duration> <winners> <min_level> <prize>
+    Example: !giveaway_req 24h 1 10 VIP Role
+    """
+    duration_map = {
+        "30m": 30, "1h": 60, "2h": 120, "3h": 180,
+        "6h": 360, "12h": 720, "24h": 1440, "48h": 2880, "7d": 10080
+    }
+    
+    minutes = duration_map.get(duration.lower())
+    if not minutes:
+        return await ctx.send("❌ Invalid duration!")
+    
+    data = load_giveaways()
+    
+    giveaway_id = f"gw_{int(datetime.datetime.now().timestamp())}"
+    end_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
+    
+    giveaway_data = {
+        "id": giveaway_id,
+        "prize": prize,
+        "winners": winners,
+        "min_level": min_level,
+        "host_id": str(ctx.author.id),
+        "channel_id": str(ctx.channel.id),
+        "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "ends_at": end_time.isoformat(),
+        "entries": [],
+        "ended": False
+    }
+    
+    embed = discord.Embed(
+        title="🎉 GIVEAWAY!",
+        description=(
+            f"**Prize:** {prize}\n\n"
+            f"**Click the button below to enter!**\n\n"
+            f"⏰ **Ends:** <t:{int(end_time.timestamp())}:R>\n"
+            f"🏆 **Winners:** {winners}\n"
+            f"📊 **Requirement:** Level {min_level}+\n"
+            f"👤 **Hosted by:** {ctx.author.mention}"
+        ),
+        color=0xffd700
+    )
+    embed.set_footer(text=f"✝ 0 entries • ID: {giveaway_id} ✝")
+    
+    msg = await ctx.send(embed=embed, view=GiveawayView(giveaway_id))
+    
+    giveaway_data["message_id"] = str(msg.id)
+    data["giveaways"].append(giveaway_data)
+    save_giveaways(data)
+    
+    await ctx.send(
+        embed=discord.Embed(title="🔧 Controls", color=0x3498db),
+        view=GiveawayControlView(giveaway_id)
+    )
+    await ctx.message.delete()
+
+
+# ==========================================
 # ATTENDANCE LOGGING PANEL (Efficient Staff Tool)
 # ==========================================
 
@@ -14496,282 +15256,6 @@ async def setup_attendance_panel(ctx):
     await ctx.send(embed=embed, view=AttendanceLoggingView())
     await ctx.message.delete()
 
-
-# ==========================================
-# AUTO-MODERATION SYSTEM
-# ==========================================
-
-# Auto-mod settings
-AUTOMOD_SETTINGS = {
-    "link_filter": True,
-    "spam_filter": True,
-    "caps_filter": False,  # Optional
-    "mention_spam_filter": True,
-    "duplicate_filter": True,
-    "max_mentions": 5,
-    "max_caps_percent": 70,
-    "spam_threshold": 5,  # messages in spam_interval
-    "spam_interval": 5,   # seconds
-    "duplicate_threshold": 3,  # same message count
-}
-
-# Allowed link domains (won't trigger filter)
-ALLOWED_DOMAINS = [
-    "roblox.com",
-    "ro.pro",
-    "discord.gg",
-    "discord.com",
-    "tenor.com",
-    "giphy.com",
-    "imgur.com",
-    "youtube.com",
-    "youtu.be",
-]
-
-# Roles exempt from auto-mod
-AUTOMOD_EXEMPT_ROLES = HIGH_STAFF_ROLES + [STAFF_ROLE_NAME]
-
-# Track message history for spam detection
-user_message_history = {}  # {user_id: [(timestamp, content), ...]}
-
-def load_automod_settings():
-    """Load auto-mod settings"""
-    try:
-        with open("automod_settings.json", "r") as f:
-            return json.load(f)
-    except:
-        return AUTOMOD_SETTINGS.copy()
-
-def save_automod_settings(settings):
-    """Save auto-mod settings"""
-    with open("automod_settings.json", "w") as f:
-        json.dump(settings, f, indent=2)
-
-def is_exempt_from_automod(member):
-    """Check if member is exempt from auto-moderation"""
-    if member.bot:
-        return True
-    if member.guild_permissions.administrator:
-        return True
-    for role in member.roles:
-        if role.name in AUTOMOD_EXEMPT_ROLES:
-            return True
-    return False
-
-def contains_forbidden_link(content):
-    """Check if message contains forbidden links"""
-    # URL patterns
-    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-    discord_invite = r'discord\.gg/[a-zA-Z0-9]+'
-    discord_invite2 = r'discord\.com/invite/[a-zA-Z0-9]+'
-    
-    urls = re.findall(url_pattern, content.lower())
-    urls += re.findall(discord_invite, content.lower())
-    urls += re.findall(discord_invite2, content.lower())
-    
-    for url in urls:
-        is_allowed = False
-        for domain in ALLOWED_DOMAINS:
-            if domain in url.lower():
-                is_allowed = True
-                break
-        if not is_allowed:
-            return True, url
-    
-    return False, None
-
-def check_spam(user_id, content):
-    """Check if user is spamming"""
-    now = datetime.datetime.now(datetime.timezone.utc)
-    settings = load_automod_settings()
-    
-    if user_id not in user_message_history:
-        user_message_history[user_id] = []
-    
-    # Clean old messages
-    cutoff = now - datetime.timedelta(seconds=settings.get("spam_interval", 5))
-    user_message_history[user_id] = [
-        (ts, msg) for ts, msg in user_message_history[user_id]
-        if ts > cutoff
-    ]
-    
-    # Add current message
-    user_message_history[user_id].append((now, content))
-    
-    # Check spam threshold
-    if len(user_message_history[user_id]) >= settings.get("spam_threshold", 5):
-        return True, "rapid_messages"
-    
-    # Check duplicate messages
-    recent_contents = [msg for ts, msg in user_message_history[user_id]]
-    if recent_contents.count(content) >= settings.get("duplicate_threshold", 3):
-        return True, "duplicate_messages"
-    
-    return False, None
-
-def check_mention_spam(message):
-    """Check for mention spam"""
-    settings = load_automod_settings()
-    max_mentions = settings.get("max_mentions", 5)
-    
-    total_mentions = len(message.mentions) + len(message.role_mentions)
-    if message.mention_everyone:
-        total_mentions += 100  # Heavily penalize @everyone
-    
-    return total_mentions > max_mentions
-
-async def handle_automod_violation(message, violation_type, details=None):
-    """Handle an auto-mod violation"""
-    # Delete the message
-    try:
-        await message.delete()
-    except:
-        pass
-    
-    # Determine action based on violation
-    warn_reason = ""
-    if violation_type == "forbidden_link":
-        warn_reason = f"Posted forbidden link: {details[:50]}..." if details else "Posted forbidden link"
-    elif violation_type == "rapid_messages":
-        warn_reason = "Spam detected (rapid messages)"
-    elif violation_type == "duplicate_messages":
-        warn_reason = "Spam detected (duplicate messages)"
-    elif violation_type == "mention_spam":
-        warn_reason = "Mention spam detected"
-    
-    # Add warning
-    user_data = get_user_data(message.author.id)
-    warnings = user_data.get("warnings", [])
-    warnings.append({
-        "reason": warn_reason,
-        "moderator": "Auto-Mod",
-        "moderator_id": str(message.guild.me.id),
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-    })
-    update_user_data(message.author.id, "warnings", warnings)
-    
-    # Notify user
-    try:
-        warn_embed = discord.Embed(
-            title="⚠️ Auto-Moderation Warning",
-            description=f"You have been automatically warned in **{message.guild.name}**",
-            color=0xe74c3c
-        )
-        warn_embed.add_field(name="Reason", value=warn_reason, inline=False)
-        warn_embed.add_field(name="Total Warnings", value=str(len(warnings)), inline=True)
-        warn_embed.set_footer(text="Repeated violations may result in further action")
-        
-        await message.author.send(embed=warn_embed)
-    except:
-        pass
-    
-    # Notify in channel briefly
-    try:
-        notify_msg = await message.channel.send(
-            f"⚠️ {message.author.mention} - {warn_reason}. This is warning #{len(warnings)}.",
-            delete_after=10
-        )
-    except:
-        pass
-    
-    # Log to mod log
-    await log_mod_action(message.guild, "Auto-Mod", message.author, warn_reason, message.guild.me)
-    
-    # Check for auto-punishment thresholds
-    await check_warning_thresholds(message.guild, message.author, len(warnings))
-
-async def check_warning_thresholds(guild, member, warning_count):
-    """Check if warning count triggers auto-punishment"""
-    if warning_count >= 5:
-        # Auto-kick at 5 warnings
-        try:
-            await member.send(
-                f"⛔ You have been kicked from **{guild.name}** for reaching 5 warnings.\n"
-                f"You may rejoin, but further violations will result in a ban."
-            )
-        except:
-            pass
-        
-        try:
-            await member.kick(reason=f"Auto-kick: Reached {warning_count} warnings")
-            await log_mod_action(guild, "Auto-Kick", member, f"Reached {warning_count} warnings", guild.me)
-        except:
-            pass
-    
-    elif warning_count >= 3:
-        # Auto-mute at 3 warnings (if muted role exists)
-        muted_role = discord.utils.get(guild.roles, name="Muted")
-        if muted_role and muted_role not in member.roles:
-            try:
-                await member.add_roles(muted_role, reason=f"Auto-mute: Reached {warning_count} warnings")
-                await log_mod_action(guild, "Auto-Mute", member, f"Reached {warning_count} warnings", guild.me)
-                
-                # Notify user
-                try:
-                    await member.send(
-                        f"🔇 You have been muted in **{guild.name}** for reaching 3 warnings.\n"
-                        f"Staff will review your case."
-                    )
-                except:
-                    pass
-            except:
-                pass
-
-
-# Store mod log channel
-MOD_LOG_CHANNEL_NAME = "mod-logs"
-
-async def log_mod_action(guild, action_type, target, reason, moderator):
-    """Log a moderation action to the mod log channel"""
-    log_channel = discord.utils.get(guild.text_channels, name=MOD_LOG_CHANNEL_NAME)
-    if not log_channel:
-        log_channel = discord.utils.get(guild.text_channels, name="mod-log")
-    if not log_channel:
-        return
-    
-    # Color based on action
-    colors = {
-        "Auto-Mod": 0xf39c12,
-        "Auto-Mute": 0xe67e22,
-        "Auto-Kick": 0xe74c3c,
-        "Warn": 0xf1c40f,
-        "Mute": 0xe67e22,
-        "Kick": 0xe74c3c,
-        "Ban": 0xc0392b,
-        "Unmute": 0x2ecc71,
-        "Unban": 0x2ecc71,
-        "Promote": 0x3498db,
-        "Demote": 0x9b59b6,
-    }
-    
-    embed = discord.Embed(
-        title=f"🔨 {action_type}",
-        color=colors.get(action_type, 0x95a5a6),
-        timestamp=datetime.datetime.now(datetime.timezone.utc)
-    )
-    
-    if isinstance(target, discord.Member) or isinstance(target, discord.User):
-        embed.add_field(name="👤 User", value=f"{target.mention} ({target.id})", inline=True)
-    else:
-        embed.add_field(name="👤 User", value=str(target), inline=True)
-    
-    if isinstance(moderator, discord.Member) or isinstance(moderator, discord.User):
-        embed.add_field(name="👮 Moderator", value=moderator.mention, inline=True)
-    else:
-        embed.add_field(name="👮 Moderator", value=str(moderator), inline=True)
-    
-    embed.add_field(name="📝 Reason", value=reason[:1000], inline=False)
-    
-    if isinstance(target, discord.Member) or isinstance(target, discord.User):
-        embed.set_thumbnail(url=target.display_avatar.url)
-    
-    try:
-        await log_channel.send(embed=embed)
-    except:
-        pass
-
-
-# ==========================================
 # STAFF QUICK ACTIONS PANEL
 # ==========================================
 
@@ -14865,15 +15349,15 @@ class StaffQuickActionsView(discord.ui.View):
             description=(
                 f"Mod actions are logged to **#{MOD_LOG_CHANNEL_NAME}**\n\n"
                 f"**What's Logged:**\n"
-                f"• Auto-Mod warnings\n"
                 f"• Manual warns, mutes, kicks, bans\n"
                 f"• Promotions & demotions\n"
-                f"• Auto-punishments (3 warns = mute, 5 = kick)\n\n"
-                f"**Auto-Mod Filters:**\n"
-                f"• 🔗 Forbidden links\n"
-                f"• 📢 Spam detection\n"
-                f"• 🔁 Duplicate messages\n"
-                f"• @ Mention spam"
+                f"• Quick panel actions\n\n"
+                f"**Auto-Moderation:**\n"
+                f"Use **Wick Bot** for auto-mod!\n"
+                f"• Link filtering\n"
+                f"• Spam detection\n"
+                f"• Anti-raid & anti-nuke\n"
+                f"• Dashboard: wick.bot"
             ),
             color=0x3498db
         )
@@ -15729,329 +16213,6 @@ async def setup_mod_log(ctx):
     
     await channel.send(embed=embed)
     await ctx.send(f"✅ Created mod log channel: {channel.mention}")
-
-
-@bot.command(name="automod")
-@commands.has_permissions(administrator=True)
-async def automod_settings_cmd(ctx):
-    """View current auto-moderation settings"""
-    settings = load_automod_settings()
-    
-    embed = discord.Embed(
-        title="🤖 Auto-Moderation Settings",
-        color=0x3498db
-    )
-    
-    embed.add_field(
-        name="🔗 Link Filter",
-        value="✅ Enabled" if settings.get("link_filter", True) else "❌ Disabled",
-        inline=True
-    )
-    embed.add_field(
-        name="📢 Spam Filter",
-        value="✅ Enabled" if settings.get("spam_filter", True) else "❌ Disabled",
-        inline=True
-    )
-    embed.add_field(
-        name="@ Mention Spam",
-        value="✅ Enabled" if settings.get("mention_spam_filter", True) else "❌ Disabled",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="⚙️ Thresholds",
-        value=(
-            f"• Max mentions: {settings.get('max_mentions', 5)}\n"
-            f"• Spam threshold: {settings.get('spam_threshold', 5)} msgs/{settings.get('spam_interval', 5)}s\n"
-            f"• Duplicate threshold: {settings.get('duplicate_threshold', 3)}"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="✅ Allowed Domains",
-        value=", ".join(ALLOWED_DOMAINS[:8]),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="🛡️ Exempt Roles",
-        value=", ".join(AUTOMOD_EXEMPT_ROLES[:5]),
-        inline=False
-    )
-    
-    embed.set_footer(text="Use !automod_toggle <setting> to change")
-    
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="automod_toggle")
-@commands.has_permissions(administrator=True)
-async def automod_toggle_cmd(ctx, setting: str):
-    """Toggle an auto-mod setting (link_filter, spam_filter, mention_spam_filter)"""
-    settings = load_automod_settings()
-    
-    valid_settings = ["link_filter", "spam_filter", "mention_spam_filter", "duplicate_filter"]
-    
-    if setting not in valid_settings:
-        return await ctx.send(f"❌ Invalid setting. Valid options: {', '.join(valid_settings)}")
-    
-    current = settings.get(setting, True)
-    settings[setting] = not current
-    save_automod_settings(settings)
-    
-    status = "✅ Enabled" if settings[setting] else "❌ Disabled"
-    await ctx.send(f"**{setting}** is now {status}")
-
-
-@bot.command(name="allowdomain")
-@commands.has_permissions(administrator=True)
-async def allow_domain_cmd(ctx, domain: str):
-    """Add a domain to the allowed list"""
-    global ALLOWED_DOMAINS
-    
-    domain = domain.lower().replace("https://", "").replace("http://", "").split("/")[0]
-    
-    if domain in ALLOWED_DOMAINS:
-        return await ctx.send(f"✅ `{domain}` is already allowed!")
-    
-    ALLOWED_DOMAINS.append(domain)
-    await ctx.send(f"✅ Added `{domain}` to allowed domains.")
-
-
-# Auto-Mod Panel View
-class AutoModPanelView(discord.ui.View):
-    """Visual configuration panel for auto-moderation"""
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="🔗 Link Filter", style=discord.ButtonStyle.primary, custom_id="automod_link", row=0)
-    async def toggle_link(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
-        
-        settings = load_automod_settings()
-        settings["link_filter"] = not settings.get("link_filter", True)
-        save_automod_settings(settings)
-        
-        status = "✅ Enabled" if settings["link_filter"] else "❌ Disabled"
-        await interaction.response.send_message(f"🔗 **Link Filter** is now {status}", ephemeral=True)
-    
-    @discord.ui.button(label="📢 Spam Filter", style=discord.ButtonStyle.primary, custom_id="automod_spam", row=0)
-    async def toggle_spam(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
-        
-        settings = load_automod_settings()
-        settings["spam_filter"] = not settings.get("spam_filter", True)
-        save_automod_settings(settings)
-        
-        status = "✅ Enabled" if settings["spam_filter"] else "❌ Disabled"
-        await interaction.response.send_message(f"📢 **Spam Filter** is now {status}", ephemeral=True)
-    
-    @discord.ui.button(label="@ Mention Spam", style=discord.ButtonStyle.primary, custom_id="automod_mention", row=0)
-    async def toggle_mention(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
-        
-        settings = load_automod_settings()
-        settings["mention_spam_filter"] = not settings.get("mention_spam_filter", True)
-        save_automod_settings(settings)
-        
-        status = "✅ Enabled" if settings["mention_spam_filter"] else "❌ Disabled"
-        await interaction.response.send_message(f"@ **Mention Spam Filter** is now {status}", ephemeral=True)
-    
-    @discord.ui.button(label="🔁 Duplicate Filter", style=discord.ButtonStyle.primary, custom_id="automod_dup", row=0)
-    async def toggle_duplicate(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
-        
-        settings = load_automod_settings()
-        settings["duplicate_filter"] = not settings.get("duplicate_filter", True)
-        save_automod_settings(settings)
-        
-        status = "✅ Enabled" if settings["duplicate_filter"] else "❌ Disabled"
-        await interaction.response.send_message(f"🔁 **Duplicate Filter** is now {status}", ephemeral=True)
-    
-    @discord.ui.button(label="⚙️ Edit Thresholds", style=discord.ButtonStyle.secondary, custom_id="automod_thresholds", row=1)
-    async def edit_thresholds(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
-        
-        await interaction.response.send_modal(AutoModThresholdsModal())
-    
-    @discord.ui.button(label="➕ Add Domain", style=discord.ButtonStyle.success, custom_id="automod_add_domain", row=1)
-    async def add_domain(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin only!", ephemeral=True)
-        
-        await interaction.response.send_modal(AddAllowedDomainModal())
-    
-    @discord.ui.button(label="📊 View Status", style=discord.ButtonStyle.secondary, custom_id="automod_status", row=1)
-    async def view_status(self, interaction: discord.Interaction, button: discord.ui.Button):
-        settings = load_automod_settings()
-        
-        embed = discord.Embed(
-            title="🤖 Auto-Mod Status",
-            color=0x3498db
-        )
-        
-        filters = []
-        filters.append(f"{'✅' if settings.get('link_filter', True) else '❌'} Link Filter")
-        filters.append(f"{'✅' if settings.get('spam_filter', True) else '❌'} Spam Filter")
-        filters.append(f"{'✅' if settings.get('mention_spam_filter', True) else '❌'} Mention Spam")
-        filters.append(f"{'✅' if settings.get('duplicate_filter', True) else '❌'} Duplicate Filter")
-        
-        embed.add_field(name="🛡️ Filters", value="\n".join(filters), inline=True)
-        
-        thresholds = []
-        thresholds.append(f"Max mentions: **{settings.get('max_mentions', 5)}**")
-        thresholds.append(f"Spam: **{settings.get('spam_threshold', 5)}** msgs / **{settings.get('spam_interval', 5)}**s")
-        thresholds.append(f"Duplicates: **{settings.get('duplicate_threshold', 3)}**")
-        
-        embed.add_field(name="⚙️ Thresholds", value="\n".join(thresholds), inline=True)
-        
-        embed.add_field(
-            name="✅ Allowed Domains",
-            value=", ".join(ALLOWED_DOMAINS[:10]) + ("..." if len(ALLOWED_DOMAINS) > 10 else ""),
-            inline=False
-        )
-        
-        embed.add_field(
-            name="⚠️ Auto-Punishments",
-            value="• 3 warnings → Auto-Mute\n• 5 warnings → Auto-Kick",
-            inline=False
-        )
-        
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-class AutoModThresholdsModal(discord.ui.Modal, title="⚙️ Edit Auto-Mod Thresholds"):
-    max_mentions = discord.ui.TextInput(
-        label="Max Mentions (before warning)",
-        placeholder="Default: 5",
-        style=discord.TextStyle.short,
-        required=False,
-        max_length=3
-    )
-    
-    spam_threshold = discord.ui.TextInput(
-        label="Spam Threshold (messages)",
-        placeholder="Default: 5",
-        style=discord.TextStyle.short,
-        required=False,
-        max_length=3
-    )
-    
-    spam_interval = discord.ui.TextInput(
-        label="Spam Interval (seconds)",
-        placeholder="Default: 5",
-        style=discord.TextStyle.short,
-        required=False,
-        max_length=3
-    )
-    
-    duplicate_threshold = discord.ui.TextInput(
-        label="Duplicate Threshold (same messages)",
-        placeholder="Default: 3",
-        style=discord.TextStyle.short,
-        required=False,
-        max_length=3
-    )
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        settings = load_automod_settings()
-        changes = []
-        
-        if self.max_mentions.value:
-            try:
-                val = int(self.max_mentions.value)
-                if 1 <= val <= 50:
-                    settings["max_mentions"] = val
-                    changes.append(f"Max mentions: {val}")
-            except:
-                pass
-        
-        if self.spam_threshold.value:
-            try:
-                val = int(self.spam_threshold.value)
-                if 2 <= val <= 20:
-                    settings["spam_threshold"] = val
-                    changes.append(f"Spam threshold: {val}")
-            except:
-                pass
-        
-        if self.spam_interval.value:
-            try:
-                val = int(self.spam_interval.value)
-                if 2 <= val <= 60:
-                    settings["spam_interval"] = val
-                    changes.append(f"Spam interval: {val}s")
-            except:
-                pass
-        
-        if self.duplicate_threshold.value:
-            try:
-                val = int(self.duplicate_threshold.value)
-                if 2 <= val <= 10:
-                    settings["duplicate_threshold"] = val
-                    changes.append(f"Duplicate threshold: {val}")
-            except:
-                pass
-        
-        save_automod_settings(settings)
-        
-        if changes:
-            await interaction.response.send_message(f"✅ Updated:\n" + "\n".join(changes), ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ No valid changes made.", ephemeral=True)
-
-
-class AddAllowedDomainModal(discord.ui.Modal, title="➕ Add Allowed Domain"):
-    domain = discord.ui.TextInput(
-        label="Domain to allow",
-        placeholder="example.com (no https://)",
-        style=discord.TextStyle.short,
-        required=True,
-        max_length=100
-    )
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        global ALLOWED_DOMAINS
-        
-        domain = self.domain.value.lower().replace("https://", "").replace("http://", "").split("/")[0]
-        
-        if domain in ALLOWED_DOMAINS:
-            return await interaction.response.send_message(f"✅ `{domain}` is already allowed!", ephemeral=True)
-        
-        ALLOWED_DOMAINS.append(domain)
-        await interaction.response.send_message(f"✅ Added `{domain}` to allowed domains.", ephemeral=True)
-
-
-@bot.command(name="setup_automod")
-@commands.has_permissions(administrator=True)
-async def setup_automod_panel(ctx):
-    """Setup the auto-moderation config panel"""
-    embed = discord.Embed(
-        title="🤖 Auto-Moderation Settings",
-        description=(
-            "Configure auto-moderation with these buttons!\n\n"
-            "**Filters (click to toggle):**\n"
-            "• 🔗 **Link Filter** - Blocks unauthorized links\n"
-            "• 📢 **Spam Filter** - Detects rapid messages\n"
-            "• @ **Mention Spam** - Blocks mass mentions\n"
-            "• 🔁 **Duplicate Filter** - Blocks repeated messages\n\n"
-            "**Punishments:**\n"
-            "• 1st-2nd violation: Warning + message deleted\n"
-            "• 3rd warning: Auto-Mute\n"
-            "• 5th warning: Auto-Kick"
-        ),
-        color=0x3498db
-    )
-    embed.set_footer(text="✝ The Fallen Auto-Mod ✝")
-    
-    await ctx.send(embed=embed, view=AutoModPanelView())
-    await ctx.message.delete()
 
 
 # ==========================================
