@@ -1007,18 +1007,33 @@ async def create_level_card_image(member, user_data, rank):
     # Try to load custom background
     background = None
     
-    # Check for local file in multiple locations (Discloud compatibility)
-    for path in LEVEL_CARD_PATHS:
-        if os.path.exists(path):
-            try:
-                background = Image.open(path).convert("RGBA")
-                background = background.resize((width, height), Image.Resampling.LANCZOS)
-                print(f"Loaded level background from: {path}")
-                break
-            except Exception as e:
-                print(f"Failed to load {path}: {e}")
+    # PRIORITY 1: Check for user's custom background (from shop purchase)
+    user_custom_bg = user_data.get("custom_level_bg")
+    if user_custom_bg:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(user_custom_bg) as resp:
+                    if resp.status == 200:
+                        img_data = await resp.read()
+                        background = Image.open(BytesIO(img_data)).convert("RGBA")
+                        background = background.resize((width, height), Image.Resampling.LANCZOS)
+                        print(f"Loaded user custom background from URL")
+        except Exception as e:
+            print(f"Failed to load user custom background: {e}")
     
-    # Check for URL if no local file found
+    # PRIORITY 2: Check for local file in multiple locations (Discloud compatibility)
+    if background is None:
+        for path in LEVEL_CARD_PATHS:
+            if os.path.exists(path):
+                try:
+                    background = Image.open(path).convert("RGBA")
+                    background = background.resize((width, height), Image.Resampling.LANCZOS)
+                    print(f"Loaded level background from: {path}")
+                    break
+                except Exception as e:
+                    print(f"Failed to load {path}: {e}")
+    
+    # PRIORITY 3: Check for global URL if no local file found
     if background is None and LEVEL_CARD_BACKGROUND:
         try:
             async with aiohttp.ClientSession() as session:
