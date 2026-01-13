@@ -4535,7 +4535,7 @@ INACTIVITY_FILE = "inactivity_data.json"
 INACTIVITY_CHECK_DAYS = 3  # Days of inactivity before strike
 MAX_INACTIVITY_STRIKES = 5  # Strikes before kick
 INACTIVITY_IMMUNITY_ROLE = "Inactivity Immunity"  # Role that bypasses inactivity checks
-INACTIVITY_REQUIRED_ROLE = "Mainers"  # ONLY check members with this role
+INACTIVITY_REQUIRED_ROLE = "Mainer"  # ONLY check members with this role
 
 # Rank demotion order (highest to lowest) - Stage 0 is highest
 RANK_DEMOTION_ORDER = [
