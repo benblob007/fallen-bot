@@ -9103,6 +9103,235 @@ async def on_reaction_add(reaction, user):
 # COMMANDS - All work with both ! and /
 # ============================================
 
+# ==========================================
+# MASS ROLE MANAGEMENT (Rate Limited & Safe)
+# ==========================================
+
+@bot.command(name="massrole")
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 300, commands.BucketType.guild)  # Once per 5 minutes
+async def mass_role_add(ctx, action: str, role: discord.Role, target: str = "everyone"):
+    """
+    Add or remove a role from multiple members
+    
+    Usage:
+    !massrole add @Role everyone - Add role to all members
+    !massrole remove @Role everyone - Remove role from all members
+    !massrole add @Role humans - Add to non-bots only
+    !massrole add @Role bots - Add to bots only
+    !massrole add @Role @OtherRole - Add to members with @OtherRole
+    """
+    if action.lower() not in ["add", "remove"]:
+        return await ctx.send("❌ Action must be `add` or `remove`!\nUsage: `!massrole add @Role everyone`")
+    
+    # Determine target members
+    if target.lower() == "everyone":
+        members = [m for m in ctx.guild.members if not m.bot]
+    elif target.lower() == "humans":
+        members = [m for m in ctx.guild.members if not m.bot]
+    elif target.lower() == "bots":
+        members = [m for m in ctx.guild.members if m.bot]
+    elif target.lower() == "all":
+        members = ctx.guild.members
+    else:
+        # Check if target is a role mention
+        target_role = None
+        for r in ctx.guild.roles:
+            if r.mention == target or r.name.lower() == target.lower():
+                target_role = r
+                break
+        
+        if target_role:
+            members = [m for m in ctx.guild.members if target_role in m.roles and not m.bot]
+        else:
+            return await ctx.send("❌ Invalid target! Use: `everyone`, `humans`, `bots`, `all`, or `@Role`")
+    
+    if not members:
+        return await ctx.send("❌ No members found matching that target!")
+    
+    # Check bot permissions
+    if role >= ctx.guild.me.top_role:
+        return await ctx.send("❌ I can't manage that role! It's higher than or equal to my highest role.")
+    
+    # Filter members who need the change
+    if action.lower() == "add":
+        members = [m for m in members if role not in m.roles]
+        action_word = "Adding"
+        action_past = "added to"
+    else:
+        members = [m for m in members if role in m.roles]
+        action_word = "Removing"
+        action_past = "removed from"
+    
+    if not members:
+        if action.lower() == "add":
+            return await ctx.send("✅ No members need this change - they already have the role!")
+        else:
+            return await ctx.send("✅ No members need this change - they don't have the role!")
+    
+    # Confirmation
+    confirm_embed = discord.Embed(
+        title="⚠️ Mass Role Confirmation",
+        description=(
+            f"**Action:** {action_word} {role.mention}\n"
+            f"**Target:** {len(members)} members\n\n"
+            f"⏱️ **Estimated time:** ~{len(members) * 1.5:.0f} seconds\n\n"
+            f"React with ✅ to confirm or ❌ to cancel."
+        ),
+        color=0xf39c12
+    )
+    confirm_msg = await ctx.send(embed=confirm_embed)
+    await confirm_msg.add_reaction("✅")
+    await confirm_msg.add_reaction("❌")
+    
+    def check(reaction, user):
+        return user == ctx.author and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == confirm_msg.id
+    
+    try:
+        reaction, user = await bot.wait_for("reaction_add", timeout=30.0, check=check)
+    except asyncio.TimeoutError:
+        await confirm_msg.edit(embed=discord.Embed(title="❌ Timed out", color=0xe74c3c))
+        return
+    
+    if str(reaction.emoji) == "❌":
+        await confirm_msg.edit(embed=discord.Embed(title="❌ Cancelled", color=0xe74c3c))
+        return
+    
+    # Start the mass role operation
+    progress_embed = discord.Embed(
+        title=f"🔄 {action_word} Role...",
+        description=f"Progress: 0/{len(members)}",
+        color=0x3498db
+    )
+    await confirm_msg.edit(embed=progress_embed)
+    
+    success = 0
+    failed = 0
+    
+    for i, member in enumerate(members):
+        try:
+            if action.lower() == "add":
+                await member.add_roles(role, reason=f"Mass role add by {ctx.author}")
+            else:
+                await member.remove_roles(role, reason=f"Mass role remove by {ctx.author}")
+            success += 1
+        except Exception as e:
+            failed += 1
+            print(f"Failed to modify role for {member}: {e}")
+        
+        # Update progress every 10 members
+        if (i + 1) % 10 == 0 or i == len(members) - 1:
+            progress_embed.description = f"Progress: {i + 1}/{len(members)}\n✅ Success: {success} | ❌ Failed: {failed}"
+            try:
+                await confirm_msg.edit(embed=progress_embed)
+            except:
+                pass
+        
+        # Rate limit protection - wait between each role change
+        await asyncio.sleep(1.2)
+    
+    # Final result
+    result_embed = discord.Embed(
+        title="✅ Mass Role Complete!",
+        description=(
+            f"**Role:** {role.mention}\n"
+            f"**Action:** {action_past}\n\n"
+            f"✅ **Success:** {success}\n"
+            f"❌ **Failed:** {failed}"
+        ),
+        color=0x2ecc71 if failed == 0 else 0xf39c12
+    )
+    await confirm_msg.edit(embed=result_embed)
+
+
+@bot.command(name="giverole")
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 300, commands.BucketType.guild)
+async def give_role_all(ctx, role: discord.Role):
+    """Quick command to add a role to all humans. Use !massrole for more options."""
+    # Redirect to massrole
+    await mass_role_add(ctx, "add", role, "humans")
+
+
+@bot.command(name="takerole")
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 300, commands.BucketType.guild)
+async def take_role_all(ctx, role: discord.Role):
+    """Quick command to remove a role from all humans. Use !massrole for more options."""
+    await mass_role_add(ctx, "remove", role, "humans")
+
+
+@bot.command(name="inrole")
+@commands.has_permissions(manage_roles=True)
+async def in_role(ctx, role: discord.Role):
+    """See how many members have a specific role"""
+    members = [m for m in ctx.guild.members if role in m.roles]
+    humans = [m for m in members if not m.bot]
+    bots = [m for m in members if m.bot]
+    
+    embed = discord.Embed(
+        title=f"📊 Members with {role.name}",
+        color=role.color
+    )
+    embed.add_field(name="Total", value=str(len(members)), inline=True)
+    embed.add_field(name="Humans", value=str(len(humans)), inline=True)
+    embed.add_field(name="Bots", value=str(len(bots)), inline=True)
+    
+    if humans and len(humans) <= 20:
+        embed.add_field(
+            name="Members",
+            value=", ".join([m.display_name for m in humans[:20]]),
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="roleinfo")
+@commands.has_permissions(manage_roles=True)
+async def role_info(ctx, role: discord.Role):
+    """Get detailed info about a role"""
+    embed = discord.Embed(
+        title=f"📋 Role Info: {role.name}",
+        color=role.color
+    )
+    
+    embed.add_field(name="ID", value=f"`{role.id}`", inline=True)
+    embed.add_field(name="Color", value=f"`{role.color}`", inline=True)
+    embed.add_field(name="Position", value=f"{role.position}/{len(ctx.guild.roles)}", inline=True)
+    embed.add_field(name="Members", value=str(len(role.members)), inline=True)
+    embed.add_field(name="Hoisted", value="✅" if role.hoist else "❌", inline=True)
+    embed.add_field(name="Mentionable", value="✅" if role.mentionable else "❌", inline=True)
+    
+    # Key permissions
+    perms = []
+    if role.permissions.administrator:
+        perms.append("Administrator")
+    if role.permissions.manage_guild:
+        perms.append("Manage Server")
+    if role.permissions.manage_roles:
+        perms.append("Manage Roles")
+    if role.permissions.manage_channels:
+        perms.append("Manage Channels")
+    if role.permissions.kick_members:
+        perms.append("Kick")
+    if role.permissions.ban_members:
+        perms.append("Ban")
+    if role.permissions.manage_messages:
+        perms.append("Manage Messages")
+    
+    embed.add_field(
+        name="Key Permissions",
+        value=", ".join(perms) if perms else "None",
+        inline=False
+    )
+    
+    embed.add_field(name="Created", value=f"<t:{int(role.created_at.timestamp())}:R>", inline=True)
+    embed.add_field(name="Mention", value=role.mention, inline=True)
+    
+    await ctx.send(embed=embed)
+
+
 @bot.command(name="sync")
 @commands.has_permissions(administrator=True)
 @commands.cooldown(1, 60, commands.BucketType.guild)  # Once per minute per server
@@ -14244,7 +14473,7 @@ class ActivityCheckView(discord.ui.View):
         super().__init__(timeout=None)
         self.check_id = check_id
     
-    @discord.ui.button(label="✅ I'm Active!", style=discord.ButtonStyle.success, custom_id="activity_check_respond")
+    @discord.ui.button(label="✅ I'm Active! (0)", style=discord.ButtonStyle.success, custom_id="activity_check_respond")
     async def respond_active(self, interaction: discord.Interaction, button: discord.ui.Button):
         data = load_activity_checks()
         
@@ -14263,8 +14492,41 @@ class ActivityCheckView(discord.ui.View):
         if not check:
             return await interaction.response.send_message("❌ This activity check has expired!", ephemeral=True)
         
+        # Check if ended
         if check.get("ended"):
             return await interaction.response.send_message("❌ This activity check has ended!", ephemeral=True)
+        
+        # Check if time expired
+        try:
+            ends_at = datetime.datetime.fromisoformat(check["ends_at"].replace('Z', '+00:00'))
+            if datetime.datetime.now(datetime.timezone.utc) > ends_at:
+                # Auto-end the check
+                check["ended"] = True
+                check["ended_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                check["auto_ended"] = True
+                data["current"] = None
+                save_activity_checks(data)
+                
+                # Update the embed to show ended
+                response_count = len(check.get("responses", []))
+                try:
+                    embed = interaction.message.embeds[0] if interaction.message.embeds else None
+                    if embed:
+                        embed.title = "📢 ACTIVITY CHECK ENDED"
+                        embed.color = 0x95a5a6
+                        embed.set_footer(text=f"✝ Ended • {response_count} responses ✝")
+                    
+                    # Disable the button
+                    button.disabled = True
+                    button.label = f"⏰ Ended ({response_count})"
+                    button.style = discord.ButtonStyle.secondary
+                    await interaction.message.edit(embed=embed, view=self)
+                except:
+                    pass
+                
+                return await interaction.response.send_message("❌ This activity check has ended! (Time expired)", ephemeral=True)
+        except:
+            pass
         
         user_id = str(interaction.user.id)
         
@@ -14292,6 +14554,19 @@ class ActivityCheckView(discord.ui.View):
         add_xp_to_user(interaction.user.id, 15)
         
         response_count = len(check["responses"])
+        
+        # Update the button label and embed with new count
+        try:
+            button.label = f"✅ I'm Active! ({response_count})"
+            
+            # Update embed footer with count
+            embed = interaction.message.embeds[0] if interaction.message.embeds else None
+            if embed:
+                embed.set_footer(text=f"✝ The Fallen Activity Check • {response_count} responses • ID: {check_id} ✝")
+            
+            await interaction.message.edit(embed=embed, view=self)
+        except Exception as e:
+            print(f"Failed to update activity check embed: {e}")
         
         await interaction.response.send_message(
             f"✅ **Activity Confirmed!**\n"
@@ -14395,13 +14670,35 @@ class ActivityCheckControlView(discord.ui.View):
         rate = (len(responses)/total_members*100) if total_members > 0 else 0
         results_embed.add_field(name="📈 Response Rate", value=f"{rate:.1f}%", inline=True)
         
-        # Update original message
+        # Try to find and update the original activity check message
         try:
-            original_embed = interaction.message.embeds[0] if interaction.message.embeds else None
-            if original_embed:
-                original_embed.color = 0x95a5a6
-                original_embed.set_footer(text=f"✝ Ended • {len(responses)} responses ✝")
-            await interaction.message.edit(embed=original_embed, view=None)
+            if check.get("message_id") and check.get("channel_id"):
+                channel = interaction.guild.get_channel(int(check["channel_id"]))
+                if channel:
+                    ac_msg = await channel.fetch_message(int(check["message_id"]))
+                    if ac_msg:
+                        ac_embed = ac_msg.embeds[0] if ac_msg.embeds else None
+                        if ac_embed:
+                            ac_embed.title = "📢 ACTIVITY CHECK ENDED"
+                            ac_embed.color = 0x95a5a6
+                            ac_embed.set_footer(text=f"✝ Ended • {len(responses)} responses ✝")
+                        
+                        # Create disabled view
+                        disabled_view = discord.ui.View(timeout=None)
+                        disabled_btn = discord.ui.Button(
+                            label=f"⏰ Ended ({len(responses)})",
+                            style=discord.ButtonStyle.secondary,
+                            disabled=True
+                        )
+                        disabled_view.add_item(disabled_btn)
+                        
+                        await ac_msg.edit(embed=ac_embed, view=disabled_view)
+        except Exception as e:
+            print(f"Failed to update activity check message: {e}")
+        
+        # Update the control panel message (remove buttons)
+        try:
+            await interaction.message.edit(view=None)
         except:
             pass
         
@@ -14500,14 +14797,11 @@ async def start_activity_check(ctx, duration: str = "1h", *, message: str = None
         "ends_at": end_time.isoformat(),
         "duration_minutes": minutes,
         "message": message,
+        "channel_id": str(ctx.channel.id),
         "responses": [],
         "response_times": {},
         "ended": False
     }
-    
-    data["checks"].append(check_data)
-    data["current"] = check_id
-    save_activity_checks(data)
     
     # Create embed
     custom_msg = message or "React to confirm you're active in The Fallen!"
@@ -14523,10 +14817,16 @@ async def start_activity_check(ctx, duration: str = "1h", *, message: str = None
         color=0x2ecc71,
         timestamp=datetime.datetime.now(datetime.timezone.utc)
     )
-    embed.set_footer(text=f"✝ The Fallen Activity Check • ID: {check_id} ✝")
+    embed.set_footer(text=f"✝ The Fallen Activity Check • 0 responses • ID: {check_id} ✝")
     
     # Send with ping
     msg = await ctx.send("@everyone", embed=embed, view=ActivityCheckView(check_id))
+    
+    # Save message ID for later updates
+    check_data["message_id"] = str(msg.id)
+    data["checks"].append(check_data)
+    data["current"] = check_id
+    save_activity_checks(data)
     
     # Send staff controls
     staff_embed = discord.Embed(
