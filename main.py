@@ -3102,7 +3102,7 @@ def save_tournaments(data):
     with open(TOURNAMENTS_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-def create_tournament(name, creator_id):
+def create_tournament(name, creator_id, required_role_id=None, required_role_name=None, channel_id=None, max_participants=16):
     """Create a new tournament"""
     data = load_tournaments()
     
@@ -3117,26 +3117,44 @@ def create_tournament(name, creator_id):
         "bracket": None,
         "status": "signup",  # signup, active, complete
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "winner": None
+        "winner": None,
+        "required_role_id": required_role_id,
+        "required_role_name": required_role_name,
+        "channel_id": channel_id,
+        "message_id": None,
+        "max_participants": max_participants
     }
     
     data["active"] = tournament
     save_tournaments(data)
     return tournament
 
-def join_tournament(user_id):
+
+def join_tournament(user_id, member_roles=None):
     """Join the active tournament"""
     data = load_tournaments()
     
     if not data["active"] or data["active"]["status"] != "signup":
-        return False
+        return False, "No active signup"
+    
+    tournament = data["active"]
+    
+    # Check role requirement
+    if tournament.get("required_role_id") and member_roles:
+        role_ids = [str(r.id) for r in member_roles]
+        if tournament["required_role_id"] not in role_ids:
+            return False, f"Requires {tournament.get('required_role_name', 'specific role')}"
+    
+    # Check max participants
+    if len(tournament["participants"]) >= tournament.get("max_participants", 16):
+        return False, "Tournament full"
     
     uid = str(user_id)
-    if uid not in data["active"]["participants"]:
-        data["active"]["participants"].append(uid)
+    if uid not in tournament["participants"]:
+        tournament["participants"].append(uid)
         save_tournaments(data)
-        return True
-    return False
+        return True, "Joined"
+    return False, "Already joined"
 
 def leave_tournament(user_id):
     """Leave the active tournament"""
@@ -3291,7 +3309,7 @@ class TournamentPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success, emoji="⚔️", custom_id="tournament_join")
+    @discord.ui.button(label="⚔️ Join Tournament", style=discord.ButtonStyle.success, custom_id="tournament_join")
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
         tournament = get_active_tournament()
         
@@ -3302,17 +3320,28 @@ class TournamentPanelView(discord.ui.View):
             return await interaction.response.send_message("❌ Signups are closed!", ephemeral=True)
         
         if str(interaction.user.id) in tournament["participants"]:
-            return await interaction.response.send_message("❌ You're already signed up!", ephemeral=True)
+            return await interaction.response.send_message("✅ You're already signed up!", ephemeral=True)
         
-        if join_tournament(interaction.user.id):
-            await interaction.response.send_message(f"✅ You joined **{tournament['name']}**!", ephemeral=True)
-            
-            # Update the panel
-            await self.update_panel(interaction.message)
+        success, msg = join_tournament(interaction.user.id, interaction.user.roles)
+        
+        if success:
+            count = len(tournament["participants"]) + 1
+            max_p = tournament.get("max_participants", 16)
+            await interaction.response.send_message(
+                f"✅ You joined **{tournament['name']}**!\n"
+                f"Participants: {count}/{max_p}",
+                ephemeral=True
+            )
+            await self.update_panel(interaction.message, interaction.guild)
         else:
-            await interaction.response.send_message("❌ Failed to join!", ephemeral=True)
+            if "Requires" in msg:
+                await interaction.response.send_message(f"❌ {msg} to join this tournament!", ephemeral=True)
+            elif "full" in msg:
+                await interaction.response.send_message("❌ Tournament is full!", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
     
-    @discord.ui.button(label="Leave", style=discord.ButtonStyle.secondary, emoji="🚪", custom_id="tournament_leave")
+    @discord.ui.button(label="🚪 Leave", style=discord.ButtonStyle.secondary, custom_id="tournament_leave")
     async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
         tournament = get_active_tournament()
         
@@ -3321,50 +3350,39 @@ class TournamentPanelView(discord.ui.View):
         
         if leave_tournament(interaction.user.id):
             await interaction.response.send_message("✅ You left the tournament.", ephemeral=True)
-            await self.update_panel(interaction.message)
+            await self.update_panel(interaction.message, interaction.guild)
         else:
             await interaction.response.send_message("❌ You're not in the tournament!", ephemeral=True)
     
-    @discord.ui.button(label="View Bracket", style=discord.ButtonStyle.primary, emoji="📊", custom_id="tournament_bracket")
+    @discord.ui.button(label="📊 View Bracket", style=discord.ButtonStyle.primary, custom_id="tournament_bracket")
     async def bracket(self, interaction: discord.Interaction, button: discord.ui.Button):
         tournament = get_active_tournament()
         
         if not tournament:
             return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
         
-        if tournament["status"] == "signup":
-            # Show participants
-            participants = tournament["participants"]
-            if not participants:
-                desc = "No participants yet!"
-            else:
-                names = []
-                for uid in participants[:20]:
-                    member = interaction.guild.get_member(int(uid))
-                    names.append(member.display_name if member else f"User {uid[:8]}")
-                desc = "\n".join([f"• {name}" for name in names])
-                if len(participants) > 20:
-                    desc += f"\n...and {len(participants) - 20} more"
-            
-            embed = discord.Embed(
-                title=f"📋 {tournament['name']} - Participants ({len(participants)})",
-                description=desc,
-                color=0x3498db
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        else:
-            # Show bracket
-            embed = await self.create_bracket_embed(tournament, interaction.guild)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+        bracket_text = create_visual_bracket_text(tournament, interaction.guild)
+        
+        embed = discord.Embed(
+            title=f"🏆 {tournament['name']}",
+            description=bracket_text,
+            color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
+        )
+        
+        # Show requirements
+        if tournament.get("required_role_name"):
+            embed.add_field(name="🎭 Requirement", value=tournament["required_role_name"], inline=True)
+        
+        max_p = tournament.get("max_participants", 16)
+        embed.add_field(name="📊 Capacity", value=f"{len(tournament['participants'])}/{max_p}", inline=True)
+        
+        embed.set_footer(text="✝ The Fallen Tournament ✝")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    @discord.ui.button(label="Staff: Manage", style=discord.ButtonStyle.danger, emoji="⚙️", custom_id="tournament_manage", row=1)
+    @discord.ui.button(label="⚙️ Staff: Manage", style=discord.ButtonStyle.danger, custom_id="tournament_manage", row=1)
     async def manage(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction.user):
             return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
-        
-        tournament = get_active_tournament()
-        if not tournament:
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
         
         await interaction.response.send_message(
             "**Tournament Management**",
@@ -3372,79 +3390,41 @@ class TournamentPanelView(discord.ui.View):
             ephemeral=True
         )
     
-    async def update_panel(self, message):
+    async def update_panel(self, message, guild):
         """Update the tournament panel embed"""
         tournament = get_active_tournament()
-        
         if not tournament:
             return
         
-        participant_count = len(tournament["participants"])
-        status_text = {
-            "signup": "🟢 Signups Open",
-            "active": "🔴 In Progress",
-            "complete": "🏆 Complete"
-        }.get(tournament["status"], "Unknown")
+        bracket_text = create_visual_bracket_text(tournament, guild)
         
         embed = discord.Embed(
             title=f"🏆 {tournament['name']}",
-            description=(
-                f"**Status:** {status_text}\n"
-                f"**Participants:** {participant_count}\n\n"
-                f"Click **Join Tournament** to participate!"
-            ),
-            color=0xFFD700
+            description=bracket_text,
+            color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
         )
-        embed.set_footer(text="✝ The Fallen ✝ • Tournament System")
+        
+        status_map = {"signup": "📝 Signups Open", "active": "🔴 In Progress", "complete": "✅ Complete"}
+        embed.add_field(name="Status", value=status_map.get(tournament["status"], tournament["status"]), inline=True)
+        
+        max_p = tournament.get("max_participants", 16)
+        embed.add_field(name="Participants", value=f"{len(tournament['participants'])}/{max_p}", inline=True)
+        
+        if tournament.get("required_role_name"):
+            embed.add_field(name="🎭 Requirement", value=tournament["required_role_name"], inline=True)
+        
+        embed.set_footer(text="✝ The Fallen Tournament ✝")
         
         try:
             await message.edit(embed=embed)
         except:
             pass
-    
-    async def create_bracket_embed(self, tournament, guild):
-        """Create a bracket embed"""
-        bracket = tournament.get("bracket")
-        if not bracket:
-            return discord.Embed(title="No bracket yet", color=0x3498db)
-        
-        embed = discord.Embed(
-            title=f"📊 {tournament['name']} - Bracket",
-            color=0xFFD700
-        )
-        
-        for round_idx, round_matches in enumerate(bracket["rounds"]):
-            round_name = ["Round 1", "Quarter Finals", "Semi Finals", "Finals"][min(round_idx, 3)]
-            if round_idx >= len(bracket["rounds"]) - 1:
-                round_name = "Finals"
-            
-            matches_text = ""
-            for match in round_matches:
-                p1 = guild.get_member(int(match["player1"])).display_name if match["player1"] else "BYE"
-                p2 = guild.get_member(int(match["player2"])).display_name if match["player2"] else "BYE"
-                
-                if match["winner"]:
-                    winner = guild.get_member(int(match["winner"]))
-                    winner_name = winner.display_name if winner else "Unknown"
-                    matches_text += f"~~{p1}~~ vs ~~{p2}~~ → **{winner_name}**\n"
-                else:
-                    matches_text += f"{p1} vs {p2}\n"
-            
-            embed.add_field(name=round_name, value=matches_text or "TBD", inline=False)
-        
-        if tournament["winner"]:
-            winner = guild.get_member(int(tournament["winner"]))
-            embed.add_field(name="🏆 CHAMPION", value=winner.mention if winner else "Unknown", inline=False)
-        
-        return embed
-
-# Staff Management View
 class TournamentManageStaffView(discord.ui.View):
-    def __init__(self, panel_message):
+    def __init__(self, panel_message=None):
         super().__init__(timeout=300)
         self.panel_message = panel_message
     
-    @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.success, emoji="▶️")
+    @discord.ui.button(label="▶️ Start Tournament", style=discord.ButtonStyle.success)
     async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
         tournament = get_active_tournament()
         
@@ -3459,35 +3439,85 @@ class TournamentManageStaffView(discord.ui.View):
         
         result = start_tournament()
         if result:
-            await interaction.response.send_message("✅ Tournament started! Bracket generated.", ephemeral=True)
+            # Create visual bracket
+            bracket_text = create_visual_bracket_text(result, interaction.guild)
+            
+            embed = discord.Embed(
+                title=f"🏆 {result['name']} - LIVE",
+                description=bracket_text,
+                color=0xe74c3c
+            )
+            embed.set_footer(text="✝ The Fallen Tournament ✝")
+            
+            await interaction.response.send_message(
+                f"✅ Tournament started with {len(result['participants'])} participants!\n"
+                f"Bracket generated - use **Report Match** to record winners.",
+                ephemeral=True
+            )
             
             # Update panel
-            tournament = get_active_tournament()
-            embed = discord.Embed(
-                title=f"🏆 {tournament['name']}",
-                description=f"**Status:** 🔴 In Progress\n**Participants:** {len(tournament['participants'])}",
-                color=0xFFD700
-            )
-            embed.set_footer(text="✝ The Fallen ✝ • Tournament System")
-            
             try:
-                await self.panel_message.edit(embed=embed)
+                if self.panel_message:
+                    await self.panel_message.edit(embed=embed)
             except:
                 pass
         else:
             await interaction.response.send_message("❌ Failed to start!", ephemeral=True)
     
-    @discord.ui.button(label="Report Match", style=discord.ButtonStyle.primary, emoji="📝")
+    @discord.ui.button(label="🏆 Report Match", style=discord.ButtonStyle.primary)
     async def report(self, interaction: discord.Interaction, button: discord.ui.Button):
         tournament = get_active_tournament()
         
         if not tournament or tournament["status"] != "active":
             return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
         
-        # Show match selection modal
-        await interaction.response.send_modal(TournamentReportModal())
+        # Get current playable matches
+        bracket = tournament.get("bracket", {})
+        current_matches = []
+        
+        for r_idx, round_matches in enumerate(bracket.get("rounds", [])):
+            for match in round_matches:
+                # Match is playable if: has both players, no winner yet
+                if match.get("player1") and match.get("player2") and not match.get("winner"):
+                    current_matches.append(match)
+        
+        if not current_matches:
+            return await interaction.response.send_message(
+                "❌ No matches ready to report! Either waiting for players to advance or tournament is complete.",
+                ephemeral=True
+            )
+        
+        # Show match selector
+        await interaction.response.send_message(
+            "**Select a match to report:**",
+            view=TournamentMatchSelectView(current_matches, interaction.guild),
+            ephemeral=True
+        )
     
-    @discord.ui.button(label="End Tournament", style=discord.ButtonStyle.danger, emoji="🛑")
+    @discord.ui.button(label="📊 View Bracket", style=discord.ButtonStyle.secondary)
+    async def view_bracket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = get_active_tournament()
+        
+        if not tournament:
+            return await interaction.response.send_message("❌ No tournament!", ephemeral=True)
+        
+        bracket_text = create_visual_bracket_text(tournament, interaction.guild)
+        
+        embed = discord.Embed(
+            title=f"🏆 {tournament['name']}",
+            description=bracket_text,
+            color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
+        )
+        
+        if tournament.get("status") == "complete" and tournament.get("champion"):
+            champ = interaction.guild.get_member(int(tournament["champion"]))
+            champ_name = champ.display_name if champ else "Unknown"
+            embed.add_field(name="🏆 Champion", value=f"**{champ_name}**", inline=False)
+        
+        embed.set_footer(text="✝ The Fallen Tournament ✝")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="🛑 End Tournament", style=discord.ButtonStyle.danger)
     async def end(self, interaction: discord.Interaction, button: discord.ui.Button):
         if end_tournament():
             await interaction.response.send_message("✅ Tournament ended!", ephemeral=True)
@@ -3498,11 +3528,186 @@ class TournamentManageStaffView(discord.ui.View):
                     description="No active tournament. Stay tuned for the next one!",
                     color=0x95a5a6
                 )
-                await self.panel_message.edit(embed=embed, view=None)
+                if self.panel_message:
+                    await self.panel_message.edit(embed=embed, view=None)
             except:
                 pass
         else:
             await interaction.response.send_message("❌ No tournament to end!", ephemeral=True)
+
+
+def create_visual_bracket_text(tournament, guild):
+    """Create visual text bracket"""
+    if tournament["status"] == "signup":
+        participants = tournament.get("participants", [])
+        if not participants:
+            return "*No participants yet - click Join to sign up!*"
+        
+        lines = ["**📋 Registered Participants:**\n"]
+        for i, p_id in enumerate(participants[:20]):
+            member = guild.get_member(int(p_id))
+            name = member.display_name if member else "Unknown"
+            lines.append(f"{i+1}. {name}")
+        
+        if len(participants) > 20:
+            lines.append(f"*...and {len(participants) - 20} more*")
+        
+        return "\n".join(lines)
+    
+    # Active tournament - show bracket
+    bracket = tournament.get("bracket", {})
+    rounds = bracket.get("rounds", [])
+    
+    if not rounds:
+        return "*Bracket not generated yet*"
+    
+    num_rounds = len(rounds)
+    
+    # Round names
+    round_names = {}
+    for i in range(1, num_rounds + 1):
+        if i == num_rounds:
+            round_names[i] = "🏆 Finals"
+        elif i == num_rounds - 1:
+            round_names[i] = "⚔️ Semifinals"
+        elif i == num_rounds - 2:
+            round_names[i] = "⚔️ Quarterfinals"
+        else:
+            round_names[i] = f"⚔️ Round {i}"
+    
+    lines = []
+    
+    for r_idx, round_matches in enumerate(rounds):
+        r_num = r_idx + 1
+        r_name = round_names.get(r_num, f"Round {r_num}")
+        
+        lines.append(f"\n**{r_name}**")
+        
+        for m_idx, match in enumerate(round_matches):
+            p1 = match.get("player1")
+            p2 = match.get("player2")
+            winner = match.get("winner")
+            match_id = match.get("id", f"M{m_idx+1}")
+            
+            # Get names
+            if p1:
+                m1 = guild.get_member(int(p1))
+                n1 = m1.display_name if m1 else "???"
+            else:
+                n1 = "BYE" if r_num == 1 else "TBD"
+            
+            if p2:
+                m2 = guild.get_member(int(p2))
+                n2 = m2.display_name if m2 else "???"
+            else:
+                n2 = "BYE" if r_num == 1 else "TBD"
+            
+            # Format
+            if winner:
+                if winner == p1:
+                    lines.append(f"`{match_id}` ✅ **{n1}** vs ~~{n2}~~")
+                else:
+                    lines.append(f"`{match_id}` ~~{n1}~~ vs ✅ **{n2}**")
+            else:
+                if p1 and p2:
+                    lines.append(f"`{match_id}` ⚔️ {n1} vs {n2}")
+                else:
+                    lines.append(f"`{match_id}` ⏳ {n1} vs {n2}")
+    
+    # Champion
+    if rounds and rounds[-1] and rounds[-1][0].get("winner"):
+        w_id = rounds[-1][0]["winner"]
+        w_member = guild.get_member(int(w_id))
+        w_name = w_member.display_name if w_member else "Unknown"
+        lines.append(f"\n**🏆 CHAMPION: {w_name} 🏆**")
+    
+    return "\n".join(lines)
+
+
+class TournamentMatchSelectView(discord.ui.View):
+    """Dropdown to select a match"""
+    def __init__(self, matches, guild):
+        super().__init__(timeout=120)
+        self.matches = matches
+        self.guild = guild
+        
+        options = []
+        for m in matches[:25]:
+            p1 = guild.get_member(int(m["player1"])) if m.get("player1") else None
+            p2 = guild.get_member(int(m["player2"])) if m.get("player2") else None
+            n1 = p1.display_name[:15] if p1 else "???"
+            n2 = p2.display_name[:15] if p2 else "???"
+            options.append(discord.SelectOption(
+                label=f"{m['id']}: {n1} vs {n2}",
+                value=m["id"]
+            ))
+        
+        self.select = discord.ui.Select(placeholder="Select a match...", options=options)
+        self.select.callback = self.select_callback
+        self.add_item(self.select)
+    
+    async def select_callback(self, interaction: discord.Interaction):
+        match_id = self.select.values[0]
+        match = next((m for m in self.matches if m["id"] == match_id), None)
+        
+        if not match:
+            return await interaction.response.send_message("❌ Match not found!", ephemeral=True)
+        
+        p1 = self.guild.get_member(int(match["player1"]))
+        p2 = self.guild.get_member(int(match["player2"]))
+        
+        await interaction.response.send_message(
+            f"**{match_id}** - Who won?",
+            view=TournamentWinnerSelectView(match, p1, p2),
+            ephemeral=True
+        )
+
+
+class TournamentWinnerSelectView(discord.ui.View):
+    """Select the winner"""
+    def __init__(self, match, player1, player2):
+        super().__init__(timeout=60)
+        self.match = match
+        self.player1 = player1
+        self.player2 = player2
+    
+    @discord.ui.button(label="Player 1 Wins", style=discord.ButtonStyle.success)
+    async def p1_wins(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.report_winner(interaction, self.match["player1"])
+    
+    @discord.ui.button(label="Player 2 Wins", style=discord.ButtonStyle.success)
+    async def p2_wins(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.report_winner(interaction, self.match["player2"])
+    
+    async def report_winner(self, interaction: discord.Interaction, winner_id):
+        result = report_tournament_match(self.match["id"], int(winner_id))
+        
+        if result:
+            winner = interaction.guild.get_member(int(winner_id))
+            winner_name = winner.display_name if winner else "Unknown"
+            
+            # Check if complete
+            tournament = get_active_tournament()
+            if tournament and tournament.get("status") == "complete":
+                # Award champion
+                add_coins(int(winner_id), 5000)
+                add_xp_to_user(int(winner_id), 500)
+                
+                await interaction.response.send_message(
+                    f"🏆 **TOURNAMENT COMPLETE!**\n\n"
+                    f"**Champion:** {winner_name}\n"
+                    f"**Prize:** 5,000 coins + 500 XP!",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"✅ **{winner_name}** wins match `{self.match['id']}`!\n"
+                    f"They advance to the next round.",
+                    ephemeral=True
+                )
+        else:
+            await interaction.response.send_message("❌ Failed to report match!", ephemeral=True)
+
 
 class TournamentReportModal(discord.ui.Modal, title="Report Tournament Match"):
     match_id = discord.ui.TextInput(
@@ -11995,71 +12200,132 @@ async def elo_reset_cmd(ctx, confirm: str = None):
 # TOURNAMENT COMMANDS (Panel-based)
 # ==========================================
 
-@bot.command(name="tournament_create", description="Admin: Create a new tournament")
+@bot.command(name="tournament_create")
 @commands.has_permissions(administrator=True)
-async def tournament_create_cmd(ctx, name: str, channel: discord.TextChannel = None):
-    """Create a new tournament with signup panel"""
-    tournament = create_tournament(name, ctx.author.id)
+async def tournament_create_cmd(ctx, name: str, channel: discord.TextChannel = None, required_role: discord.Role = None, max_participants: int = 16):
+    """
+    Create a new tournament
+    Usage: !tournament_create "Tournament Name" #channel @role max_participants
+    Example: !tournament_create "Top 10 Showdown" #tournaments @Mainers 10
+    """
+    tournament = create_tournament(
+        name, 
+        ctx.author.id,
+        required_role_id=str(required_role.id) if required_role else None,
+        required_role_name=required_role.name if required_role else None,
+        channel_id=str((channel or ctx.channel).id),
+        max_participants=max(2, min(32, max_participants))
+    )
     
     if not tournament:
-        return await ctx.send("❌ There's already an active tournament! End it first.", ephemeral=True)
+        return await ctx.send("❌ There's already an active tournament! End it first with `!tournament_end confirm`")
     
     target_channel = channel or ctx.channel
     
+    # Create embed with visual bracket text
+    bracket_text = create_visual_bracket_text(tournament, ctx.guild)
+    
     embed = discord.Embed(
         title=f"🏆 {name}",
-        description=(
-            f"**Status:** 🟢 Signups Open\n"
-            f"**Participants:** 0\n\n"
-            f"Click **Join Tournament** to participate!"
-        ),
-        color=0xFFD700
+        description=bracket_text,
+        color=0xffd700
     )
-    embed.set_footer(text="✝ The Fallen ✝ • Tournament System")
     
-    await target_channel.send(embed=embed, view=TournamentPanelView())
-    await ctx.send(f"✅ Tournament **{name}** created in {target_channel.mention}!", ephemeral=True)
+    embed.add_field(name="Status", value="📝 Signups Open", inline=True)
+    embed.add_field(name="Participants", value=f"0/{max_participants}", inline=True)
+    
+    if required_role:
+        embed.add_field(name="🎭 Requirement", value=required_role.name, inline=True)
+    
+    embed.set_footer(text="✝ The Fallen Tournament ✝")
+    
+    msg = await target_channel.send(embed=embed, view=TournamentPanelView())
+    
+    # Save message ID
+    data = load_tournaments()
+    if data["active"]:
+        data["active"]["message_id"] = str(msg.id)
+        save_tournaments(data)
+    
+    role_text = f" (Requires **{required_role.name}**)" if required_role else ""
+    await ctx.send(f"✅ Tournament **{name}** created in {target_channel.mention}!{role_text}")
+    
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
-@bot.command(name="tournament_panel", description="Admin: Post tournament panel")
+
+@bot.command(name="setup_tournament")
+@commands.has_permissions(administrator=True)
+async def setup_tournament_panel(ctx):
+    """Setup a tournament creation panel for staff"""
+    embed = discord.Embed(
+        title="🏆 Tournament System",
+        description=(
+            "Create and manage tournaments with visual brackets!\n\n"
+            "**Features:**\n"
+            "• Visual bracket display\n"
+            "• Role restrictions (e.g., Mainers only)\n"
+            "• Auto bracket generation\n"
+            "• Easy winner reporting via dropdown\n"
+            "• Champion rewards (5,000 coins + 500 XP)\n\n"
+            "**Staff Commands:**\n"
+            "`!tournament_create \"Name\" #channel @role max`\n"
+            "`!tournament_end confirm`\n\n"
+            "**Example:**\n"
+            "`!tournament_create \"Top 10 Showdown\" #tournaments @Mainers 10`"
+        ),
+        color=0xffd700
+    )
+    embed.set_footer(text="✝ The Fallen Tournament System ✝")
+    
+    await ctx.send(embed=embed)
+    await ctx.message.delete()
+
+
+@bot.command(name="tournament_panel")
 @commands.has_permissions(administrator=True)
 async def tournament_panel_cmd(ctx):
     """Post the tournament panel"""
     tournament = get_active_tournament()
     
     if not tournament:
-        return await ctx.send("❌ No active tournament! Create one with `/tournament_create`", ephemeral=True)
+        return await ctx.send("❌ No active tournament! Create one with `!tournament_create`")
     
-    participant_count = len(tournament["participants"])
-    status_text = {
-        "signup": "🟢 Signups Open",
-        "active": "🔴 In Progress",
-        "complete": "🏆 Complete"
-    }.get(tournament["status"], "Unknown")
+    bracket_text = create_visual_bracket_text(tournament, ctx.guild)
     
     embed = discord.Embed(
         title=f"🏆 {tournament['name']}",
-        description=(
-            f"**Status:** {status_text}\n"
-            f"**Participants:** {participant_count}\n\n"
-            f"Click **Join Tournament** to participate!"
-        ),
-        color=0xFFD700
+        description=bracket_text,
+        color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
     )
-    embed.set_footer(text="✝ The Fallen ✝ • Tournament System")
+    
+    status_map = {"signup": "📝 Signups Open", "active": "🔴 In Progress", "complete": "✅ Complete"}
+    max_p = tournament.get("max_participants", 16)
+    
+    embed.add_field(name="Status", value=status_map.get(tournament["status"], tournament["status"]), inline=True)
+    embed.add_field(name="Participants", value=f"{len(tournament['participants'])}/{max_p}", inline=True)
+    
+    if tournament.get("required_role_name"):
+        embed.add_field(name="🎭 Requirement", value=tournament["required_role_name"], inline=True)
+    
+    embed.set_footer(text="✝ The Fallen Tournament ✝")
     
     await ctx.send(embed=embed, view=TournamentPanelView())
 
-@bot.command(name="tournament_end", description="Admin: End the current tournament")
+
+@bot.command(name="tournament_end")
 @commands.has_permissions(administrator=True)
 async def tournament_end_cmd(ctx, confirm: str = None):
     """End the current tournament"""
     if confirm != "confirm":
-        return await ctx.send("⚠️ Use `/tournament_end confirm` to confirm.", ephemeral=True)
+        return await ctx.send("⚠️ Use `!tournament_end confirm` to end the tournament.")
     
     if end_tournament():
         await ctx.send("✅ Tournament ended!")
     else:
-        await ctx.send("❌ No active tournament!", ephemeral=True)
+        await ctx.send("❌ No active tournament!")
 
 # ==========================================
 # INACTIVITY COMMANDS
