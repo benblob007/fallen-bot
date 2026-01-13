@@ -4535,6 +4535,7 @@ INACTIVITY_FILE = "inactivity_data.json"
 INACTIVITY_CHECK_DAYS = 3  # Days of inactivity before strike
 MAX_INACTIVITY_STRIKES = 5  # Strikes before kick
 INACTIVITY_IMMUNITY_ROLE = "Inactivity Immunity"  # Role that bypasses inactivity checks
+INACTIVITY_REQUIRED_ROLE = "Mainers"  # ONLY check members with this role
 
 # Rank demotion order (highest to lowest) - Stage 0 is highest
 RANK_DEMOTION_ORDER = [
@@ -4553,6 +4554,24 @@ def has_inactivity_immunity(member):
     """Check if member has immunity role"""
     immunity_role = discord.utils.get(member.roles, name=INACTIVITY_IMMUNITY_ROLE)
     return immunity_role is not None
+
+def is_mainer(member):
+    """Check if member has the Mainers role (required for inactivity tracking)"""
+    mainers_role = discord.utils.get(member.roles, name=INACTIVITY_REQUIRED_ROLE)
+    return mainers_role is not None
+
+def should_check_inactivity(member):
+    """Check if a member should be tracked for inactivity"""
+    # Must have Mainers role
+    if not is_mainer(member):
+        return False
+    # Must not have immunity
+    if has_inactivity_immunity(member):
+        return False
+    # Must not be a bot
+    if member.bot:
+        return False
+    return True
 
 def reset_member_activity(user_id):
     """Reset a member's last_active timestamp to now (prevents inactivity strike)"""
@@ -4832,14 +4851,22 @@ async def check_member_inactivity(member, guild):
     return result
 
 async def run_inactivity_check(guild):
-    """Run inactivity check on all ranked members with rate limit protection"""
+    """Run inactivity check on Mainers with ranked roles (rate limit protected)"""
     results = {
         "checked": 0,
         "strikes_given": 0,
         "demotions": 0,
         "kicks": 0,
+        "skipped_no_mainer": 0,
+        "skipped_immunity": 0,
         "details": []
     }
+    
+    # Get Mainers role
+    mainers_role = discord.utils.get(guild.roles, name=INACTIVITY_REQUIRED_ROLE)
+    if not mainers_role:
+        print(f"Warning: {INACTIVITY_REQUIRED_ROLE} role not found!")
+        return results
     
     # Get all rank roles
     rank_roles = []
@@ -4855,9 +4882,18 @@ async def run_inactivity_check(guild):
         if member.bot:
             continue
         
+        # MUST have Mainers role
+        if mainers_role not in member.roles:
+            continue
+        
         # Check if member has any ranked role
         has_rank = any(role in member.roles for role in rank_roles)
         if not has_rank:
+            continue
+        
+        # Check for immunity
+        if has_inactivity_immunity(member):
+            results["skipped_immunity"] += 1
             continue
         
         results["checked"] += 1
@@ -12349,7 +12385,7 @@ async def tournament_end_cmd(ctx, confirm: str = None):
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 @commands.cooldown(1, 300, commands.BucketType.guild)  # Once per 5 minutes per server
 async def inactivity_check_cmd(ctx):
-    """Run inactivity check and give strikes to inactive ranked members"""
+    """Run inactivity check on Mainers with ranked roles"""
     await ctx.defer()
     
     # Add delay between each member check to avoid rate limits
@@ -12357,12 +12393,14 @@ async def inactivity_check_cmd(ctx):
     
     embed = discord.Embed(
         title="📊 Inactivity Check Results",
+        description=f"*Only checking members with **{INACTIVITY_REQUIRED_ROLE}** role*",
         color=0xe67e22,
         timestamp=datetime.datetime.now(datetime.timezone.utc)
     )
     
-    embed.add_field(name="👥 Members Checked", value=str(results["checked"]), inline=True)
+    embed.add_field(name="👥 Mainers Checked", value=str(results["checked"]), inline=True)
     embed.add_field(name="⚠️ Strikes Given", value=str(results["strikes_given"]), inline=True)
+    embed.add_field(name="🛡️ Immune (Skipped)", value=str(results.get("skipped_immunity", 0)), inline=True)
     embed.add_field(name="📉 Demotions", value=str(results["demotions"]), inline=True)
     embed.add_field(name="👢 Kicks", value=str(results["kicks"]), inline=True)
     
@@ -12377,13 +12415,13 @@ async def inactivity_check_cmd(ctx):
         
         embed.add_field(name="📋 Details", value=details_text or "None", inline=False)
     
-    embed.set_footer(text=f"Threshold: {INACTIVITY_CHECK_DAYS} days")
+    embed.set_footer(text=f"Threshold: {INACTIVITY_CHECK_DAYS} days • Mainers only")
     await ctx.send(embed=embed)
     
     # Log to dashboard
     await log_to_dashboard(
         ctx.guild, "📊 INACTIVITY", "Inactivity Check Ran",
-        f"Checked {results['checked']} ranked members\n{results['strikes_given']} strikes given",
+        f"Checked {results['checked']} Mainers\n{results['strikes_given']} strikes given",
         color=0xe67e22,
         fields={"Demotions": str(results["demotions"]), "Kicks": str(results["kicks"]), "By": ctx.author.mention}
     )
@@ -12399,6 +12437,10 @@ async def inactivity_strikes_cmd(ctx, member: discord.Member = None):
     
     strike_info = get_inactivity_strikes(target.id)
     user_data = get_user_data(target.id)
+    
+    # Check if they're a Mainer
+    is_mainer_member = is_mainer(target)
+    has_immunity = has_inactivity_immunity(target)
     
     # Get current rank
     current_rank = get_member_rank(target)
@@ -12422,9 +12464,21 @@ async def inactivity_strikes_cmd(ctx, member: discord.Member = None):
         color=0xe74c3c if strike_info["count"] >= 3 else 0xf1c40f if strike_info["count"] > 0 else 0x2ecc71
     )
     
+    # Tracking status
+    if not is_mainer_member:
+        tracking_status = "❌ Not Tracked (Not a Mainer)"
+        embed.color = 0x95a5a6  # Grey
+    elif has_immunity:
+        tracking_status = "🛡️ Immune (Has Immunity Role)"
+        embed.color = 0x3498db  # Blue
+    else:
+        tracking_status = "✅ Being Tracked"
+    
+    embed.add_field(name="📋 Tracking Status", value=tracking_status, inline=False)
+    
     # Current rank
     if current_rank:
-        embed.add_field(name="🏅 Current Rank", value=current_rank, inline=False)
+        embed.add_field(name="🏅 Current Rank", value=current_rank, inline=True)
     
     # Strike visual
     strikes_visual = "🔴" * strike_info["count"] + "⚫" * (MAX_INACTIVITY_STRIKES - strike_info["count"])
