@@ -12637,43 +12637,334 @@ async def leaderboards(ctx):
 # Global error handler for rate limits
 @bot.event
 async def on_command_error(ctx, error):
-    """Handle command errors gracefully"""
+    """Handle command errors gracefully with friendly messages"""
+    
+    # Cooldown errors - show time remaining
     if isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"⏰ Command on cooldown. Try again in {error.retry_after:.1f}s", ephemeral=True)
+        minutes = int(error.retry_after // 60)
+        seconds = int(error.retry_after % 60)
+        
+        if minutes > 0:
+            time_str = f"{minutes}m {seconds}s"
+        else:
+            time_str = f"{seconds}s"
+        
+        embed = discord.Embed(
+            title="⏰ Cooldown Active",
+            description=(
+                f"This command is on cooldown!\n\n"
+                f"**Try again in:** {time_str}\n\n"
+                f"*Cooldowns help keep the bot running smoothly for everyone.*"
+            ),
+            color=0xf39c12
+        )
+        embed.set_footer(text="✝ The Fallen ✝")
+        
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
+    # Permission errors
     elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command.", ephemeral=True)
+        missing = ", ".join(error.missing_permissions)
+        embed = discord.Embed(
+            title="🔒 Permission Denied",
+            description=f"You need the following permissions:\n`{missing}`",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
     elif isinstance(error, commands.MissingRole):
-        await ctx.send("❌ You don't have the required role.", ephemeral=True)
+        embed = discord.Embed(
+            title="🔒 Role Required",
+            description="You don't have the required role for this command.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
     elif isinstance(error, commands.MissingAnyRole):
-        await ctx.send("❌ You don't have any of the required roles.", ephemeral=True)
+        embed = discord.Embed(
+            title="🔒 Role Required",
+            description="You need one of the required roles to use this command.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
     elif isinstance(error, commands.BotMissingPermissions):
-        await ctx.send("❌ I don't have permission to do that.", ephemeral=True)
+        missing = ", ".join(error.missing_permissions)
+        embed = discord.Embed(
+            title="⚠️ Bot Missing Permissions",
+            description=f"I need the following permissions to do that:\n`{missing}`\n\nPlease contact a server admin.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=15)
+        except:
+            pass
+        return
+    
+    # Rate limit errors
+    elif isinstance(error, commands.CommandInvokeError):
+        original = error.original
+        
+        # Check for rate limits (429 errors)
+        if hasattr(original, 'status') and original.status == 429:
+            retry_after = getattr(original, 'retry_after', 60)
+            minutes = int(retry_after // 60) + 1
+            
+            embed = discord.Embed(
+                title="🚫 Rate Limited",
+                description=(
+                    f"Discord is rate limiting the bot to prevent spam.\n\n"
+                    f"**Please wait:** ~{minutes} minute(s)\n\n"
+                    f"*This is a Discord protection - not a bug!*"
+                ),
+                color=0xe74c3c
+            )
+            embed.set_footer(text="✝ The Fallen ✝")
+            
+            try:
+                await ctx.send(embed=embed, delete_after=30)
+            except:
+                pass
+            
+            print(f"[RATE LIMIT] Command: {ctx.command}, Retry after: {retry_after}s")
+            return
+        
+        # Check for HTTPException with rate limit
+        elif isinstance(original, discord.HTTPException):
+            if original.status == 429 or "rate limit" in str(original).lower():
+                embed = discord.Embed(
+                    title="🚫 Rate Limited",
+                    description=(
+                        f"Discord is temporarily limiting requests.\n\n"
+                        f"**Please wait:** ~1-2 minutes\n\n"
+                        f"*The bot is fine - just need to slow down!*"
+                    ),
+                    color=0xe74c3c
+                )
+                try:
+                    await ctx.send(embed=embed, delete_after=30)
+                except:
+                    pass
+                return
+    
+    # Generic rate limit check in error string
     elif "429" in str(error) or "rate limit" in str(error).lower():
-        print(f"Rate limit hit: {error}")
-        await asyncio.sleep(5)  # Wait before next action
+        embed = discord.Embed(
+            title="🚫 Rate Limited",
+            description=(
+                f"Discord is temporarily limiting requests.\n\n"
+                f"**Please wait:** ~1-2 minutes\n\n"
+                f"*Try again shortly!*"
+            ),
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=30)
+        except:
+            pass
+        print(f"[RATE LIMIT] {error}")
+        return
+    
+    # Member not found
+    elif isinstance(error, commands.MemberNotFound):
+        embed = discord.Embed(
+            title="❌ Member Not Found",
+            description=f"Could not find that member. Make sure you're mentioning them correctly.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
+    # Role not found
+    elif isinstance(error, commands.RoleNotFound):
+        embed = discord.Embed(
+            title="❌ Role Not Found",
+            description=f"Could not find that role. Make sure you're mentioning it correctly.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
+    # Channel not found
+    elif isinstance(error, commands.ChannelNotFound):
+        embed = discord.Embed(
+            title="❌ Channel Not Found",
+            description=f"Could not find that channel.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
+    # Bad argument
+    elif isinstance(error, commands.BadArgument):
+        embed = discord.Embed(
+            title="❌ Invalid Input",
+            description=f"One of your inputs was invalid. Check the command usage.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
+    # Missing required argument
+    elif isinstance(error, commands.MissingRequiredArgument):
+        embed = discord.Embed(
+            title="❌ Missing Argument",
+            description=f"You're missing a required input: `{error.param.name}`",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
+            pass
+        return
+    
+    # Command not found - ignore silently
+    elif isinstance(error, commands.CommandNotFound):
+        return
+    
+    # Log other errors
     else:
-        print(f"Command error: {error}")
+        print(f"[ERROR] Command: {ctx.command}, Error: {error}")
+
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
-    """Handle slash command errors"""
-    if "429" in str(error) or "rate limit" in str(error).lower():
-        print(f"Rate limit on slash command: {error}")
+    """Handle slash command errors with friendly messages"""
+    
+    # Check if already responded
+    responded = interaction.response.is_done()
+    
+    async def send_error(embed):
         try:
-            await interaction.response.send_message("⏰ Please wait a moment and try again.", ephemeral=True)
+            if responded:
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=embed, ephemeral=True)
         except:
             pass
+    
+    # Cooldown
+    if isinstance(error, discord.app_commands.errors.CommandOnCooldown):
+        minutes = int(error.retry_after // 60)
+        seconds = int(error.retry_after % 60)
+        
+        if minutes > 0:
+            time_str = f"{minutes}m {seconds}s"
+        else:
+            time_str = f"{seconds}s"
+        
+        embed = discord.Embed(
+            title="⏰ Cooldown Active",
+            description=(
+                f"This command is on cooldown!\n\n"
+                f"**Try again in:** {time_str}"
+            ),
+            color=0xf39c12
+        )
+        await send_error(embed)
+        return
+    
+    # Missing permissions
     elif isinstance(error, discord.app_commands.errors.MissingPermissions):
-        try:
-            await interaction.response.send_message("❌ You don't have permission.", ephemeral=True)
-        except:
-            pass
+        embed = discord.Embed(
+            title="🔒 Permission Denied",
+            description="You don't have permission to use this command.",
+            color=0xe74c3c
+        )
+        await send_error(embed)
+        return
+    
+    # Missing role
+    elif isinstance(error, discord.app_commands.errors.MissingRole):
+        embed = discord.Embed(
+            title="🔒 Role Required",
+            description="You need a specific role to use this command.",
+            color=0xe74c3c
+        )
+        await send_error(embed)
+        return
+    
+    # Bot missing permissions
+    elif isinstance(error, discord.app_commands.errors.BotMissingPermissions):
+        embed = discord.Embed(
+            title="⚠️ Bot Missing Permissions",
+            description="I don't have the required permissions. Please contact an admin.",
+            color=0xe74c3c
+        )
+        await send_error(embed)
+        return
+    
+    # Rate limits
+    elif "429" in str(error) or "rate limit" in str(error).lower():
+        embed = discord.Embed(
+            title="🚫 Rate Limited",
+            description=(
+                f"Discord is temporarily limiting requests.\n\n"
+                f"**Please wait:** ~1-2 minutes\n\n"
+                f"*This protects the server from spam!*"
+            ),
+            color=0xe74c3c
+        )
+        await send_error(embed)
+        print(f"[RATE LIMIT] Slash command error: {error}")
+        return
+    
+    # Generic error
     else:
-        print(f"App command error: {error}")
-        try:
-            await interaction.response.send_message("❌ An error occurred. Please try again.", ephemeral=True)
-        except:
-            pass
+        embed = discord.Embed(
+            title="❌ Something Went Wrong",
+            description=(
+                f"An error occurred while processing your request.\n\n"
+                f"**What to do:**\n"
+                f"• Wait a few seconds and try again\n"
+                f"• If it persists, contact staff\n\n"
+                f"*The issue has been logged.*"
+            ),
+            color=0xe74c3c
+        )
+        await send_error(embed)
+        print(f"[ERROR] Slash command: {interaction.command}, Error: {error}")
+
+
+# Global interaction error handler for buttons/modals
+@bot.event
+async def on_error(event, *args, **kwargs):
+    """Global error handler for all events"""
+    import traceback
+    error = traceback.format_exc()
+    
+    if "429" in error or "rate limit" in error.lower():
+        print(f"[RATE LIMIT] Event: {event}")
+    else:
+        print(f"[ERROR] Event: {event}\n{error}")
 
 
 # ==========================================
