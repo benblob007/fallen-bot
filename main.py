@@ -1187,6 +1187,109 @@ def create_arcane_leaderboard_embed(guild, users_data, sort_key="xp", title_suff
     
     return embed
 
+async def create_activity_results_image(guild, check, responses):
+    """Create a visual image of activity check results"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    # Calculate dimensions
+    num_responses = min(len(responses), 20)  # Show max 20
+    row_height = 50
+    header_height = 120
+    footer_height = 40
+    height = header_height + (num_responses * row_height) + footer_height
+    width = 700
+    
+    # Create dark background
+    img = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    draw = ImageDraw.Draw(img)
+    
+    # Load fonts
+    try:
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        header_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+    except:
+        title_font = ImageFont.load_default()
+        header_font = title_font
+        name_font = title_font
+        small_font = title_font
+    
+    # Draw header background
+    draw.rectangle([(0, 0), (width, header_height)], fill=(139, 0, 0, 200))
+    
+    # Draw title
+    title = "📊 ACTIVITY CHECK RESULTS"
+    draw.text((width // 2, 30), title, font=title_font, fill=(255, 255, 255), anchor="mm")
+    
+    # Draw stats
+    total_responses = len(responses)
+    check_message = check.get("message", "Activity Check")[:30]
+    draw.text((width // 2, 70), f"✅ {total_responses} Responses", font=header_font, fill=(46, 204, 113), anchor="mm")
+    draw.text((width // 2, 95), f"ID: {check.get('id', 'Unknown')}", font=small_font, fill=(150, 150, 150), anchor="mm")
+    
+    # Draw response rows
+    y = header_height + 10
+    
+    for i, uid in enumerate(responses[:20]):
+        member = guild.get_member(int(uid))
+        if not member:
+            continue
+        
+        # Alternating row colors
+        row_color = (35, 35, 45) if i % 2 == 0 else (45, 45, 55)
+        draw.rectangle([(10, y), (width - 10, y + row_height - 5)], fill=row_color, outline=(60, 60, 70))
+        
+        # Rank number
+        rank_color = (255, 215, 0) if i < 3 else (200, 200, 200)
+        draw.text((35, y + row_height // 2), f"#{i + 1}", font=name_font, fill=rank_color, anchor="mm")
+        
+        # Try to add avatar
+        try:
+            avatar_url = member.display_avatar.url
+            async with aiohttp.ClientSession() as session:
+                async with session.get(str(avatar_url)) as resp:
+                    if resp.status == 200:
+                        avatar_data = await resp.read()
+                        avatar = Image.open(BytesIO(avatar_data)).convert("RGBA")
+                        avatar = avatar.resize((35, 35), Image.Resampling.LANCZOS)
+                        
+                        # Make circular
+                        mask = Image.new("L", (35, 35), 0)
+                        mask_draw = ImageDraw.Draw(mask)
+                        mask_draw.ellipse([(0, 0), (35, 35)], fill=255)
+                        
+                        img.paste(avatar, (60, y + 7), mask)
+        except:
+            pass
+        
+        # Member name
+        name = member.display_name[:25]
+        draw.text((110, y + row_height // 2), name, font=name_font, fill=(255, 255, 255), anchor="lm")
+        
+        # Response time
+        response_time = check.get("response_times", {}).get(uid)
+        if response_time:
+            try:
+                rt = datetime.datetime.fromisoformat(response_time.replace('Z', '+00:00'))
+                time_str = rt.strftime("%H:%M")
+                draw.text((width - 50, y + row_height // 2), time_str, font=small_font, fill=(150, 150, 150), anchor="mm")
+            except:
+                pass
+        
+        y += row_height
+    
+    # Footer
+    draw.text((width // 2, height - 20), "✝ The Fallen Activity Check ✝", font=small_font, fill=(100, 100, 100), anchor="mm")
+    
+    # Save to buffer
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
 async def create_leaderboard_image(guild, users_data, sort_key="xp", title_suffix="Overall XP"):
     """Create a stylish image-based leaderboard with Fallen theme and avatars"""
     if not PIL_AVAILABLE:
@@ -4868,27 +4971,12 @@ async def run_inactivity_check(guild):
         print(f"Warning: {INACTIVITY_REQUIRED_ROLE} role not found!")
         return results
     
-    # Get all rank roles
-    rank_roles = []
-    for rank_name in MEMBER_RANKS:
-        role = discord.utils.get(guild.roles, name=rank_name)
-        if role:
-            rank_roles.append(role)
-    
-    if not rank_roles:
-        return results
-    
     for member in guild.members:
         if member.bot:
             continue
         
-        # MUST have Mainers role
+        # MUST have Mainer role - that's the ONLY requirement
         if mainers_role not in member.roles:
-            continue
-        
-        # Check if member has any ranked role
-        has_rank = any(role in member.roles for role in rank_roles)
-        if not has_rank:
             continue
         
         # Check for immunity
@@ -8103,8 +8191,10 @@ class PersistentBot(commands.Bot):
     async def setup_hook(self):
         # Register persistent views (only views with custom_id buttons that persist after restart)
         self.add_view(LeaderboardView())
+        self.add_view(TournamentPanelView())
         self.add_view(TournamentJoinView())
         self.add_view(TournamentManageView())
+        self.add_view(TournamentSetupView())
         self.add_view(ChallengeRequestView())
         self.add_view(StaffApprovalView())
         self.add_view(MatchAnnouncementView())
@@ -12316,22 +12406,344 @@ async def setup_tournament_panel(ctx):
             "Create and manage tournaments with visual brackets!\n\n"
             "**Features:**\n"
             "• Visual bracket display\n"
-            "• Role restrictions (e.g., Mainers only)\n"
+            "• Role restrictions (e.g., Mainer only)\n"
             "• Auto bracket generation\n"
             "• Easy winner reporting via dropdown\n"
-            "• Champion rewards (5,000 coins + 500 XP)\n\n"
-            "**Staff Commands:**\n"
-            "`!tournament_create \"Name\" #channel @role max`\n"
-            "`!tournament_end confirm`\n\n"
-            "**Example:**\n"
-            "`!tournament_create \"Top 10 Showdown\" #tournaments @Mainers 10`"
+            "• Champion rewards (5,000 coins + 500 XP)\n"
+            "• Optional Top 10 auto-update\n\n"
+            "Click **Create Tournament** below to start!"
         ),
         color=0xffd700
     )
     embed.set_footer(text="✝ The Fallen Tournament System ✝")
     
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, view=TournamentSetupView())
     await ctx.message.delete()
+
+
+class TournamentSetupView(discord.ui.View):
+    """Panel for staff to create tournaments"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="➕ Create Tournament", style=discord.ButtonStyle.success, custom_id="tournament_setup_create")
+    async def create_tournament_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_tournaments()
+        if data.get("active"):
+            return await interaction.response.send_message(
+                "❌ There's already an active tournament! End it first with `!tournament_end confirm`",
+                ephemeral=True
+            )
+        
+        await interaction.response.send_modal(TournamentCreateModal())
+    
+    @discord.ui.button(label="📊 View Current", style=discord.ButtonStyle.primary, custom_id="tournament_setup_view")
+    async def view_current_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = get_active_tournament()
+        
+        if not tournament:
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        # Create visual bracket image
+        if PIL_AVAILABLE and tournament.get("bracket"):
+            try:
+                img = await create_tournament_bracket_image(tournament, interaction.guild)
+                if img:
+                    file = discord.File(img, filename="bracket.png")
+                    await interaction.response.send_message(file=file, ephemeral=True)
+                    return
+            except Exception as e:
+                print(f"Bracket image error: {e}")
+        
+        # Fallback to text
+        bracket_text = create_visual_bracket_text(tournament, interaction.guild)
+        embed = discord.Embed(
+            title=f"🏆 {tournament['name']}",
+            description=bracket_text,
+            color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class TournamentCreateModal(discord.ui.Modal, title="🏆 Create Tournament"):
+    name = discord.ui.TextInput(
+        label="Tournament Name",
+        placeholder="e.g., Weekly 1v1, Top 10 Showdown",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=50
+    )
+    
+    channel_id = discord.ui.TextInput(
+        label="Channel ID (where to post)",
+        placeholder="Right-click channel > Copy Channel ID",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=20
+    )
+    
+    role_name = discord.ui.TextInput(
+        label="Required Role Name (leave blank for open)",
+        placeholder="e.g., Mainer, Stage 2",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=50
+    )
+    
+    max_participants = discord.ui.TextInput(
+        label="Max Participants (2-32)",
+        placeholder="16",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=2
+    )
+    
+    update_top10 = discord.ui.TextInput(
+        label="Update Top 10 on win? (yes/no)",
+        placeholder="no",
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=3
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Parse inputs
+        try:
+            channel = interaction.guild.get_channel(int(self.channel_id.value))
+            if not channel:
+                return await interaction.response.send_message("❌ Channel not found! Make sure you copied the Channel ID correctly.", ephemeral=True)
+        except:
+            return await interaction.response.send_message("❌ Invalid Channel ID!", ephemeral=True)
+        
+        # Find role if specified
+        required_role = None
+        role_name = self.role_name.value.strip() if self.role_name.value else None
+        if role_name:
+            required_role = discord.utils.get(interaction.guild.roles, name=role_name)
+            if not required_role:
+                return await interaction.response.send_message(f"❌ Role '{role_name}' not found!", ephemeral=True)
+        
+        # Parse max participants
+        try:
+            max_p = int(self.max_participants.value) if self.max_participants.value else 16
+            max_p = max(2, min(32, max_p))
+        except:
+            max_p = 16
+        
+        # Parse top 10 update
+        update_top10 = self.update_top10.value.lower() in ["yes", "y", "true", "1"] if self.update_top10.value else False
+        
+        # Create tournament
+        tournament = create_tournament(
+            self.name.value,
+            interaction.user.id,
+            required_role_id=str(required_role.id) if required_role else None,
+            required_role_name=required_role.name if required_role else None,
+            channel_id=str(channel.id),
+            max_participants=max_p
+        )
+        
+        if not tournament:
+            return await interaction.response.send_message("❌ Failed to create tournament!", ephemeral=True)
+        
+        # Add top 10 flag
+        data = load_tournaments()
+        if data["active"]:
+            data["active"]["update_top10"] = update_top10
+            save_tournaments(data)
+        
+        # Create signup embed
+        bracket_text = create_visual_bracket_text(tournament, interaction.guild)
+        
+        embed = discord.Embed(
+            title=f"🏆 {tournament['name']}",
+            description=bracket_text,
+            color=0xffd700
+        )
+        
+        embed.add_field(name="Status", value="📝 Signups Open", inline=True)
+        embed.add_field(name="Participants", value=f"0/{max_p}", inline=True)
+        
+        if required_role:
+            embed.add_field(name="🎭 Requirement", value=required_role.name, inline=True)
+        
+        if update_top10:
+            embed.add_field(name="🏅 Top 10", value="Winner updates Top 10!", inline=True)
+        
+        embed.set_footer(text="✝ The Fallen Tournament ✝")
+        
+        # Post to channel and ping role if set
+        ping_content = required_role.mention if required_role else None
+        msg = await channel.send(content=ping_content, embed=embed, view=TournamentPanelView())
+        
+        # Save message ID
+        data = load_tournaments()
+        if data["active"]:
+            data["active"]["message_id"] = str(msg.id)
+            save_tournaments(data)
+        
+        await interaction.response.send_message(
+            f"✅ Tournament **{tournament['name']}** created!\n"
+            f"📍 Posted in {channel.mention}\n"
+            f"👥 Max: {max_p} participants\n"
+            f"🎭 Role: {required_role.name if required_role else 'Open to all'}\n"
+            f"🏅 Top 10 Update: {'Yes' if update_top10 else 'No'}",
+            ephemeral=True
+        )
+
+
+async def create_tournament_bracket_image(tournament, guild):
+    """Create a visual tournament bracket image"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    bracket = tournament.get("bracket")
+    if not bracket:
+        return None
+    
+    rounds = bracket.get("rounds", [])
+    if not rounds:
+        return None
+    
+    num_rounds = len(rounds)
+    first_round_matches = len(rounds[0])
+    
+    # Calculate dimensions
+    match_width = 180
+    match_height = 55
+    round_spacing = 220
+    
+    width = num_rounds * round_spacing + 100
+    height = max(400, first_round_matches * (match_height + 30) + 180)
+    
+    # Create dark background
+    img = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    draw = ImageDraw.Draw(img)
+    
+    # Load fonts
+    try:
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        round_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
+        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
+    except:
+        title_font = round_font = name_font = small_font = ImageFont.load_default()
+    
+    # Header
+    draw.rectangle([(0, 0), (width, 60)], fill=(139, 0, 0))
+    title = f"🏆 {tournament['name'].upper()}"
+    draw.text((width // 2, 30), title, font=title_font, fill=(255, 255, 255), anchor="mm")
+    
+    # Round names
+    round_names = []
+    for i in range(num_rounds):
+        if i == num_rounds - 1:
+            round_names.append("🏆 Finals")
+        elif i == num_rounds - 2:
+            round_names.append("Semifinals")
+        elif i == num_rounds - 3:
+            round_names.append("Quarterfinals")
+        else:
+            round_names.append(f"Round {i + 1}")
+    
+    # Draw connecting lines and matches
+    match_positions = {}  # Store positions for drawing lines
+    
+    for round_idx, round_matches in enumerate(rounds):
+        x = 50 + round_idx * round_spacing
+        num_matches = len(round_matches)
+        
+        available_height = height - 140
+        if num_matches > 0:
+            spacing = available_height / num_matches
+        else:
+            spacing = available_height
+        
+        # Round label
+        round_name = round_names[round_idx] if round_idx < len(round_names) else f"Round {round_idx + 1}"
+        draw.text((x + match_width // 2, 80), round_name, font=round_font, fill=(200, 200, 200), anchor="mm")
+        
+        for match_idx, match in enumerate(round_matches):
+            y = 100 + match_idx * spacing + (spacing - match_height) / 2
+            
+            # Store position
+            match_positions[(round_idx, match_idx)] = (x + match_width, y + match_height // 2)
+            
+            # Draw connecting line to next round
+            if round_idx < num_rounds - 1:
+                next_match_idx = match_idx // 2
+                next_x = 50 + (round_idx + 1) * round_spacing
+                next_y = 100 + next_match_idx * (available_height / len(rounds[round_idx + 1])) + ((available_height / len(rounds[round_idx + 1])) - match_height) / 2 + match_height // 2
+                
+                # Horizontal line from match
+                draw.line([(x + match_width, y + match_height // 2), (x + match_width + 15, y + match_height // 2)], fill=(80, 80, 80), width=2)
+                # Vertical line
+                mid_x = x + match_width + 15
+                draw.line([(mid_x, y + match_height // 2), (mid_x, next_y)], fill=(80, 80, 80), width=2)
+            
+            # Match box
+            winner = match.get("winner")
+            if winner:
+                box_fill = (40, 80, 40)  # Green for completed
+            elif match.get("player1") and match.get("player2"):
+                box_fill = (80, 40, 40)  # Red for active
+            else:
+                box_fill = (50, 50, 60)  # Grey for waiting
+            
+            draw.rectangle([(x, y), (x + match_width, y + match_height)], fill=box_fill, outline=(100, 100, 100))
+            
+            # Player 1
+            p1_id = match.get("player1")
+            if p1_id:
+                member1 = guild.get_member(int(p1_id))
+                p1_name = member1.display_name[:18] if member1 else "Unknown"
+            else:
+                p1_name = "BYE" if round_idx == 0 else "TBD"
+            
+            p1_color = (255, 215, 0) if winner == p1_id else (255, 255, 255)
+            draw.text((x + 10, y + 12), p1_name, font=name_font, fill=p1_color)
+            
+            # VS divider
+            draw.line([(x + 5, y + match_height // 2), (x + match_width - 5, y + match_height // 2)], fill=(80, 80, 80), width=1)
+            
+            # Player 2
+            p2_id = match.get("player2")
+            if p2_id:
+                member2 = guild.get_member(int(p2_id))
+                p2_name = member2.display_name[:18] if member2 else "Unknown"
+            else:
+                p2_name = "BYE" if round_idx == 0 else "TBD"
+            
+            p2_color = (255, 215, 0) if winner == p2_id else (255, 255, 255)
+            draw.text((x + 10, y + match_height - 18), p2_name, font=name_font, fill=p2_color)
+            
+            # Match ID
+            draw.text((x + match_width - 5, y + 5), match.get("id", ""), font=small_font, fill=(100, 100, 100), anchor="rt")
+    
+    # Champion box if complete
+    if rounds[-1] and rounds[-1][0].get("winner"):
+        winner_id = rounds[-1][0]["winner"]
+        winner_member = guild.get_member(int(winner_id))
+        winner_name = winner_member.display_name if winner_member else "Unknown"
+        
+        # Champion highlight
+        champ_x = width - 150
+        champ_y = height // 2 - 30
+        draw.rectangle([(champ_x, champ_y), (champ_x + 120, champ_y + 60)], fill=(139, 0, 0), outline=(255, 215, 0), width=3)
+        draw.text((champ_x + 60, champ_y + 15), "🏆 CHAMPION", font=small_font, fill=(255, 215, 0), anchor="mm")
+        draw.text((champ_x + 60, champ_y + 40), winner_name[:15], font=name_font, fill=(255, 255, 255), anchor="mm")
+    
+    # Footer
+    draw.text((width // 2, height - 15), "✝ The Fallen Tournament ✝", font=small_font, fill=(100, 100, 100), anchor="mm")
+    
+    # Save to buffer
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
 
 
 @bot.command(name="tournament_panel")
@@ -15100,12 +15512,15 @@ class ActivityCheckView(discord.ui.View):
     
     @discord.ui.button(label="✅ I'm Active! (0)", style=discord.ButtonStyle.success, custom_id="activity_check_respond")
     async def respond_active(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Defer first to prevent timeout
+        await interaction.response.defer(ephemeral=True)
+        
         data = load_activity_checks()
         
         # Get current check or find by ID
         check_id = self.check_id or data.get("current")
         if not check_id:
-            return await interaction.response.send_message("❌ No active activity check!", ephemeral=True)
+            return await interaction.followup.send("❌ No active activity check!", ephemeral=True)
         
         # Find check
         check = None
@@ -15115,11 +15530,11 @@ class ActivityCheckView(discord.ui.View):
                 break
         
         if not check:
-            return await interaction.response.send_message("❌ This activity check has expired!", ephemeral=True)
+            return await interaction.followup.send("❌ This activity check has expired!", ephemeral=True)
         
         # Check if ended
         if check.get("ended"):
-            return await interaction.response.send_message("❌ This activity check has ended!", ephemeral=True)
+            return await interaction.followup.send("❌ This activity check has ended!", ephemeral=True)
         
         # Check if time expired
         try:
@@ -15141,15 +15556,19 @@ class ActivityCheckView(discord.ui.View):
                         embed.color = 0x95a5a6
                         embed.set_footer(text=f"✝ Ended • {response_count} responses ✝")
                     
-                    # Disable the button
-                    button.disabled = True
-                    button.label = f"⏰ Ended ({response_count})"
-                    button.style = discord.ButtonStyle.secondary
-                    await interaction.message.edit(embed=embed, view=self)
+                    # Create disabled view
+                    disabled_view = discord.ui.View(timeout=None)
+                    disabled_btn = discord.ui.Button(
+                        label=f"⏰ Ended ({response_count})",
+                        style=discord.ButtonStyle.secondary,
+                        disabled=True
+                    )
+                    disabled_view.add_item(disabled_btn)
+                    await interaction.message.edit(embed=embed, view=disabled_view)
                 except:
                     pass
                 
-                return await interaction.response.send_message("❌ This activity check has ended! (Time expired)", ephemeral=True)
+                return await interaction.followup.send("❌ This activity check has ended! (Time expired)", ephemeral=True)
         except:
             pass
         
@@ -15157,7 +15576,7 @@ class ActivityCheckView(discord.ui.View):
         
         # Check if already responded
         if user_id in check.get("responses", []):
-            return await interaction.response.send_message("✅ You've already checked in!", ephemeral=True)
+            return await interaction.followup.send("✅ You've already checked in!", ephemeral=True)
         
         # Add response
         if "responses" not in check:
@@ -15182,18 +15601,20 @@ class ActivityCheckView(discord.ui.View):
         
         # Update the button label and embed with new count
         try:
-            button.label = f"✅ I'm Active! ({response_count})"
+            # Create new view with updated count
+            new_view = ActivityCheckView(check_id)
+            new_view.children[0].label = f"✅ I'm Active! ({response_count})"
             
             # Update embed footer with count
             embed = interaction.message.embeds[0] if interaction.message.embeds else None
             if embed:
                 embed.set_footer(text=f"✝ The Fallen Activity Check • {response_count} responses • ID: {check_id} ✝")
             
-            await interaction.message.edit(embed=embed, view=self)
+            await interaction.message.edit(embed=embed, view=new_view)
         except Exception as e:
             print(f"Failed to update activity check embed: {e}")
         
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ **Activity Confirmed!**\n"
             f"Thanks for checking in, {interaction.user.mention}!\n"
             f"+25 coins, +15 XP\n\n"
@@ -15213,6 +15634,8 @@ class ActivityCheckControlView(discord.ui.View):
         if not is_staff(interaction.user):
             return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
         
+        await interaction.response.defer(ephemeral=True)
+        
         data = load_activity_checks()
         check_id = self.check_id or data.get("current")
         
@@ -15223,10 +15646,22 @@ class ActivityCheckControlView(discord.ui.View):
                 break
         
         if not check:
-            return await interaction.response.send_message("❌ Check not found!", ephemeral=True)
+            return await interaction.followup.send("❌ Check not found!", ephemeral=True)
         
         responses = check.get("responses", [])
         
+        # Try to create visual image
+        if PIL_AVAILABLE and responses:
+            try:
+                img = await create_activity_results_image(interaction.guild, check, responses)
+                if img:
+                    file = discord.File(img, filename="activity_results.png")
+                    await interaction.followup.send(file=file, ephemeral=True)
+                    return
+            except Exception as e:
+                print(f"Activity results image error: {e}")
+        
+        # Fallback to embed
         embed = discord.Embed(
             title="📊 Activity Check Results",
             color=0x2ecc71
@@ -15237,7 +15672,7 @@ class ActivityCheckControlView(discord.ui.View):
         
         # Show recent responders
         if responses:
-            recent = responses[-10:]  # Last 10
+            recent = responses[-15:]  # Last 15
             names = []
             for uid in recent:
                 member = interaction.guild.get_member(int(uid))
@@ -15246,7 +15681,7 @@ class ActivityCheckControlView(discord.ui.View):
             if names:
                 embed.add_field(name="Recent Check-ins", value="\n".join(names), inline=False)
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
     
     @discord.ui.button(label="🛑 End Check", style=discord.ButtonStyle.danger, custom_id="activity_check_end")
     async def end_check(self, interaction: discord.Interaction, button: discord.ui.Button):
