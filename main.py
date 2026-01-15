@@ -1197,83 +1197,53 @@ def create_arcane_leaderboard_embed(guild, users_data, sort_key="xp", title_suff
     return embed
 
 async def create_activity_results_image(guild, check, responses):
-    """Create a stylish visual image of activity check results"""
+    """Create activity check results using custom Fallen background"""
     if not PIL_AVAILABLE:
         return None
     
-    # Calculate dimensions
-    num_responses = min(len(responses), 15)  # Show max 15
-    row_height = 55
-    header_height = 140
-    footer_height = 50
-    height = header_height + max(num_responses * row_height, 100) + footer_height
-    width = 650
+    # Load custom background image
+    bg_path = "FallenCheck.png"
+    try:
+        img = Image.open(bg_path).convert("RGBA")
+    except:
+        # Fallback if image not found - create basic background
+        img = Image.new("RGBA", (1280, 720), (30, 20, 25, 255))
     
-    # Create gradient-like dark background
-    img = Image.new("RGBA", (width, height), (15, 15, 25, 255))
     draw = ImageDraw.Draw(img)
     
     # Load fonts
     try:
-        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-        stat_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
-        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        time_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
     except:
-        title_font = stat_font = name_font = small_font = ImageFont.load_default()
+        name_font = time_font = ImageFont.load_default()
     
-    # Draw decorative header with gradient effect
-    for i in range(header_height):
-        alpha = int(200 - (i * 0.8))
-        color = (139, 0, 0, max(alpha, 50))
-        draw.line([(0, i), (width, i)], fill=color[:3])
+    # Row positions (6 slots) - based on your image layout
+    # Each row: avatar at X=57 (center), name at X=150, time at X=1200
+    row_positions = [
+        {"y": 207, "avatar_center": (57, 207)},
+        {"y": 295, "avatar_center": (57, 295)},
+        {"y": 383, "avatar_center": (57, 383)},
+        {"y": 471, "avatar_center": (57, 471)},
+        {"y": 559, "avatar_center": (57, 559)},
+        {"y": 647, "avatar_center": (57, 647)},
+    ]
     
-    # Top accent line
-    draw.rectangle([(0, 0), (width, 5)], fill=(255, 215, 0))
+    avatar_size = 60  # Size of avatar to fit in the circle
     
-    # Title with shadow effect
-    title = "ACTIVITY CHECK RESULTS"
-    draw.text((width // 2 + 2, 37), title, font=title_font, fill=(0, 0, 0), anchor="mm")
-    draw.text((width // 2, 35), title, font=title_font, fill=(255, 255, 255), anchor="mm")
-    
-    # Stats box
-    total = len(responses)
-    draw.rectangle([(width//2 - 80, 70), (width//2 + 80, 110)], fill=(30, 30, 40), outline=(255, 215, 0), width=2)
-    draw.text((width // 2, 90), f"✅ {total} Responses", font=stat_font, fill=(46, 204, 113), anchor="mm")
-    
-    # ID
-    draw.text((width // 2, 125), f"ID: {check.get('id', 'N/A')}", font=small_font, fill=(120, 120, 120), anchor="mm")
-    
-    # Draw response rows with better styling
-    y = header_height + 10
-    
-    for i, uid in enumerate(responses[:15]):
+    # Draw up to 6 responses
+    for i, uid in enumerate(responses[:6]):
+        if i >= len(row_positions):
+            break
+            
         member = guild.get_member(int(uid))
         if not member:
             continue
         
-        # Row background with subtle gradient
-        if i < 3:
-            # Top 3 get special colors
-            colors = [(255, 215, 0, 40), (192, 192, 192, 40), (205, 127, 50, 40)]
-            row_color = colors[i][:3]
-            border_color = colors[i][:3]
-        else:
-            row_color = (35, 35, 50) if i % 2 == 0 else (40, 40, 55)
-            border_color = (60, 60, 80)
+        row = row_positions[i]
+        center_x, center_y = row["avatar_center"]
         
-        # Draw row with rounded corners effect
-        draw.rectangle([(15, y), (width - 15, y + row_height - 8)], fill=row_color, outline=border_color)
-        
-        # Rank badge
-        rank_colors = {0: (255, 215, 0), 1: (192, 192, 192), 2: (205, 127, 50)}
-        rank_color = rank_colors.get(i, (150, 150, 150))
-        
-        # Rank circle
-        draw.ellipse([(25, y + 12), (55, y + 42)], fill=rank_color, outline=(255, 255, 255))
-        draw.text((40, y + 27), str(i + 1), font=name_font, fill=(0, 0, 0), anchor="mm")
-        
-        # Avatar
+        # Draw avatar (circular)
         try:
             avatar_url = member.display_avatar.url
             async with aiohttp.ClientSession() as session:
@@ -1281,46 +1251,36 @@ async def create_activity_results_image(guild, check, responses):
                     if resp.status == 200:
                         avatar_data = await resp.read()
                         avatar = Image.open(BytesIO(avatar_data)).convert("RGBA")
-                        avatar = avatar.resize((38, 38), Image.Resampling.LANCZOS)
+                        avatar = avatar.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
                         
                         # Circular mask
-                        mask = Image.new("L", (38, 38), 0)
+                        mask = Image.new("L", (avatar_size, avatar_size), 0)
                         mask_draw = ImageDraw.Draw(mask)
-                        mask_draw.ellipse([(0, 0), (38, 38)], fill=255)
+                        mask_draw.ellipse([(0, 0), (avatar_size, avatar_size)], fill=255)
                         
-                        img.paste(avatar, (70, y + 8), mask)
-        except:
-            # Fallback circle
-            draw.ellipse([(70, y + 8), (108, y + 46)], fill=(80, 80, 100))
+                        # Position avatar (center it on the circle)
+                        avatar_x = center_x - avatar_size // 2
+                        avatar_y = center_y - avatar_size // 2
+                        
+                        img.paste(avatar, (avatar_x, avatar_y), mask)
+        except Exception as e:
+            print(f"Avatar error: {e}")
         
-        # Member name
-        name = member.display_name[:22]
-        draw.text((120, y + 27), name, font=name_font, fill=(255, 255, 255), anchor="lm")
+        # Draw username (left side of the bar)
+        name = member.display_name[:30]
+        draw.text((150, center_y), name, font=name_font, fill=(255, 255, 255), anchor="lm")
         
-        # Response time with icon
+        # Draw response time (right side)
         response_time = check.get("response_times", {}).get(uid)
         if response_time:
             try:
                 rt = datetime.datetime.fromisoformat(response_time.replace('Z', '+00:00'))
                 time_str = rt.strftime("%H:%M")
-                draw.text((width - 50, y + 27), f"🕐 {time_str}", font=small_font, fill=(130, 130, 130), anchor="mm")
+                draw.text((1200, center_y), time_str, font=time_font, fill=(180, 180, 180), anchor="rm")
             except:
                 pass
-        
-        y += row_height
     
-    # Show more indicator if there are more responses
-    if len(responses) > 15:
-        remaining = len(responses) - 15
-        draw.text((width // 2, y + 10), f"+ {remaining} more responses...", font=small_font, fill=(100, 100, 100), anchor="mm")
-    
-    # Footer with decorative line
-    draw.line([(50, height - 45), (width - 50, height - 45)], fill=(60, 60, 80), width=1)
-    draw.text((width // 2, height - 25), "✝ THE FALLEN ✝", font=name_font, fill=(139, 0, 0), anchor="mm")
-    
-    # Bottom accent
-    draw.rectangle([(0, height - 5), (width, height)], fill=(139, 0, 0))
-    
+    # Save to buffer
     buffer = BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
@@ -15696,7 +15656,7 @@ class ActivityCheckView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="✅ I'm Active! (0)", style=discord.ButtonStyle.success, custom_id="ac_btn")
+    @discord.ui.button(label="✅ I'm Active! (0)", style=discord.ButtonStyle.success, custom_id="activity_check_btn")
     async def check_in(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             data = load_activity_checks()
@@ -15709,37 +15669,42 @@ class ActivityCheckView(discord.ui.View):
             if not check:
                 return await interaction.response.send_message("❌ Check not found!", ephemeral=True)
             
-            # Check if time expired - auto end it
+            # Check if time expired
+            is_expired = False
             try:
                 ends_at = datetime.datetime.fromisoformat(check["ends_at"].replace('Z', '+00:00'))
                 if datetime.datetime.now(datetime.timezone.utc) > ends_at:
+                    is_expired = True
+            except:
+                pass
+            
+            if check.get("ended") or is_expired:
+                # Auto-end if expired
+                if is_expired and not check.get("ended"):
                     check["ended"] = True
                     check["auto_ended"] = True
                     data["current"] = None
                     save_activity_checks(data)
-                    
-                    # Update button to show ended
+                
+                # RESPOND FIRST
+                await interaction.response.send_message("❌ This check has ended!", ephemeral=True)
+                
+                # Then try to update message
+                try:
                     count = len(check.get("responses", []))
-                    try:
-                        embed = interaction.message.embeds[0].copy() if interaction.message.embeds else None
-                        if embed:
-                            embed.title = "📢 ACTIVITY CHECK ENDED"
-                            embed.color = 0x95a5a6
-                            embed.set_footer(text=f"✝ Ended • {count} responses ✝")
-                        
-                        new_view = discord.ui.View(timeout=None)
-                        ended_btn = discord.ui.Button(label=f"⏰ Ended ({count})", style=discord.ButtonStyle.secondary, disabled=True)
-                        new_view.add_item(ended_btn)
-                        await interaction.message.edit(embed=embed, view=new_view)
-                    except:
-                        pass
+                    embed = interaction.message.embeds[0].copy() if interaction.message.embeds else None
+                    if embed:
+                        embed.title = "📢 ACTIVITY CHECK ENDED"
+                        embed.color = 0x95a5a6
+                        embed.set_footer(text=f"✝ Ended • {count} responses ✝")
                     
-                    return await interaction.response.send_message("❌ This check has ended! (Time expired)", ephemeral=True)
-            except:
-                pass
-            
-            if check.get("ended"):
-                return await interaction.response.send_message("❌ This check has ended!", ephemeral=True)
+                    new_view = discord.ui.View(timeout=None)
+                    ended_btn = discord.ui.Button(label=f"⏰ Ended ({count})", style=discord.ButtonStyle.secondary, disabled=True)
+                    new_view.add_item(ended_btn)
+                    await interaction.message.edit(embed=embed, view=new_view)
+                except:
+                    pass
+                return
             
             user_id = str(interaction.user.id)
             
@@ -15764,19 +15729,18 @@ class ActivityCheckView(discord.ui.View):
             
             count = len(check["responses"])
             
-            # Respond first
+            # RESPOND FIRST - always
             await interaction.response.send_message(
-                f"✅ **Checked in!**\n+25 💰 +15 XP\nYou are #{count}!",
+                f"✅ **Checked in!** +25 💰 +15 XP\nYou are #{count}!",
                 ephemeral=True
             )
             
-            # Update button counter and embed
+            # Then update button counter and embed
             try:
                 embed = interaction.message.embeds[0].copy() if interaction.message.embeds else None
                 if embed:
                     embed.set_footer(text=f"✝ {count} responses ✝")
                 
-                # Create new view with updated counter
                 new_view = ActivityCheckView()
                 new_view.children[0].label = f"✅ I'm Active! ({count})"
                 
@@ -15787,7 +15751,7 @@ class ActivityCheckView(discord.ui.View):
         except Exception as e:
             print(f"Activity check error: {e}")
             try:
-                await interaction.response.send_message(f"❌ Error!", ephemeral=True)
+                await interaction.response.send_message("❌ Error!", ephemeral=True)
             except:
                 pass
 
