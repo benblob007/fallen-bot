@@ -3344,16 +3344,23 @@ def report_tournament_match(match_id, winner_id):
     data = load_tournaments()
     
     if not data["active"] or data["active"]["status"] != "active":
+        print(f"Tournament not active")
         return None
     
     bracket = data["active"]["bracket"]
     winner_uid = str(winner_id)
+    match_id_upper = match_id.upper() if match_id else ""
     
     # Find the match
     for round_idx, round_matches in enumerate(bracket["rounds"]):
-        for match in round_matches:
-            if match["id"] == match_id:
-                if winner_uid not in [match["player1"], match["player2"]]:
+        for match_idx, match in enumerate(round_matches):
+            # Case-insensitive match ID comparison
+            if match["id"].upper() == match_id_upper:
+                p1 = str(match.get("player1", "")) if match.get("player1") else None
+                p2 = str(match.get("player2", "")) if match.get("player2") else None
+                
+                if winner_uid not in [p1, p2]:
+                    print(f"Winner {winner_uid} not in match: {p1} vs {p2}")
                     return None
                 
                 match["winner"] = winner_uid
@@ -3361,20 +3368,13 @@ def report_tournament_match(match_id, winner_id):
                 # Advance winner to next round
                 if round_idx < len(bracket["rounds"]) - 1:
                     next_round = bracket["rounds"][round_idx + 1]
-                    match_idx = round_matches.index(match)
                     next_match_idx = match_idx // 2
                     
-                    if match_idx % 2 == 0:
-                        next_round[next_match_idx]["player1"] = winner_uid
-                    else:
-                        next_round[next_match_idx]["player2"] = winner_uid
-                    
-                    # Check for auto-advance (BYE)
-                    next_match = next_round[next_match_idx]
-                    if next_match["player1"] and next_match["player2"] is None:
-                        next_match["winner"] = next_match["player1"]
-                    elif next_match["player2"] and next_match["player1"] is None:
-                        next_match["winner"] = next_match["player2"]
+                    if next_match_idx < len(next_round):
+                        if match_idx % 2 == 0:
+                            next_round[next_match_idx]["player1"] = winner_uid
+                        else:
+                            next_round[next_match_idx]["player2"] = winner_uid
                 else:
                     # Final match - tournament complete
                     data["active"]["winner"] = winner_uid
@@ -3383,6 +3383,7 @@ def report_tournament_match(match_id, winner_id):
                 save_tournaments(data)
                 return match
     
+    print(f"Match {match_id} not found")
     return None
 
 def end_tournament():
@@ -3736,8 +3737,10 @@ class TournamentMatchSelectView(discord.ui.View):
         
         options = []
         for m in matches[:25]:
-            p1 = guild.get_member(int(m["player1"])) if m.get("player1") else None
-            p2 = guild.get_member(int(m["player2"])) if m.get("player2") else None
+            p1_id = m.get("player1")
+            p2_id = m.get("player2")
+            p1 = guild.get_member(int(p1_id)) if p1_id else None
+            p2 = guild.get_member(int(p2_id)) if p2_id else None
             n1 = p1.display_name[:15] if p1 else "???"
             n2 = p2.display_name[:15] if p2 else "???"
             options.append(discord.SelectOption(
@@ -3745,9 +3748,10 @@ class TournamentMatchSelectView(discord.ui.View):
                 value=m["id"]
             ))
         
-        self.select = discord.ui.Select(placeholder="Select a match...", options=options)
-        self.select.callback = self.select_callback
-        self.add_item(self.select)
+        if options:
+            self.select = discord.ui.Select(placeholder="Select a match...", options=options)
+            self.select.callback = self.select_callback
+            self.add_item(self.select)
     
     async def select_callback(self, interaction: discord.Interaction):
         match_id = self.select.values[0]
@@ -3756,11 +3760,16 @@ class TournamentMatchSelectView(discord.ui.View):
         if not match:
             return await interaction.response.send_message("❌ Match not found!", ephemeral=True)
         
-        p1 = self.guild.get_member(int(match["player1"]))
-        p2 = self.guild.get_member(int(match["player2"]))
+        p1_id = match.get("player1")
+        p2_id = match.get("player2")
+        p1 = self.guild.get_member(int(p1_id)) if p1_id else None
+        p2 = self.guild.get_member(int(p2_id)) if p2_id else None
+        
+        p1_name = p1.display_name if p1 else "Player 1"
+        p2_name = p2.display_name if p2 else "Player 2"
         
         await interaction.response.send_message(
-            f"**{match_id}** - Who won?",
+            f"**{match_id}** - Who won?\n{p1_name} vs {p2_name}",
             view=TournamentWinnerSelectView(match, p1, p2),
             ephemeral=True
         )
@@ -3769,47 +3778,71 @@ class TournamentMatchSelectView(discord.ui.View):
 class TournamentWinnerSelectView(discord.ui.View):
     """Select the winner"""
     def __init__(self, match, player1, player2):
-        super().__init__(timeout=60)
+        super().__init__(timeout=120)
         self.match = match
         self.player1 = player1
         self.player2 = player2
+        
+        # Set button labels to actual names
+        p1_name = player1.display_name[:20] if player1 else "Player 1"
+        p2_name = player2.display_name[:20] if player2 else "Player 2"
+        self.children[0].label = f"🏆 {p1_name}"
+        self.children[1].label = f"🏆 {p2_name}"
     
     @discord.ui.button(label="Player 1 Wins", style=discord.ButtonStyle.success)
     async def p1_wins(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.report_winner(interaction, self.match["player1"])
+        await self.report_winner(interaction, self.match.get("player1"))
     
     @discord.ui.button(label="Player 2 Wins", style=discord.ButtonStyle.success)
     async def p2_wins(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.report_winner(interaction, self.match["player2"])
+        await self.report_winner(interaction, self.match.get("player2"))
     
     async def report_winner(self, interaction: discord.Interaction, winner_id):
-        result = report_tournament_match(self.match["id"], int(winner_id))
+        if not winner_id:
+            return await interaction.response.send_message("❌ Invalid player!", ephemeral=True)
         
-        if result:
-            winner = interaction.guild.get_member(int(winner_id))
-            winner_name = winner.display_name if winner else "Unknown"
+        try:
+            result = report_tournament_match(self.match["id"], winner_id)
             
-            # Check if complete
-            tournament = get_active_tournament()
-            if tournament and tournament.get("status") == "complete":
-                # Award champion
-                add_coins(int(winner_id), 5000)
-                add_xp_to_user(int(winner_id), 500)
+            if result:
+                winner = interaction.guild.get_member(int(winner_id))
+                winner_name = winner.display_name if winner else "Unknown"
                 
-                await interaction.response.send_message(
-                    f"🏆 **TOURNAMENT COMPLETE!**\n\n"
-                    f"**Champion:** {winner_name}\n"
-                    f"**Prize:** 5,000 coins + 500 XP!",
-                    ephemeral=True
-                )
+                # Check if complete
+                tournament = get_active_tournament()
+                if tournament and tournament.get("status") == "complete":
+                    # Award champion
+                    add_coins(int(winner_id), 5000)
+                    add_xp_to_user(int(winner_id), 500)
+                    
+                    await interaction.response.send_message(
+                        f"🏆 **TOURNAMENT COMPLETE!**\n\n"
+                        f"**Champion:** {winner_name}\n"
+                        f"**Prize:** 5,000 coins + 500 XP!",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        f"✅ **{winner_name}** wins `{self.match['id']}`!",
+                        ephemeral=True
+                    )
+                
+                # Disable buttons after report
+                for child in self.children:
+                    child.disabled = True
+                try:
+                    await interaction.message.edit(view=self)
+                except:
+                    pass
             else:
                 await interaction.response.send_message(
-                    f"✅ **{winner_name}** wins match `{self.match['id']}`!\n"
-                    f"They advance to the next round.",
+                    f"❌ Failed to report! Check console for details.\n"
+                    f"Match: {self.match['id']}, Winner: {winner_id}",
                     ephemeral=True
                 )
-        else:
-            await interaction.response.send_message("❌ Failed to report match!", ephemeral=True)
+        except Exception as e:
+            print(f"Report error: {e}")
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
 
 
 class TournamentReportModal(discord.ui.Modal, title="Report Tournament Match"):
@@ -6477,26 +6510,27 @@ class HelpSelect(discord.ui.Select):
             e.description=(
                 "**👤 How to Participate**\n"
                 "• Click **⚔️ Join Tournament** on panel\n"
-                "• Click **📊 View Bracket** to see matches\n"
+                "• Click **📊 View Bracket** to see visual bracket\n"
                 "• Click **🚪 Leave** to withdraw\n\n"
                 "**🎭 Role Requirements**\n"
                 "Some tournaments require specific roles\n"
-                "(e.g., Mainers only, Stage 0-2 only)\n\n"
-                "**🎮 During Tournament**\n"
-                "• Visual bracket shows all matches\n"
-                "• Staff reports match winners\n"
-                "• Winners advance automatically\n\n"
+                "(e.g., Mainer only, Stage 0-2 only)\n\n"
+                "**🖼️ Visual Bracket Image**\n"
+                "Brackets display as images showing:\n"
+                "• All matches with player names\n"
+                "• Color coded (grey/red/green)\n"
+                "• Champion highlight when complete\n\n"
                 "**🏅 Champion Rewards**\n"
-                "🏆 5,000 Coins + 500 XP!\n\n"
-                "**🛡️ Staff: Creating Tournaments**\n"
-                "`!tournament_create \"Name\" #channel @role max`\n\n"
-                "**Examples:**\n"
-                "`!tournament_create \"Weekly 1v1\"`\n"
-                "`!tournament_create \"Top 10\" #t @Mainers 10`\n\n"
+                "🏆 5,000 Coins + 500 XP!\n"
+                "Optional: Auto Top 10 update\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`!setup_tournament` - Setup panel\n"
+                "Then click **Create Tournament** and fill:\n"
+                "• Name, Channel ID, Role, Max, Top10\n\n"
                 "Use **⚙️ Staff: Manage** button to:\n"
                 "• Start tournament\n"
-                "• Report match winners (dropdown)\n"
-                "• View/refresh bracket\n"
+                "• Report winners (dropdown - no IDs!)\n"
+                "• View bracket image\n"
                 "• End tournament"
             )
             
@@ -6594,10 +6628,11 @@ class HelpSelect(discord.ui.Select):
             e.title="🛡️ Staff Commands"
             e.description=(
                 "**🏆 Tournaments**\n"
-                "`!tournament_create \"Name\" #ch @role max`\n"
+                "`!setup_tournament` - Setup panel with modal\n"
                 "`!tournament_panel` `!tournament_end confirm`\n\n"
                 "**📢 Activity Checks**\n"
                 "`!activitycheck [duration] [msg]`\n"
+                "View Results shows visual image!\n"
                 "`!activitystats` `!checkparticipation @user`\n\n"
                 "**🎉 Giveaways**\n"
                 "`!giveaway <duration> <winners> <prize>`\n"
@@ -6606,13 +6641,12 @@ class HelpSelect(discord.ui.Select):
                 "`!massrole add/remove @Role target`\n"
                 "`!giverole @Role` `!takerole @Role`\n"
                 "`!inrole @Role` `!roleinfo @Role`\n\n"
-                "**📅 Events** (prefix: `!`)\n"
-                "`!event_create <type> <title> <mins> [link]`\n\n"
                 "**📊 Levels & Economy**\n"
                 "`!addxp` `!removexp` `!setlevel`\n"
                 "`!addfcoins` `!removefcoins`\n\n"
-                "**🛡️ Inactivity**\n"
-                "`!inactivity_check` `!inactivity_strikes`\n\n"
+                "**🛡️ Inactivity (Mainer only)**\n"
+                "`!inactivity_check` - Check all Mainers\n"
+                "`!inactivity_strikes @user` - View strikes\n\n"
                 "**🔨 Moderation**\n"
                 "`/warn` `/warnings` `!promote` `!demote`"
             )
@@ -6626,15 +6660,18 @@ class HelpSelect(discord.ui.Select):
                 "`!setup_practice` `!setup_attendance`\n"
                 "`!setup_staffpanel` `!setup_applications`\n"
                 "`!setup_tournament` `!setup_modlog`\n\n"
-                "**🏆 Tournaments**\n"
-                "`!tournament_create \"Name\" #ch @role max`\n"
-                "Example: `!tournament_create \"Top 10\" #t @Mainers 10`\n\n"
+                "**🏆 Tournament Setup Panel**\n"
+                "`!setup_tournament` creates a panel\n"
+                "Click 'Create Tournament' → Fill modal:\n"
+                "• Name, Channel ID, Role, Max, Top10\n\n"
+                "**🛡️ Inactivity Config**\n"
+                "Only tracks members with **Mainer** role\n"
+                "No stage required - just Mainer!\n\n"
                 "**📊 Management**\n"
-                "`!archive_old_apps <days>` - Archive old apps\n"
+                "`!archive_old_apps <days>`\n"
                 "`!db_status` - Database status\n\n"
                 "**⚙️ Sync**\n"
-                "`!sync` `!clearsync`\n\n"
-                "**💡 Tip:** Use Wick bot for auto-moderation!"
+                "`!sync` `!clearsync`"
             )
         
         e.set_footer(text="The Fallen Bot • / = slash • ! = prefix")
@@ -15505,122 +15542,71 @@ def save_activity_checks(data):
 
 
 class ActivityCheckView(discord.ui.View):
-    """View for activity check responses"""
-    def __init__(self, check_id: str = None):
+    """Simple activity check button"""
+    def __init__(self):
         super().__init__(timeout=None)
-        self.check_id = check_id
     
-    @discord.ui.button(label="✅ I'm Active! (0)", style=discord.ButtonStyle.success, custom_id="activity_check_respond")
-    async def respond_active(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Defer first to prevent timeout
-        await interaction.response.defer(ephemeral=True)
-        
-        data = load_activity_checks()
-        
-        # Get current check or find by ID
-        check_id = self.check_id or data.get("current")
-        if not check_id:
-            return await interaction.followup.send("❌ No active activity check!", ephemeral=True)
-        
-        # Find check
-        check = None
-        for c in data["checks"]:
-            if c["id"] == check_id:
-                check = c
-                break
-        
-        if not check:
-            return await interaction.followup.send("❌ This activity check has expired!", ephemeral=True)
-        
-        # Check if ended
-        if check.get("ended"):
-            return await interaction.followup.send("❌ This activity check has ended!", ephemeral=True)
-        
-        # Check if time expired
+    @discord.ui.button(label="✅ I'm Active!", style=discord.ButtonStyle.success, custom_id="activity_check_btn")
+    async def check_in(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            ends_at = datetime.datetime.fromisoformat(check["ends_at"].replace('Z', '+00:00'))
-            if datetime.datetime.now(datetime.timezone.utc) > ends_at:
-                # Auto-end the check
-                check["ended"] = True
-                check["ended_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                check["auto_ended"] = True
-                data["current"] = None
-                save_activity_checks(data)
-                
-                # Update the embed to show ended
-                response_count = len(check.get("responses", []))
-                try:
-                    embed = interaction.message.embeds[0] if interaction.message.embeds else None
-                    if embed:
-                        embed.title = "📢 ACTIVITY CHECK ENDED"
-                        embed.color = 0x95a5a6
-                        embed.set_footer(text=f"✝ Ended • {response_count} responses ✝")
-                    
-                    # Create disabled view
-                    disabled_view = discord.ui.View(timeout=None)
-                    disabled_btn = discord.ui.Button(
-                        label=f"⏰ Ended ({response_count})",
-                        style=discord.ButtonStyle.secondary,
-                        disabled=True
-                    )
-                    disabled_view.add_item(disabled_btn)
-                    await interaction.message.edit(embed=embed, view=disabled_view)
-                except:
-                    pass
-                
-                return await interaction.followup.send("❌ This activity check has ended! (Time expired)", ephemeral=True)
-        except:
-            pass
-        
-        user_id = str(interaction.user.id)
-        
-        # Check if already responded
-        if user_id in check.get("responses", []):
-            return await interaction.followup.send("✅ You've already checked in!", ephemeral=True)
-        
-        # Add response
-        if "responses" not in check:
-            check["responses"] = []
-        check["responses"].append(user_id)
-        
-        # Record response time
-        if "response_times" not in check:
-            check["response_times"] = {}
-        check["response_times"][user_id] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        
-        save_activity_checks(data)
-        
-        # Update user's last_active
-        update_user_data(interaction.user.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
-        
-        # Give small reward for checking in
-        add_coins(interaction.user.id, 25)
-        add_xp_to_user(interaction.user.id, 15)
-        
-        response_count = len(check["responses"])
-        
-        # Update the button label and embed with new count
-        try:
-            # Create new view with updated count
-            new_view = ActivityCheckView(check_id)
-            new_view.children[0].label = f"✅ I'm Active! ({response_count})"
+            data = load_activity_checks()
+            check_id = data.get("current")
             
-            # Update embed footer with count
-            embed = interaction.message.embeds[0] if interaction.message.embeds else None
-            if embed:
-                embed.set_footer(text=f"✝ The Fallen Activity Check • {response_count} responses • ID: {check_id} ✝")
+            if not check_id:
+                return await interaction.response.send_message("❌ No active activity check!", ephemeral=True)
             
-            await interaction.message.edit(embed=embed, view=new_view)
+            # Find check
+            check = next((c for c in data["checks"] if c["id"] == check_id), None)
+            if not check:
+                return await interaction.response.send_message("❌ Check not found!", ephemeral=True)
+            
+            if check.get("ended"):
+                return await interaction.response.send_message("❌ This check has ended!", ephemeral=True)
+            
+            user_id = str(interaction.user.id)
+            
+            if user_id in check.get("responses", []):
+                return await interaction.response.send_message("✅ You already checked in!", ephemeral=True)
+            
+            # Add response
+            if "responses" not in check:
+                check["responses"] = []
+            check["responses"].append(user_id)
+            
+            if "response_times" not in check:
+                check["response_times"] = {}
+            check["response_times"][user_id] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            
+            save_activity_checks(data)
+            
+            # Give rewards
+            add_coins(interaction.user.id, 25)
+            add_xp_to_user(interaction.user.id, 15)
+            update_user_data(interaction.user.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
+            
+            count = len(check["responses"])
+            
+            # Respond to user
+            await interaction.response.send_message(
+                f"✅ **Checked in!** (+25 coins, +15 XP)\nYou are #{count}!",
+                ephemeral=True
+            )
+            
+            # Update embed footer (non-blocking)
+            try:
+                if interaction.message.embeds:
+                    embed = interaction.message.embeds[0].copy()
+                    embed.set_footer(text=f"✝ {count} responses ✝")
+                    await interaction.message.edit(embed=embed)
+            except:
+                pass
+                
         except Exception as e:
-            print(f"Failed to update activity check embed: {e}")
-        
-        await interaction.followup.send(
-            f"✅ **Activity Confirmed!**\n"
-            f"Thanks for checking in, {interaction.user.mention}!\n"
-            f"+25 coins, +15 XP\n\n"
-            f"You are response #{response_count}!",
-            ephemeral=True
-        )
+            print(f"Activity check error: {e}")
+            try:
+                await interaction.response.send_message("❌ Error!", ephemeral=True)
+            except:
+                pass
 
 
 class ActivityCheckControlView(discord.ui.View):
