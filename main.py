@@ -1197,64 +1197,83 @@ def create_arcane_leaderboard_embed(guild, users_data, sort_key="xp", title_suff
     return embed
 
 async def create_activity_results_image(guild, check, responses):
-    """Create a visual image of activity check results"""
+    """Create a stylish visual image of activity check results"""
     if not PIL_AVAILABLE:
         return None
     
     # Calculate dimensions
-    num_responses = min(len(responses), 20)  # Show max 20
-    row_height = 50
-    header_height = 120
-    footer_height = 40
-    height = header_height + (num_responses * row_height) + footer_height
-    width = 700
+    num_responses = min(len(responses), 15)  # Show max 15
+    row_height = 55
+    header_height = 140
+    footer_height = 50
+    height = header_height + max(num_responses * row_height, 100) + footer_height
+    width = 650
     
-    # Create dark background
-    img = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    # Create gradient-like dark background
+    img = Image.new("RGBA", (width, height), (15, 15, 25, 255))
     draw = ImageDraw.Draw(img)
     
     # Load fonts
     try:
-        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-        header_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
-        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
-        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        stat_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
     except:
-        title_font = ImageFont.load_default()
-        header_font = title_font
-        name_font = title_font
-        small_font = title_font
+        title_font = stat_font = name_font = small_font = ImageFont.load_default()
     
-    # Draw header background
-    draw.rectangle([(0, 0), (width, header_height)], fill=(139, 0, 0, 200))
+    # Draw decorative header with gradient effect
+    for i in range(header_height):
+        alpha = int(200 - (i * 0.8))
+        color = (139, 0, 0, max(alpha, 50))
+        draw.line([(0, i), (width, i)], fill=color[:3])
     
-    # Draw title
-    title = "📊 ACTIVITY CHECK RESULTS"
-    draw.text((width // 2, 30), title, font=title_font, fill=(255, 255, 255), anchor="mm")
+    # Top accent line
+    draw.rectangle([(0, 0), (width, 5)], fill=(255, 215, 0))
     
-    # Draw stats
-    total_responses = len(responses)
-    check_message = check.get("message", "Activity Check")[:30]
-    draw.text((width // 2, 70), f"✅ {total_responses} Responses", font=header_font, fill=(46, 204, 113), anchor="mm")
-    draw.text((width // 2, 95), f"ID: {check.get('id', 'Unknown')}", font=small_font, fill=(150, 150, 150), anchor="mm")
+    # Title with shadow effect
+    title = "ACTIVITY CHECK RESULTS"
+    draw.text((width // 2 + 2, 37), title, font=title_font, fill=(0, 0, 0), anchor="mm")
+    draw.text((width // 2, 35), title, font=title_font, fill=(255, 255, 255), anchor="mm")
     
-    # Draw response rows
+    # Stats box
+    total = len(responses)
+    draw.rectangle([(width//2 - 80, 70), (width//2 + 80, 110)], fill=(30, 30, 40), outline=(255, 215, 0), width=2)
+    draw.text((width // 2, 90), f"✅ {total} Responses", font=stat_font, fill=(46, 204, 113), anchor="mm")
+    
+    # ID
+    draw.text((width // 2, 125), f"ID: {check.get('id', 'N/A')}", font=small_font, fill=(120, 120, 120), anchor="mm")
+    
+    # Draw response rows with better styling
     y = header_height + 10
     
-    for i, uid in enumerate(responses[:20]):
+    for i, uid in enumerate(responses[:15]):
         member = guild.get_member(int(uid))
         if not member:
             continue
         
-        # Alternating row colors
-        row_color = (35, 35, 45) if i % 2 == 0 else (45, 45, 55)
-        draw.rectangle([(10, y), (width - 10, y + row_height - 5)], fill=row_color, outline=(60, 60, 70))
+        # Row background with subtle gradient
+        if i < 3:
+            # Top 3 get special colors
+            colors = [(255, 215, 0, 40), (192, 192, 192, 40), (205, 127, 50, 40)]
+            row_color = colors[i][:3]
+            border_color = colors[i][:3]
+        else:
+            row_color = (35, 35, 50) if i % 2 == 0 else (40, 40, 55)
+            border_color = (60, 60, 80)
         
-        # Rank number
-        rank_color = (255, 215, 0) if i < 3 else (200, 200, 200)
-        draw.text((35, y + row_height // 2), f"#{i + 1}", font=name_font, fill=rank_color, anchor="mm")
+        # Draw row with rounded corners effect
+        draw.rectangle([(15, y), (width - 15, y + row_height - 8)], fill=row_color, outline=border_color)
         
-        # Try to add avatar
+        # Rank badge
+        rank_colors = {0: (255, 215, 0), 1: (192, 192, 192), 2: (205, 127, 50)}
+        rank_color = rank_colors.get(i, (150, 150, 150))
+        
+        # Rank circle
+        draw.ellipse([(25, y + 12), (55, y + 42)], fill=rank_color, outline=(255, 255, 255))
+        draw.text((40, y + 27), str(i + 1), font=name_font, fill=(0, 0, 0), anchor="mm")
+        
+        # Avatar
         try:
             avatar_url = member.display_avatar.url
             async with aiohttp.ClientSession() as session:
@@ -1262,37 +1281,46 @@ async def create_activity_results_image(guild, check, responses):
                     if resp.status == 200:
                         avatar_data = await resp.read()
                         avatar = Image.open(BytesIO(avatar_data)).convert("RGBA")
-                        avatar = avatar.resize((35, 35), Image.Resampling.LANCZOS)
+                        avatar = avatar.resize((38, 38), Image.Resampling.LANCZOS)
                         
-                        # Make circular
-                        mask = Image.new("L", (35, 35), 0)
+                        # Circular mask
+                        mask = Image.new("L", (38, 38), 0)
                         mask_draw = ImageDraw.Draw(mask)
-                        mask_draw.ellipse([(0, 0), (35, 35)], fill=255)
+                        mask_draw.ellipse([(0, 0), (38, 38)], fill=255)
                         
-                        img.paste(avatar, (60, y + 7), mask)
+                        img.paste(avatar, (70, y + 8), mask)
         except:
-            pass
+            # Fallback circle
+            draw.ellipse([(70, y + 8), (108, y + 46)], fill=(80, 80, 100))
         
         # Member name
-        name = member.display_name[:25]
-        draw.text((110, y + row_height // 2), name, font=name_font, fill=(255, 255, 255), anchor="lm")
+        name = member.display_name[:22]
+        draw.text((120, y + 27), name, font=name_font, fill=(255, 255, 255), anchor="lm")
         
-        # Response time
+        # Response time with icon
         response_time = check.get("response_times", {}).get(uid)
         if response_time:
             try:
                 rt = datetime.datetime.fromisoformat(response_time.replace('Z', '+00:00'))
                 time_str = rt.strftime("%H:%M")
-                draw.text((width - 50, y + row_height // 2), time_str, font=small_font, fill=(150, 150, 150), anchor="mm")
+                draw.text((width - 50, y + 27), f"🕐 {time_str}", font=small_font, fill=(130, 130, 130), anchor="mm")
             except:
                 pass
         
         y += row_height
     
-    # Footer
-    draw.text((width // 2, height - 20), "✝ The Fallen Activity Check ✝", font=small_font, fill=(100, 100, 100), anchor="mm")
+    # Show more indicator if there are more responses
+    if len(responses) > 15:
+        remaining = len(responses) - 15
+        draw.text((width // 2, y + 10), f"+ {remaining} more responses...", font=small_font, fill=(100, 100, 100), anchor="mm")
     
-    # Save to buffer
+    # Footer with decorative line
+    draw.line([(50, height - 45), (width - 50, height - 45)], fill=(60, 60, 80), width=1)
+    draw.text((width // 2, height - 25), "✝ THE FALLEN ✝", font=name_font, fill=(139, 0, 0), anchor="mm")
+    
+    # Bottom accent
+    draw.rectangle([(0, height - 5), (width, height)], fill=(139, 0, 0))
+    
     buffer = BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
@@ -15664,24 +15692,51 @@ def save_activity_checks(data):
 
 
 class ActivityCheckView(discord.ui.View):
-    """Simple activity check button"""
-    def __init__(self, check_id: str = None):
+    """Activity check with counter and auto-expire"""
+    def __init__(self):
         super().__init__(timeout=None)
-        self.check_id = check_id
     
-    @discord.ui.button(label="✅ I'm Active!", style=discord.ButtonStyle.success, custom_id="activity_check_btn")
+    @discord.ui.button(label="✅ I'm Active! (0)", style=discord.ButtonStyle.success, custom_id="ac_btn")
     async def check_in(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             data = load_activity_checks()
             check_id = data.get("current")
             
             if not check_id:
-                return await interaction.response.send_message("❌ No active activity check!", ephemeral=True)
+                return await interaction.response.send_message("❌ No active check!", ephemeral=True)
             
-            # Find check
             check = next((c for c in data["checks"] if c["id"] == check_id), None)
             if not check:
                 return await interaction.response.send_message("❌ Check not found!", ephemeral=True)
+            
+            # Check if time expired - auto end it
+            try:
+                ends_at = datetime.datetime.fromisoformat(check["ends_at"].replace('Z', '+00:00'))
+                if datetime.datetime.now(datetime.timezone.utc) > ends_at:
+                    check["ended"] = True
+                    check["auto_ended"] = True
+                    data["current"] = None
+                    save_activity_checks(data)
+                    
+                    # Update button to show ended
+                    count = len(check.get("responses", []))
+                    try:
+                        embed = interaction.message.embeds[0].copy() if interaction.message.embeds else None
+                        if embed:
+                            embed.title = "📢 ACTIVITY CHECK ENDED"
+                            embed.color = 0x95a5a6
+                            embed.set_footer(text=f"✝ Ended • {count} responses ✝")
+                        
+                        new_view = discord.ui.View(timeout=None)
+                        ended_btn = discord.ui.Button(label=f"⏰ Ended ({count})", style=discord.ButtonStyle.secondary, disabled=True)
+                        new_view.add_item(ended_btn)
+                        await interaction.message.edit(embed=embed, view=new_view)
+                    except:
+                        pass
+                    
+                    return await interaction.response.send_message("❌ This check has ended! (Time expired)", ephemeral=True)
+            except:
+                pass
             
             if check.get("ended"):
                 return await interaction.response.send_message("❌ This check has ended!", ephemeral=True)
@@ -15689,7 +15744,7 @@ class ActivityCheckView(discord.ui.View):
             user_id = str(interaction.user.id)
             
             if user_id in check.get("responses", []):
-                return await interaction.response.send_message("✅ You already checked in!", ephemeral=True)
+                return await interaction.response.send_message("✅ Already checked in!", ephemeral=True)
             
             # Add response
             if "responses" not in check:
@@ -15702,32 +15757,37 @@ class ActivityCheckView(discord.ui.View):
             
             save_activity_checks(data)
             
-            # Give rewards - FIXED: using correct function
-            add_user_stat(interaction.user.id, "coins", 25)
+            # Give rewards
+            add_coins(interaction.user.id, 25)
             add_xp_to_user(interaction.user.id, 15)
             update_user_data(interaction.user.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
             
             count = len(check["responses"])
             
-            # Respond to user
+            # Respond first
             await interaction.response.send_message(
-                f"✅ **Checked in!** (+25 coins, +15 XP)\nYou are #{count}!",
+                f"✅ **Checked in!**\n+25 💰 +15 XP\nYou are #{count}!",
                 ephemeral=True
             )
             
-            # Update embed footer (non-blocking)
+            # Update button counter and embed
             try:
-                if interaction.message.embeds:
-                    embed = interaction.message.embeds[0].copy()
+                embed = interaction.message.embeds[0].copy() if interaction.message.embeds else None
+                if embed:
                     embed.set_footer(text=f"✝ {count} responses ✝")
-                    await interaction.message.edit(embed=embed)
-            except:
-                pass
+                
+                # Create new view with updated counter
+                new_view = ActivityCheckView()
+                new_view.children[0].label = f"✅ I'm Active! ({count})"
+                
+                await interaction.message.edit(embed=embed, view=new_view)
+            except Exception as e:
+                print(f"Failed to update activity embed: {e}")
                 
         except Exception as e:
             print(f"Activity check error: {e}")
             try:
-                await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+                await interaction.response.send_message(f"❌ Error!", ephemeral=True)
             except:
                 pass
 
@@ -15951,9 +16011,26 @@ async def start_activity_check(ctx, duration: str = "1h", *, message: str = None
     
     data = load_activity_checks()
     
-    # Check if there's already an active check
+    # Auto-clear expired checks
     if data.get("current"):
-        return await ctx.send("❌ There's already an active activity check! End it first.")
+        current_check = next((c for c in data["checks"] if c["id"] == data["current"]), None)
+        if current_check:
+            try:
+                ends_at = datetime.datetime.fromisoformat(current_check["ends_at"].replace('Z', '+00:00'))
+                if datetime.datetime.now(datetime.timezone.utc) > ends_at or current_check.get("ended"):
+                    # Auto-end expired check
+                    current_check["ended"] = True
+                    current_check["auto_ended"] = True
+                    data["current"] = None
+                    save_activity_checks(data)
+                    data = load_activity_checks()  # Reload
+                else:
+                    return await ctx.send("❌ There's an active activity check! Use `!endactivitycheck` to end it.")
+            except:
+                # If we can't parse the date, clear it anyway
+                data["current"] = None
+                save_activity_checks(data)
+                data = load_activity_checks()
     
     # Create check
     check_id = f"ac_{int(datetime.datetime.now().timestamp())}"
@@ -16012,6 +16089,26 @@ async def start_activity_check(ctx, duration: str = "1h", *, message: str = None
         await ctx.message.delete()
     except:
         pass
+
+
+@bot.command(name="endactivitycheck")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def force_end_activity_check(ctx):
+    """Force end any active activity check"""
+    data = load_activity_checks()
+    
+    if not data.get("current"):
+        return await ctx.send("✅ No active activity check to end.")
+    
+    check = next((c for c in data["checks"] if c["id"] == data["current"]), None)
+    if check:
+        check["ended"] = True
+        check["ended_by"] = str(ctx.author.id)
+    
+    data["current"] = None
+    save_activity_checks(data)
+    
+    await ctx.send("✅ Activity check ended! You can now start a new one.")
 
 
 @bot.command(name="activitystats")
