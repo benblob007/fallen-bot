@@ -1199,15 +1199,58 @@ def create_arcane_leaderboard_embed(guild, users_data, sort_key="xp", title_suff
 async def create_activity_results_image(guild, check, responses):
     """Create activity check results using custom Fallen background"""
     if not PIL_AVAILABLE:
+        print("PIL not available for activity results image")
         return None
     
-    # Load custom background image
-    bg_path = "FallenCheck.png"
-    try:
-        img = Image.open(bg_path).convert("RGBA")
-    except:
-        # Fallback if image not found - create basic background
-        img = Image.new("RGBA", (1280, 720), (30, 20, 25, 255))
+    # Load custom background image - check multiple possible locations
+    img = None
+    script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else os.getcwd()
+    
+    possible_paths = [
+        "FallenCheck.png",
+        os.path.join(script_dir, "FallenCheck.png"),
+        os.path.join(os.getcwd(), "FallenCheck.png"),
+        "/home/container/FallenCheck.png",
+        "assets/FallenCheck.png",
+        os.path.join(script_dir, "assets", "FallenCheck.png"),
+    ]
+    
+    for bg_path in possible_paths:
+        try:
+            if os.path.exists(bg_path):
+                img = Image.open(bg_path).convert("RGBA")
+                print(f"✅ Loaded activity check background from: {bg_path}")
+                break
+        except Exception as e:
+            print(f"Failed to load {bg_path}: {e}")
+            continue
+    
+    # Fallback if image not found - create a nice looking fallback
+    if img is None:
+        print("⚠️ FallenCheck.png not found anywhere, creating fallback background")
+        print(f"Searched in: {possible_paths}")
+        
+        # Create fallback with similar style
+        img = Image.new("RGBA", (1280, 720), (25, 20, 30, 255))
+        draw = ImageDraw.Draw(img)
+        
+        # Draw header area
+        draw.rectangle([(0, 0), (1280, 165)], fill=(60, 20, 30))
+        
+        # Draw title
+        try:
+            title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
+        except:
+            title_font = ImageFont.load_default()
+        draw.text((640, 80), "✦ FALLEN ACTIVITY CHECK ✦", font=title_font, fill=(255, 255, 255), anchor="mm")
+        
+        # Draw row placeholders
+        row_y_positions = [207, 295, 383, 471, 559, 647]
+        for y in row_y_positions:
+            # Circle placeholder
+            draw.ellipse([(22, y - 35), (92, y + 35)], outline=(139, 50, 50), width=2)
+            # Bar placeholder
+            draw.rounded_rectangle([(110, y - 30), (1250, y + 30)], radius=20, outline=(139, 50, 50), width=2)
     
     draw = ImageDraw.Draw(img)
     
