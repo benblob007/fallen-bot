@@ -758,6 +758,15 @@ def add_xp_to_user(user_id, amount):
     save_data(data)
     return data["users"][uid]["xp"]
 
+def add_coins(user_id, amount):
+    """Add coins to a user"""
+    data = load_data()
+    uid = str(user_id)
+    data = ensure_user_structure(data, uid)
+    data["users"][uid]["coins"] = data["users"][uid].get("coins", 0) + amount
+    save_data(data)
+    return data["users"][uid]["coins"]
+
 def calculate_next_level_xp(level):
     """Calculate XP needed for the next level (continuous leveling like Arcane)"""
     # Lower XP requirements - base 50, increases by 25 per level
@@ -3410,119 +3419,233 @@ def get_active_tournament():
 
 # Tournament Panel View
 class TournamentPanelView(discord.ui.View):
+    """Simplified tournament panel - all in one"""
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="⚔️ Join Tournament", style=discord.ButtonStyle.success, custom_id="tournament_join")
+    @discord.ui.button(label="⚔️ Join", style=discord.ButtonStyle.success, custom_id="t_join")
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
         tournament = get_active_tournament()
-        
         if not tournament:
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
+            return await interaction.response.send_message("❌ No tournament!", ephemeral=True)
         if tournament["status"] != "signup":
-            return await interaction.response.send_message("❌ Signups are closed!", ephemeral=True)
-        
+            return await interaction.response.send_message("❌ Signups closed!", ephemeral=True)
         if str(interaction.user.id) in tournament["participants"]:
-            return await interaction.response.send_message("✅ You're already signed up!", ephemeral=True)
+            return await interaction.response.send_message("✅ Already joined!", ephemeral=True)
         
         success, msg = join_tournament(interaction.user.id, interaction.user.roles)
-        
         if success:
-            count = len(tournament["participants"]) + 1
-            max_p = tournament.get("max_participants", 16)
-            await interaction.response.send_message(
-                f"✅ You joined **{tournament['name']}**!\n"
-                f"Participants: {count}/{max_p}",
-                ephemeral=True
-            )
-            await self.update_panel(interaction.message, interaction.guild)
+            await interaction.response.send_message(f"✅ Joined!", ephemeral=True)
+            await self.refresh_panel(interaction)
         else:
-            if "Requires" in msg:
-                await interaction.response.send_message(f"❌ {msg} to join this tournament!", ephemeral=True)
-            elif "full" in msg:
-                await interaction.response.send_message("❌ Tournament is full!", ephemeral=True)
-            else:
-                await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
     
-    @discord.ui.button(label="🚪 Leave", style=discord.ButtonStyle.secondary, custom_id="tournament_leave")
+    @discord.ui.button(label="🚪 Leave", style=discord.ButtonStyle.secondary, custom_id="t_leave")
     async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
         tournament = get_active_tournament()
-        
         if not tournament or tournament["status"] != "signup":
-            return await interaction.response.send_message("❌ Cannot leave at this time!", ephemeral=True)
-        
+            return await interaction.response.send_message("❌ Can't leave now!", ephemeral=True)
         if leave_tournament(interaction.user.id):
-            await interaction.response.send_message("✅ You left the tournament.", ephemeral=True)
-            await self.update_panel(interaction.message, interaction.guild)
+            await interaction.response.send_message("✅ Left tournament.", ephemeral=True)
+            await self.refresh_panel(interaction)
         else:
-            await interaction.response.send_message("❌ You're not in the tournament!", ephemeral=True)
+            await interaction.response.send_message("❌ Not in tournament!", ephemeral=True)
     
-    @discord.ui.button(label="📊 View Bracket", style=discord.ButtonStyle.primary, custom_id="tournament_bracket")
-    async def bracket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        tournament = get_active_tournament()
-        
-        if not tournament:
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
-        bracket_text = create_visual_bracket_text(tournament, interaction.guild)
-        
-        embed = discord.Embed(
-            title=f"🏆 {tournament['name']}",
-            description=bracket_text,
-            color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
-        )
-        
-        # Show requirements
-        if tournament.get("required_role_name"):
-            embed.add_field(name="🎭 Requirement", value=tournament["required_role_name"], inline=True)
-        
-        max_p = tournament.get("max_participants", 16)
-        embed.add_field(name="📊 Capacity", value=f"{len(tournament['participants'])}/{max_p}", inline=True)
-        
-        embed.set_footer(text="✝ The Fallen Tournament ✝")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @discord.ui.button(label="⚙️ Staff: Manage", style=discord.ButtonStyle.danger, custom_id="tournament_manage", row=1)
-    async def manage(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="🏆 Report Winner", style=discord.ButtonStyle.primary, custom_id="t_report")
+    async def report(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Staff reports match winner - simplified"""
         if not is_staff(interaction.user):
             return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
         
-        await interaction.response.send_message(
-            "**Tournament Management**",
-            view=TournamentManageStaffView(interaction.message),
-            ephemeral=True
-        )
+        tournament = get_active_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ No tournament!", ephemeral=True)
+        if tournament["status"] == "signup":
+            return await interaction.response.send_message("❌ Start tournament first!", ephemeral=True)
+        if tournament["status"] == "complete":
+            return await interaction.response.send_message("✅ Tournament already complete!", ephemeral=True)
+        
+        # Find playable matches
+        bracket = tournament.get("bracket", {})
+        matches = []
+        for rnd in bracket.get("rounds", []):
+            for m in rnd:
+                if m.get("player1") and m.get("player2") and not m.get("winner"):
+                    matches.append(m)
+        
+        if not matches:
+            return await interaction.response.send_message("❌ No matches to report!", ephemeral=True)
+        
+        # Create simple dropdown
+        options = []
+        for m in matches[:25]:
+            p1 = interaction.guild.get_member(int(m["player1"]))
+            p2 = interaction.guild.get_member(int(m["player2"]))
+            n1 = p1.display_name[:12] if p1 else "?"
+            n2 = p2.display_name[:12] if p2 else "?"
+            options.append(discord.SelectOption(label=f"{m['id']}: {n1} vs {n2}", value=m["id"]))
+        
+        view = SimpleMatchSelect(matches, interaction.guild, interaction.message)
+        await interaction.response.send_message("Select match:", view=view, ephemeral=True)
     
-    async def update_panel(self, message, guild):
-        """Update the tournament panel embed"""
+    @discord.ui.button(label="▶️ Start", style=discord.ButtonStyle.danger, custom_id="t_start", row=1)
+    async def start(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        tournament = get_active_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ No tournament!", ephemeral=True)
+        if tournament["status"] != "signup":
+            return await interaction.response.send_message("❌ Already started!", ephemeral=True)
+        if len(tournament["participants"]) < 2:
+            return await interaction.response.send_message("❌ Need 2+ players!", ephemeral=True)
+        
+        result = start_tournament()
+        if result:
+            await interaction.response.send_message(f"✅ Started with {len(result['participants'])} players!", ephemeral=True)
+            await self.refresh_panel(interaction)
+        else:
+            await interaction.response.send_message("❌ Failed!", ephemeral=True)
+    
+    @discord.ui.button(label="🛑 End", style=discord.ButtonStyle.danger, custom_id="t_end", row=1)
+    async def end(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        if end_tournament():
+            await interaction.response.send_message("✅ Tournament ended!", ephemeral=True)
+            try:
+                embed = discord.Embed(title="🏆 Tournament Ended", color=0x95a5a6)
+                await interaction.message.edit(embed=embed, view=None)
+            except:
+                pass
+        else:
+            await interaction.response.send_message("❌ No tournament!", ephemeral=True)
+    
+    async def refresh_panel(self, interaction):
+        """Update the panel"""
         tournament = get_active_tournament()
         if not tournament:
             return
         
-        bracket_text = create_visual_bracket_text(tournament, guild)
+        bracket_text = create_visual_bracket_text(tournament, interaction.guild)
+        status = {"signup": "📝 Signups", "active": "🔴 LIVE", "complete": "✅ Done"}
         
         embed = discord.Embed(
-            title=f"🏆 {tournament['name']}",
+            title=f"🏆 {tournament['name']} - {status.get(tournament['status'], '')}",
             description=bracket_text,
             color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
         )
         
-        status_map = {"signup": "📝 Signups Open", "active": "🔴 In Progress", "complete": "✅ Complete"}
-        embed.add_field(name="Status", value=status_map.get(tournament["status"], tournament["status"]), inline=True)
-        
         max_p = tournament.get("max_participants", 16)
-        embed.add_field(name="Participants", value=f"{len(tournament['participants'])}/{max_p}", inline=True)
-        
+        embed.add_field(name="Players", value=f"{len(tournament['participants'])}/{max_p}", inline=True)
         if tournament.get("required_role_name"):
-            embed.add_field(name="🎭 Requirement", value=tournament["required_role_name"], inline=True)
-        
-        embed.set_footer(text="✝ The Fallen Tournament ✝")
+            embed.add_field(name="Role", value=tournament["required_role_name"], inline=True)
+        embed.set_footer(text="✝ The Fallen ✝")
         
         try:
-            await message.edit(embed=embed)
+            await interaction.message.edit(embed=embed)
         except:
             pass
+
+
+class SimpleMatchSelect(discord.ui.View):
+    """Simple match selector"""
+    def __init__(self, matches, guild, panel_msg):
+        super().__init__(timeout=60)
+        self.matches = matches
+        self.guild = guild
+        self.panel_msg = panel_msg
+        
+        options = []
+        for m in matches[:25]:
+            p1 = guild.get_member(int(m["player1"])) if m.get("player1") else None
+            p2 = guild.get_member(int(m["player2"])) if m.get("player2") else None
+            n1 = p1.display_name[:12] if p1 else "?"
+            n2 = p2.display_name[:12] if p2 else "?"
+            options.append(discord.SelectOption(label=f"{m['id']}: {n1} vs {n2}", value=m["id"]))
+        
+        if options:
+            select = discord.ui.Select(placeholder="Pick match...", options=options)
+            select.callback = self.match_selected
+            self.add_item(select)
+    
+    async def match_selected(self, interaction: discord.Interaction):
+        match_id = interaction.data["values"][0]
+        match = next((m for m in self.matches if m["id"] == match_id), None)
+        if not match:
+            return await interaction.response.send_message("❌ Not found!", ephemeral=True)
+        
+        p1 = self.guild.get_member(int(match["player1"])) if match.get("player1") else None
+        p2 = self.guild.get_member(int(match["player2"])) if match.get("player2") else None
+        
+        view = SimpleWinnerSelect(match, p1, p2, self.panel_msg, self.guild)
+        n1 = p1.display_name if p1 else "P1"
+        n2 = p2.display_name if p2 else "P2"
+        await interaction.response.send_message(f"**{match_id}**: {n1} vs {n2}\nWho won?", view=view, ephemeral=True)
+
+
+class SimpleWinnerSelect(discord.ui.View):
+    """Simple winner buttons with player names"""
+    def __init__(self, match, p1, p2, panel_msg, guild):
+        super().__init__(timeout=60)
+        self.match = match
+        self.p1 = p1
+        self.p2 = p2
+        self.panel_msg = panel_msg
+        self.guild = guild
+        
+        # Set button labels
+        btn1 = discord.ui.Button(label=f"🏆 {p1.display_name[:20] if p1 else 'P1'}", style=discord.ButtonStyle.success)
+        btn1.callback = self.p1_wins
+        self.add_item(btn1)
+        
+        btn2 = discord.ui.Button(label=f"🏆 {p2.display_name[:20] if p2 else 'P2'}", style=discord.ButtonStyle.success)
+        btn2.callback = self.p2_wins
+        self.add_item(btn2)
+    
+    async def p1_wins(self, interaction: discord.Interaction):
+        await self.report(interaction, self.match.get("player1"))
+    
+    async def p2_wins(self, interaction: discord.Interaction):
+        await self.report(interaction, self.match.get("player2"))
+    
+    async def report(self, interaction: discord.Interaction, winner_id):
+        if not winner_id:
+            return await interaction.response.send_message("❌ Invalid!", ephemeral=True)
+        
+        result = report_tournament_match(self.match["id"], winner_id)
+        if result:
+            winner = self.guild.get_member(int(winner_id))
+            name = winner.display_name if winner else "Unknown"
+            
+            tournament = get_active_tournament()
+            if tournament and tournament.get("status") == "complete":
+                add_coins(int(winner_id), 5000)
+                add_xp_to_user(int(winner_id), 500)
+                await interaction.response.send_message(f"🏆 **CHAMPION: {name}!**\n+5000 coins +500 XP!", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"✅ {name} wins!", ephemeral=True)
+            
+            # Refresh panel
+            try:
+                tournament = get_active_tournament()
+                if tournament and self.panel_msg:
+                    bracket_text = create_visual_bracket_text(tournament, self.guild)
+                    status = {"signup": "📝 Signups", "active": "🔴 LIVE", "complete": "✅ Done"}
+                    embed = discord.Embed(
+                        title=f"🏆 {tournament['name']} - {status.get(tournament['status'], '')}",
+                        description=bracket_text,
+                        color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
+                    )
+                    await self.panel_msg.edit(embed=embed)
+            except:
+                pass
+        else:
+            await interaction.response.send_message(f"❌ Failed! Match: {self.match['id']}, Winner: {winner_id}", ephemeral=True)
+
+
+# Keep old views for compatibility but they won't be used
 class TournamentManageStaffView(discord.ui.View):
     def __init__(self, panel_message=None):
         super().__init__(timeout=300)
@@ -3776,7 +3899,7 @@ class TournamentMatchSelectView(discord.ui.View):
 
 
 class TournamentWinnerSelectView(discord.ui.View):
-    """Select the winner"""
+    """Select the winner - simplified"""
     def __init__(self, match, player1, player2):
         super().__init__(timeout=120)
         self.match = match
@@ -3811,8 +3934,8 @@ class TournamentWinnerSelectView(discord.ui.View):
                 # Check if complete
                 tournament = get_active_tournament()
                 if tournament and tournament.get("status") == "complete":
-                    # Award champion
-                    add_coins(int(winner_id), 5000)
+                    # Award champion using correct function
+                    add_user_stat(int(winner_id), "coins", 5000)
                     add_xp_to_user(int(winner_id), 500)
                     
                     await interaction.response.send_message(
@@ -3827,7 +3950,7 @@ class TournamentWinnerSelectView(discord.ui.View):
                         ephemeral=True
                     )
                 
-                # Disable buttons after report
+                # Disable buttons
                 for child in self.children:
                     child.disabled = True
                 try:
@@ -3836,8 +3959,7 @@ class TournamentWinnerSelectView(discord.ui.View):
                     pass
             else:
                 await interaction.response.send_message(
-                    f"❌ Failed to report! Check console for details.\n"
-                    f"Match: {self.match['id']}, Winner: {winner_id}",
+                    f"❌ Failed to report match!",
                     ephemeral=True
                 )
         except Exception as e:
@@ -15543,8 +15665,9 @@ def save_activity_checks(data):
 
 class ActivityCheckView(discord.ui.View):
     """Simple activity check button"""
-    def __init__(self):
+    def __init__(self, check_id: str = None):
         super().__init__(timeout=None)
+        self.check_id = check_id
     
     @discord.ui.button(label="✅ I'm Active!", style=discord.ButtonStyle.success, custom_id="activity_check_btn")
     async def check_in(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -15579,8 +15702,8 @@ class ActivityCheckView(discord.ui.View):
             
             save_activity_checks(data)
             
-            # Give rewards
-            add_coins(interaction.user.id, 25)
+            # Give rewards - FIXED: using correct function
+            add_user_stat(interaction.user.id, "coins", 25)
             add_xp_to_user(interaction.user.id, 15)
             update_user_data(interaction.user.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
             
@@ -15604,7 +15727,7 @@ class ActivityCheckView(discord.ui.View):
         except Exception as e:
             print(f"Activity check error: {e}")
             try:
-                await interaction.response.send_message("❌ Error!", ephemeral=True)
+                await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
             except:
                 pass
 
@@ -15830,7 +15953,7 @@ async def start_activity_check(ctx, duration: str = "1h", *, message: str = None
     
     # Check if there's already an active check
     if data.get("current"):
-        return await ctx.send("❌ There's already an active activity check! End it first with the 🛑 button.")
+        return await ctx.send("❌ There's already an active activity check! End it first.")
     
     # Create check
     check_id = f"ac_{int(datetime.datetime.now().timestamp())}"
@@ -15849,40 +15972,46 @@ async def start_activity_check(ctx, duration: str = "1h", *, message: str = None
         "ended": False
     }
     
+    # Save FIRST before sending
+    data["checks"].append(check_data)
+    data["current"] = check_id
+    save_activity_checks(data)
+    
     # Create embed
-    custom_msg = message or "React to confirm you're active in The Fallen!"
+    custom_msg = message or "Click button to confirm you're active!"
     
     embed = discord.Embed(
         title="📢 ACTIVITY CHECK",
         description=(
             f"{custom_msg}\n\n"
-            f"**Click the button below to confirm you're active!**\n\n"
             f"⏰ **Ends:** <t:{int(end_time.timestamp())}:R>\n"
-            f"🎁 **Reward:** 25 coins + 15 XP for checking in!"
+            f"🎁 **Reward:** 25 coins + 15 XP"
         ),
-        color=0x2ecc71,
-        timestamp=datetime.datetime.now(datetime.timezone.utc)
+        color=0x2ecc71
     )
-    embed.set_footer(text=f"✝ The Fallen Activity Check • 0 responses • ID: {check_id} ✝")
+    embed.set_footer(text=f"✝ 0 responses ✝")
     
     # Send with ping
-    msg = await ctx.send("@everyone", embed=embed, view=ActivityCheckView(check_id))
+    msg = await ctx.send("@everyone", embed=embed, view=ActivityCheckView())
     
-    # Save message ID for later updates
-    check_data["message_id"] = str(msg.id)
-    data["checks"].append(check_data)
-    data["current"] = check_id
+    # Update message ID
+    data = load_activity_checks()
+    for c in data["checks"]:
+        if c["id"] == check_id:
+            c["message_id"] = str(msg.id)
+            break
     save_activity_checks(data)
     
-    # Send staff controls
-    staff_embed = discord.Embed(
-        title="🔧 Staff Controls",
-        description="Use these buttons to manage the activity check",
-        color=0x3498db
+    # Staff controls
+    await ctx.send(
+        "**Staff Controls:**",
+        view=ActivityCheckControlView()
     )
-    await ctx.send(embed=staff_embed, view=ActivityCheckControlView(check_id))
     
-    await ctx.message.delete()
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name="activitystats")
