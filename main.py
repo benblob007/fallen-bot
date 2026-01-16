@@ -7559,6 +7559,355 @@ class ApplicationNoteModal(discord.ui.Modal, title="📝 Add Staff Note"):
         else:
             await interaction.response.send_message("❌ Could not add note.", ephemeral=True)
 
+
+# ==========================================
+# SERVER INFO PANEL SYSTEM
+# ==========================================
+
+class ServerInfoView(discord.ui.View):
+    """Main server info panel with category buttons"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="🎖️ High Ranks", style=discord.ButtonStyle.secondary, custom_id="info_high_ranks", row=0)
+    async def high_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="🎖️ ✦ HIGH RANKS ✦",
+            description="**The leadership of The Fallen.**",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="👑 Owner",
+            value="Supreme authority over The Fallen. Final say on all matters.",
+            inline=False
+        )
+        embed.add_field(
+            name="⚔️ Co-Owner",
+            value="Second in command. Manages high-level operations and staff.",
+            inline=False
+        )
+        embed.add_field(
+            name="🛡️ Head Staff",
+            value="Oversees all staff members. Handles promotions and demotions.",
+            inline=False
+        )
+        embed.add_field(
+            name="📋 Staff",
+            value="Moderates the server, hosts events, manages members.",
+            inline=False
+        )
+        embed.add_field(
+            name="🎯 Trial Staff",
+            value="Probationary staff. Proving their worth before full promotion.",
+            inline=False
+        )
+        embed.add_field(
+            name="⚠️ How to Become Staff",
+            value="• Be active and trusted\n• Apply when applications open\n• Show leadership qualities\n• No begging or asking",
+            inline=False
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • Staff roles are earned through trust")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="💀 Low Ranks", style=discord.ButtonStyle.secondary, custom_id="info_low_ranks", row=0)
+    async def low_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="💀 ✦ MEMBER RANKS (STAGES) ✦",
+            description="**Combat ranks within The Fallen.**\nEarned through tryouts and performance.",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="⭐ Stage 5 — Elite",
+            value="The best of the best. Top performers.",
+            inline=False
+        )
+        embed.add_field(
+            name="⭐ Stage 4 — Veteran",
+            value="Highly skilled and proven in combat.",
+            inline=False
+        )
+        embed.add_field(
+            name="⭐ Stage 3 — Experienced",
+            value="Solid skill level, consistent performer.",
+            inline=False
+        )
+        embed.add_field(
+            name="⭐ Stage 2 — Intermediate",
+            value="Developing skills, shows potential.",
+            inline=False
+        )
+        embed.add_field(
+            name="⭐ Stage 1 — Beginner",
+            value="New to competitive play, learning.",
+            inline=False
+        )
+        embed.add_field(
+            name="⭐ Stage 0 — Unranked",
+            value="Just joined, needs to tryout.",
+            inline=False
+        )
+        embed.add_field(
+            name="🎮 Mainer",
+            value="Full member of The Fallen. Base rank for all members.",
+            inline=False
+        )
+        embed.add_field(
+            name="📈 How to Rank Up",
+            value="• Attend tryouts\n• Perform well in scrims/wars\n• Show consistency\n• Be active",
+            inline=False
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • Ranks are earned, not requested")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="⚔️ Raid Ranks", style=discord.ButtonStyle.secondary, custom_id="info_raid_ranks", row=0)
+    async def raid_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="⚔️ ✦ RAID/WAR RANKS ✦",
+            description="**Performance-based roles for clan battles.**",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="🔥 Raid Leader",
+            value="Leads raids and coordinates attacks. Calls strats.",
+            inline=False
+        )
+        embed.add_field(
+            name="⚔️ War Veteran",
+            value="Experienced in clan wars. Reliable in battle.",
+            inline=False
+        )
+        embed.add_field(
+            name="🎯 Raider",
+            value="Active participant in raids and wars.",
+            inline=False
+        )
+        embed.add_field(
+            name="📊 How to Earn",
+            value="• Participate in clan wars\n• Show up consistently\n• Perform well in raids\n• Follow raid leader calls",
+            inline=False
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • War roles are earned through battle")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="📊 Activity Ranks", style=discord.ButtonStyle.secondary, custom_id="info_activity_ranks", row=0)
+    async def activity_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="📊 ✦ ACTIVITY RANKS ✦",
+            description="**Level roles earned through activity.**\nGain XP by chatting, joining VC, and participating.",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="How XP Works",
+            value="• **Chat:** 15-25 XP per message (60s cooldown)\n• **Voice:** 10-20 XP per 2 minutes\n• **Events:** Bonus XP for attending\n• **Daily:** Claim daily rewards",
+            inline=False
+        )
+        embed.add_field(
+            name="Level Milestones",
+            value="• Level 5 → Faint Emberling\n• Level 10 → Initiate of Shadows\n• Level 20 → Abysswalk Student\n• Level 50 → Bearer of Abyssal Echo\n• Level 100 → Abyssforged Warden\n• Level 200 → Eternal Shadow Sovereign",
+            inline=False
+        )
+        embed.add_field(
+            name="Benefits",
+            value="• Higher levels = more recognition\n• Coin rewards at milestones\n• Special channel access\n• Flex on the leaderboard",
+            inline=False
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • Check !level to see your progress")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class ServerInfoLevelsView(discord.ui.View):
+    """Level perks buttons"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Lower Levels (5 - 80)", style=discord.ButtonStyle.success, custom_id="info_levels_low", row=0)
+    async def lower_levels(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="📈 ✦ LOWER LEVELS (5 - 80) ✦",
+            description="**Early level rewards and roles.**",
+            color=0x2ecc71
+        )
+        embed.add_field(
+            name="Level 5 — Faint Emberling",
+            value="💰 50 coins",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 10 — Initiate of Shadows",
+            value="💰 100 coins",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 20 — Abysswalk Student",
+            value="💰 200 coins",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 30 — Twilight Disciple",
+            value="💰 400 coins",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 40 — Duskforged Aspirant",
+            value="💰 600 coins",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 50 — Bearer of Abyssal Echo",
+            value="💰 1,000 coins",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 60 — Nightwoven Adept",
+            value="💰 1,500 coins",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 70 — Veilmarked Veteran",
+            value="💰 2,000 coins",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 80 — Shadowborn Ascendant",
+            value="💰 2,500 coins",
+            inline=True
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • Keep grinding!")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Higher Levels (100 - 200)", style=discord.ButtonStyle.danger, custom_id="info_levels_high", row=0)
+    async def higher_levels(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="🔥 ✦ HIGHER LEVELS (100 - 200) ✦",
+            description="**Elite level rewards and roles.**",
+            color=0xe74c3c
+        )
+        embed.add_field(
+            name="Level 100 — Abyssforged Warden",
+            value="💰 5,000 coins\n⭐ Elite recognition",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 120 — Eclipsed Oathbearer",
+            value="💰 7,500 coins\n⭐ Veteran status",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 140 — Harbinger of Dusk",
+            value="💰 10,000 coins\n⭐ Respected member",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 160 — Ascended Dreadkeeper",
+            value="💰 15,000 coins\n⭐ Top tier",
+            inline=True
+        )
+        embed.add_field(
+            name="Level 200 — Eternal Shadow Sovereign",
+            value="💰 50,000 coins\n👑 Maximum prestige\n🏆 The highest honor",
+            inline=False
+        )
+        embed.add_field(
+            name="💡 Tips for High Levels",
+            value="• Stay consistently active\n• Attend all events\n• Use daily rewards\n• Chat in voice channels",
+            inline=False
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • Only the dedicated reach 200")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class ServerInfoBoosterView(discord.ui.View):
+    """Booster info button"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="💎 Booster Info", style=discord.ButtonStyle.secondary, custom_id="info_booster", row=0)
+    async def booster_info(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="💎 ✦ BOOSTER PERKS ✦",
+            description="**Support The Fallen and be rewarded.**\nBoost the server to unlock exclusive benefits.",
+            color=0xf47fff
+        )
+        embed.add_field(
+            name="🎭 Exclusive Role",
+            value="Special Booster role with unique color",
+            inline=False
+        )
+        embed.add_field(
+            name="⚡ Priority Access",
+            value="• First pick for events & trainings\n• Priority in tryout queues\n• Access to booster-only events",
+            inline=False
+        )
+        embed.add_field(
+            name="💬 Special Channels",
+            value="• Booster lounge access\n• Behind-the-scenes chat\n• Direct line to staff",
+            inline=False
+        )
+        embed.add_field(
+            name="🏆 Recognition",
+            value="• Special mention in announcements\n• Booster badge on profile\n• Appreciation from the clan",
+            inline=False
+        )
+        embed.add_field(
+            name="📋 Faster Response",
+            value="• Applications reviewed first\n• Support tickets prioritized\n• Questions answered faster",
+            inline=False
+        )
+        embed.add_field(
+            name="💰 Bonus Rewards",
+            value="• 2x daily coin bonus\n• Extra XP multiplier\n• Exclusive shop items",
+            inline=False
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • Thank you for supporting us!")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class ServerInfoBotView(discord.ui.View):
+    """Bot info button"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="🤖 Bot Info", style=discord.ButtonStyle.secondary, custom_id="info_bot", row=0)
+    async def bot_info(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="🤖 ✦ BOT COMMANDS ✦",
+            description="**The Fallen Bot — Your clan companion.**",
+            color=0x3498db
+        )
+        embed.add_field(
+            name="📊 Profile & Stats",
+            value="`!profile` — View your profile\n`!level` — Check your level\n`!rank` — See leaderboard position\n`!stats` — Detailed statistics",
+            inline=False
+        )
+        embed.add_field(
+            name="💰 Economy",
+            value="`!daily` — Claim daily reward\n`!balance` — Check coins\n`!shop` — Buy items\n`!inventory` — View owned items",
+            inline=False
+        )
+        embed.add_field(
+            name="🏆 Leaderboards",
+            value="`!leaderboard` — XP rankings\n`!top10` — Combat top 10\n`!elolb` — ELO rankings\n`!coinlb` — Richest members",
+            inline=False
+        )
+        embed.add_field(
+            name="⚔️ Competitive",
+            value="`!duel @user` — 1v1 duel\n`!elo` — Check ELO rating\n`!record` — Win/loss record",
+            inline=False
+        )
+        embed.add_field(
+            name="🎮 Fun",
+            value="`!achievements` — View badges\n`!coinflip` — Gamble coins\n`!train` — Training mode",
+            inline=False
+        )
+        embed.add_field(
+            name="📋 Info",
+            value="`!help` — Full command list\n`!roster` — Clan roster\n`!events` — Upcoming events",
+            inline=False
+        )
+        embed.set_footer(text="✝ The Fallen ✝ • Use !help for full command list")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 class ApplicationStartView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -8381,10 +8730,10 @@ class PersistentBot(commands.Bot):
     async def setup_hook(self):
         # Register persistent views (only views with custom_id buttons that persist after restart)
         self.add_view(LeaderboardView())
-        self.add_view(TournamentPanelView())
-        self.add_view(TournamentJoinView())
-        self.add_view(TournamentManageView())
-        self.add_view(TournamentSetupView())
+        self.add_view(TournamentAdminView(""))
+        self.add_view(TournamentRegistrationView(""))
+        self.add_view(MatchScoreView("", ""))
+        self.add_view(TournamentEndView(""))
         self.add_view(ChallengeRequestView())
         self.add_view(StaffApprovalView())
         self.add_view(MatchAnnouncementView())
@@ -8404,6 +8753,10 @@ class PersistentBot(commands.Bot):
         self.add_view(ActivityCheckControlView())
         self.add_view(GiveawayView())
         self.add_view(GiveawayControlView())
+        self.add_view(ServerInfoView())
+        self.add_view(ServerInfoLevelsView())
+        self.add_view(ServerInfoBoosterView())
+        self.add_view(ServerInfoBotView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -17810,6 +18163,105 @@ async def setup_mod_log(ctx):
 
 
 # ==========================================
+# SERVER INFO COMMAND
+# ==========================================
+
+@bot.command(name="serverinfo")
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def server_info_panel(ctx):
+    """
+    Post the server info panel with all interactive buttons.
+    Usage: !serverinfo
+    """
+    await ctx.message.delete()
+    
+    # Main header embed
+    embed1 = discord.Embed(
+        title="༺✦ THE FALLEN — SERVER INFO ✦༻",
+        description="*Order forged in shadow. Power earned through action.*",
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed1)
+    
+    # Role Information section
+    embed2 = discord.Embed(
+        title="༺✦ ROLE INFORMATION ✦༻",
+        description=(
+            "• Ranks and roles within The Fallen are **earned, not requested.**\n"
+            "• Combat ranks are obtained through tryouts and performance, while staff and activity roles are granted based on trust, consistency, and contribution.\n"
+            "• Staff Roles: Assigned by High Staff only\n"
+            "• Activity / War / Raid Roles: Performance-based"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed2, view=ServerInfoView())
+    
+    # Level Perks section
+    embed3 = discord.Embed(
+        title="༺✦ LEVEL PERKS ✦༻",
+        description=(
+            "**Activity fuels ascension.**\n\n"
+            "As you level up, you unlock:\n"
+            "• Cosmetic roles & titles\n"
+            "• Access to special channels\n"
+            "• Event priority\n"
+            "• Increased recognition within the clan\n\n"
+            "**Higher levels = greater presence within The Fallen.**"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed3, view=ServerInfoLevelsView())
+    
+    # Booster Perks section
+    embed4 = discord.Embed(
+        title="༺✦ BOOSTER PERKS ✦༻",
+        description=(
+            "**Support the legion and be rewarded.**\n\n"
+            "• Exclusive Booster role\n"
+            "• Priority access to select events & trainings\n"
+            "• Special chat access\n"
+            "• Recognition within the server\n"
+            "• Faster response on applications & support"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed4, view=ServerInfoBoosterView())
+    
+    # Important Notes section
+    embed5 = discord.Embed(
+        title="༺✦ IMPORTANT NOTES ✦༻",
+        description=(
+            "• Respect the hierarchy — structure keeps us strong\n"
+            "• Follow the Code of Conduct at all times\n"
+            "• Participation matters — inactivity leads to replacement\n"
+            "• Power is proven through consistency, not words"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed5)
+    
+    # Bot Guide section
+    embed6 = discord.Embed(
+        title="༺✦ BOT GUIDE ✦༻",
+        description="Press the button below for bot info.",
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed6, view=ServerInfoBotView())
+    
+    # Welcome section
+    embed7 = discord.Embed(
+        title="༺✦ WELCOME TO THE FALLEN ✦༻",
+        description=(
+            "**If you are here to grow, fight, and rise —**\n"
+            "**you are in the right place.**\n\n"
+            "*Strength is taken. Order is enforced.*"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed7)
+
+
+# ==========================================
 # CUSTOM EMBEDS BUILDER
 # ==========================================
 
@@ -18146,8 +18598,1556 @@ async def embed_delete(ctx, template_name: str):
 # ADD PERSISTENT VIEWS TO SETUP_HOOK
 # ==========================================
 
-# Note: PracticeQueueView needs to be added to setup_hook
-# This is handled in the existing setup_hook function
+# ==========================================
+# THE FALLEN - TOURNAMENT SYSTEM V3
+# TourneyBot-style with full features
+# ==========================================
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+import json
+import os
+import datetime
+import asyncio
+import random
+import math
+from io import BytesIO
+
+# Try to import PIL for bracket images
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
+# ==========================================
+# CONFIGURATION
+# ==========================================
+
+TOURNAMENT_FILE = "tournament_data.json"
+
+# Rate limit protection delays (in seconds)
+CHANNEL_CREATE_DELAY = 1.0
+THREAD_CREATE_DELAY = 0.5
+MESSAGE_SEND_DELAY = 0.3
+
+# ==========================================
+# DATA MANAGEMENT
+# ==========================================
+
+def load_tournament_data():
+    """Load tournament data from file"""
+    try:
+        with open(TOURNAMENT_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {
+            "active_tournament": None,
+            "tournaments": {},
+            "history": []
+        }
+
+def save_tournament_data(data):
+    """Save tournament data to file"""
+    with open(TOURNAMENT_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def get_active_tournament():
+    """Get the currently active tournament"""
+    data = load_tournament_data()
+    if data["active_tournament"]:
+        return data["tournaments"].get(data["active_tournament"])
+    return None
+
+def update_tournament(tournament):
+    """Update tournament in data"""
+    data = load_tournament_data()
+    data["tournaments"][tournament["id"]] = tournament
+    save_tournament_data(data)
+
+# ==========================================
+# BRACKET GENERATION
+# ==========================================
+
+def generate_bracket(participants, seeded=False):
+    """
+    Generate single elimination bracket
+    Returns list of rounds, each round is list of matches
+    """
+    if not participants:
+        return []
+    
+    # Shuffle if not seeded
+    if not seeded:
+        random.shuffle(participants)
+    
+    # Pad to nearest power of 2
+    num_participants = len(participants)
+    bracket_size = 1
+    while bracket_size < num_participants:
+        bracket_size *= 2
+    
+    # Add BYEs
+    while len(participants) < bracket_size:
+        participants.append({"id": "BYE", "name": "BYE", "seed": 999})
+    
+    # Generate first round matches
+    matches = []
+    match_id = 1
+    for i in range(0, len(participants), 2):
+        match = {
+            "id": f"M{match_id}",
+            "round": 1,
+            "player1": participants[i],
+            "player2": participants[i + 1],
+            "player1_score": 0,
+            "player2_score": 0,
+            "winner": None,
+            "status": "pending",  # pending, in_progress, completed
+            "thread_id": None
+        }
+        
+        # Auto-advance BYEs
+        if participants[i]["id"] == "BYE":
+            match["winner"] = participants[i + 1]["id"]
+            match["status"] = "completed"
+        elif participants[i + 1]["id"] == "BYE":
+            match["winner"] = participants[i]["id"]
+            match["status"] = "completed"
+        
+        matches.append(match)
+        match_id += 1
+    
+    # Calculate total rounds
+    total_rounds = int(math.log2(bracket_size))
+    
+    # Generate placeholder matches for future rounds
+    current_round_matches = len(matches)
+    for round_num in range(2, total_rounds + 1):
+        next_round_matches = current_round_matches // 2
+        for i in range(next_round_matches):
+            match = {
+                "id": f"M{match_id}",
+                "round": round_num,
+                "player1": None,
+                "player2": None,
+                "player1_score": 0,
+                "player2_score": 0,
+                "winner": None,
+                "status": "waiting",  # waiting for previous round
+                "thread_id": None,
+                "feeds_from": [f"M{match_id - next_round_matches * 2 + i * 2}", 
+                               f"M{match_id - next_round_matches * 2 + i * 2 + 1}"]
+            }
+            matches.append(match)
+            match_id += 1
+        current_round_matches = next_round_matches
+    
+    return matches
+
+def advance_bracket(tournament):
+    """
+    Check if winners can advance to next round matches
+    """
+    matches = tournament.get("matches", [])
+    
+    for match in matches:
+        if match["status"] == "waiting" and "feeds_from" in match:
+            feed1, feed2 = match["feeds_from"]
+            
+            # Find feeder matches
+            feeder1 = next((m for m in matches if m["id"] == feed1), None)
+            feeder2 = next((m for m in matches if m["id"] == feed2), None)
+            
+            if feeder1 and feeder2:
+                if feeder1["status"] == "completed" and feeder2["status"] == "completed":
+                    # Get winners
+                    winner1 = next((p for p in [feeder1["player1"], feeder1["player2"]] 
+                                   if p and p["id"] == feeder1["winner"]), None)
+                    winner2 = next((p for p in [feeder2["player1"], feeder2["player2"]] 
+                                   if p and p["id"] == feeder2["winner"]), None)
+                    
+                    if winner1 and winner2:
+                        match["player1"] = winner1
+                        match["player2"] = winner2
+                        match["status"] = "pending"
+    
+    return matches
+
+# ==========================================
+# BRACKET IMAGE GENERATION
+# ==========================================
+
+async def create_bracket_image(tournament):
+    """Create visual bracket image"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    matches = tournament.get("matches", [])
+    if not matches:
+        return None
+    
+    # Calculate dimensions
+    total_rounds = max(m["round"] for m in matches)
+    matches_per_round = {}
+    for m in matches:
+        r = m["round"]
+        matches_per_round[r] = matches_per_round.get(r, 0) + 1
+    
+    first_round_matches = matches_per_round.get(1, 1)
+    
+    # Image dimensions
+    match_width = 200
+    match_height = 50
+    h_spacing = 80
+    v_spacing = 20
+    margin = 40
+    
+    width = margin * 2 + total_rounds * (match_width + h_spacing)
+    height = margin * 2 + first_round_matches * (match_height * 2 + v_spacing * 2)
+    
+    # Create image
+    img = Image.new("RGBA", (width, max(height, 400)), (30, 30, 40, 255))
+    draw = ImageDraw.Draw(img)
+    
+    # Load font
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+    except:
+        font = small_font = title_font = ImageFont.load_default()
+    
+    # Draw title
+    title = tournament.get("name", "Tournament")
+    draw.text((width // 2, 15), title, font=title_font, fill=(255, 255, 255), anchor="mm")
+    
+    # Draw matches by round
+    match_positions = {}
+    
+    for round_num in range(1, total_rounds + 1):
+        round_matches = [m for m in matches if m["round"] == round_num]
+        num_matches = len(round_matches)
+        
+        # Calculate vertical spacing for this round
+        available_height = height - margin * 2 - 40
+        if num_matches > 0:
+            spacing = available_height / num_matches
+        else:
+            spacing = available_height
+        
+        x = margin + (round_num - 1) * (match_width + h_spacing)
+        
+        for i, match in enumerate(round_matches):
+            y = margin + 40 + i * spacing + spacing / 2 - match_height / 2
+            
+            match_positions[match["id"]] = (x + match_width, y + match_height / 2)
+            
+            # Draw match box
+            box_color = (50, 50, 60)
+            if match["status"] == "completed":
+                box_color = (40, 80, 40)
+            elif match["status"] == "in_progress":
+                box_color = (80, 80, 40)
+            
+            draw.rounded_rectangle(
+                [(x, y), (x + match_width, y + match_height * 2)],
+                radius=5,
+                fill=box_color,
+                outline=(100, 100, 120)
+            )
+            
+            # Player 1
+            p1_name = match["player1"]["name"][:18] if match["player1"] else "TBD"
+            p1_score = match["player1_score"] if match["player1"] else "-"
+            p1_color = (255, 255, 255)
+            if match["winner"] and match["player1"] and match["winner"] == match["player1"]["id"]:
+                p1_color = (100, 255, 100)
+            
+            # Player 1 seed
+            if match["player1"] and match["player1"].get("seed"):
+                seed = match["player1"]["seed"]
+                if seed != 999:
+                    draw.text((x + 5, y + match_height / 2), str(seed), font=small_font, fill=(255, 215, 0), anchor="lm")
+            
+            draw.text((x + 25, y + match_height / 2), p1_name, font=font, fill=p1_color, anchor="lm")
+            draw.text((x + match_width - 10, y + match_height / 2), str(p1_score), font=font, fill=p1_color, anchor="rm")
+            
+            # Divider line
+            draw.line([(x + 5, y + match_height), (x + match_width - 5, y + match_height)], fill=(80, 80, 100), width=1)
+            
+            # Player 2
+            p2_name = match["player2"]["name"][:18] if match["player2"] else "TBD"
+            p2_score = match["player2_score"] if match["player2"] else "-"
+            p2_color = (255, 255, 255)
+            if match["winner"] and match["player2"] and match["winner"] == match["player2"]["id"]:
+                p2_color = (100, 255, 100)
+            
+            # Player 2 seed
+            if match["player2"] and match["player2"].get("seed"):
+                seed = match["player2"]["seed"]
+                if seed != 999:
+                    draw.text((x + 5, y + match_height + match_height / 2), str(seed), font=small_font, fill=(255, 215, 0), anchor="lm")
+            
+            draw.text((x + 25, y + match_height + match_height / 2), p2_name, font=font, fill=p2_color, anchor="lm")
+            draw.text((x + match_width - 10, y + match_height + match_height / 2), str(p2_score), font=font, fill=p2_color, anchor="rm")
+            
+            # Draw round label
+            if i == 0:
+                round_label = f"Round {round_num}"
+                if round_num == total_rounds:
+                    round_label = "Finals"
+                elif round_num == total_rounds - 1:
+                    round_label = "Semi-Finals"
+                draw.text((x + match_width / 2, y - 15), round_label, font=small_font, fill=(150, 150, 150), anchor="mm")
+    
+    # Draw connecting lines
+    for match in matches:
+        if "feeds_from" in match and match["id"] in match_positions:
+            end_x, end_y = match_positions[match["id"]]
+            end_x -= match_width  # Adjust to left side of match box
+            
+            for feeder_id in match["feeds_from"]:
+                if feeder_id in match_positions:
+                    start_x, start_y = match_positions[feeder_id]
+                    
+                    # Draw bracket line
+                    mid_x = (start_x + end_x) / 2
+                    draw.line([(start_x, start_y), (mid_x, start_y)], fill=(100, 100, 120), width=2)
+                    draw.line([(mid_x, start_y), (mid_x, end_y)], fill=(100, 100, 120), width=2)
+                    draw.line([(mid_x, end_y), (end_x, end_y)], fill=(100, 100, 120), width=2)
+    
+    # Footer
+    draw.text((width // 2, height - 15), "✝ THE FALLEN ✝", font=small_font, fill=(139, 0, 0), anchor="mm")
+    
+    # Save to buffer
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
+# ==========================================
+# TOURNAMENT MODALS
+# ==========================================
+
+class TournamentCreateModal(discord.ui.Modal, title="Create Tournament"):
+    """Modal for creating a new tournament"""
+    
+    name = discord.ui.TextInput(
+        label="Tournament Name",
+        placeholder="Enter tournament name...",
+        max_length=40,
+        required=True
+    )
+    
+    best_of = discord.ui.TextInput(
+        label="Best Of",
+        placeholder="1, 3, 5, or 7",
+        default="1",
+        max_length=1,
+        required=True
+    )
+    
+    max_participants = discord.ui.TextInput(
+        label="Max Participants",
+        placeholder="8, 16, 32, 64...",
+        default="16",
+        max_length=3,
+        required=True
+    )
+    
+    rules = discord.ui.TextInput(
+        label="Rules",
+        placeholder="Tournament rules...",
+        style=discord.TextStyle.paragraph,
+        max_length=900,
+        required=False
+    )
+    
+    info = discord.ui.TextInput(
+        label="Additional Info",
+        placeholder="Prize, schedule, etc...",
+        style=discord.TextStyle.paragraph,
+        max_length=900,
+        required=False
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        # Validate best_of
+        try:
+            best_of = int(self.best_of.value)
+            if best_of not in [1, 3, 5, 7]:
+                best_of = 1
+        except:
+            best_of = 1
+        
+        # Validate max_participants
+        try:
+            max_p = int(self.max_participants.value)
+            if max_p < 2:
+                max_p = 8
+            elif max_p > 128:
+                max_p = 128
+        except:
+            max_p = 16
+        
+        # Create tournament data
+        tournament_id = f"T{int(datetime.datetime.now().timestamp())}"
+        tournament = {
+            "id": tournament_id,
+            "name": self.name.value,
+            "creator_id": str(interaction.user.id),
+            "guild_id": str(interaction.guild.id),
+            "best_of": best_of,
+            "max_participants": max_p,
+            "rules": self.rules.value or "No rules specified.",
+            "info": self.info.value or "No additional info.",
+            "status": "setup",  # setup, registration, checkin, active, completed
+            "bracket_type": "single_elimination",
+            "participants": [],
+            "checked_in": [],
+            "spectators": [],
+            "matches": [],
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "started_at": None,
+            "ended_at": None,
+            "winner": None,
+            "required_role_id": None,
+            "required_role_name": None,
+            "channels": {
+                "category": None,
+                "admin": None,
+                "registration": None,
+                "bracket": None,
+                "chat": None,
+                "results": None
+            },
+            "messages": {
+                "admin_panel": None,
+                "registration_portal": None,
+                "bracket_display": None
+            }
+        }
+        
+        # Save to data
+        data = load_tournament_data()
+        data["tournaments"][tournament_id] = tournament
+        data["active_tournament"] = tournament_id
+        save_tournament_data(data)
+        
+        await interaction.followup.send(
+            f"✅ Tournament **{self.name.value}** created!\n"
+            f"Head to the admin channel to configure and publish.",
+            ephemeral=True
+        )
+        
+        # Create admin panel in current channel
+        await create_admin_panel(interaction.channel, tournament)
+
+
+class TournamentConfigModal(discord.ui.Modal, title="Edit Configuration"):
+    """Modal for editing tournament config"""
+    
+    def __init__(self, tournament):
+        super().__init__()
+        self.tournament = tournament
+        
+        self.name = discord.ui.TextInput(
+            label="Tournament Name",
+            default=tournament.get("name", ""),
+            max_length=40,
+            required=True
+        )
+        self.add_item(self.name)
+        
+        self.best_of = discord.ui.TextInput(
+            label="Best Of (1, 3, 5, or 7)",
+            default=str(tournament.get("best_of", 1)),
+            max_length=1,
+            required=True
+        )
+        self.add_item(self.best_of)
+        
+        self.max_participants = discord.ui.TextInput(
+            label="Max Participants",
+            default=str(tournament.get("max_participants", 16)),
+            max_length=3,
+            required=True
+        )
+        self.add_item(self.max_participants)
+        
+        self.rules = discord.ui.TextInput(
+            label="Rules",
+            default=tournament.get("rules", ""),
+            style=discord.TextStyle.paragraph,
+            max_length=900,
+            required=False
+        )
+        self.add_item(self.rules)
+        
+        self.info = discord.ui.TextInput(
+            label="Additional Info",
+            default=tournament.get("info", ""),
+            style=discord.TextStyle.paragraph,
+            max_length=900,
+            required=False
+        )
+        self.add_item(self.info)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validate
+        try:
+            best_of = int(self.best_of.value)
+            if best_of not in [1, 3, 5, 7]:
+                best_of = 1
+        except:
+            best_of = 1
+        
+        try:
+            max_p = int(self.max_participants.value)
+            if max_p < 2:
+                max_p = 8
+        except:
+            max_p = 16
+        
+        # Update tournament
+        self.tournament["name"] = self.name.value
+        self.tournament["best_of"] = best_of
+        self.tournament["max_participants"] = max_p
+        self.tournament["rules"] = self.rules.value or "No rules specified."
+        self.tournament["info"] = self.info.value or "No additional info."
+        
+        update_tournament(self.tournament)
+        
+        await interaction.response.send_message(
+            f"✅ Configuration updated!",
+            ephemeral=True
+        )
+        
+        # Update admin panel
+        if self.tournament["messages"].get("admin_panel"):
+            try:
+                channel = interaction.channel
+                msg = await channel.fetch_message(int(self.tournament["messages"]["admin_panel"]))
+                embed = create_admin_embed(self.tournament)
+                await msg.edit(embed=embed)
+            except:
+                pass
+
+
+class TournamentPublishModal(discord.ui.Modal, title="Publish Tournament"):
+    """Modal for publish text"""
+    
+    publish_text = discord.ui.TextInput(
+        label="Announcement Message",
+        placeholder="Hey! Join our tournament!",
+        default="🏆 Tournament registration is now open!",
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+        required=True
+    )
+    
+    def __init__(self, tournament, target_channel):
+        super().__init__()
+        self.tournament = tournament
+        self.target_channel = target_channel
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        # Create registration portal embed
+        embed = create_registration_embed(self.tournament)
+        
+        # Send to target channel
+        view = TournamentRegistrationView(self.tournament["id"])
+        msg = await self.target_channel.send(
+            content=self.publish_text.value,
+            embed=embed,
+            view=view
+        )
+        
+        # Save message ID
+        self.tournament["messages"]["registration_portal"] = str(msg.id)
+        self.tournament["channels"]["registration"] = str(self.target_channel.id)
+        self.tournament["status"] = "registration"
+        update_tournament(self.tournament)
+        
+        await interaction.followup.send(
+            f"✅ Registration portal published to {self.target_channel.mention}!",
+            ephemeral=True
+        )
+
+
+class ScoreSubmitModal(discord.ui.Modal, title="Submit Match Score"):
+    """Modal for submitting match scores"""
+    
+    def __init__(self, tournament, match, player1_name, player2_name):
+        super().__init__()
+        self.tournament = tournament
+        self.match = match
+        
+        self.player1_score = discord.ui.TextInput(
+            label=player1_name[:45],
+            placeholder="Enter score (0-99)",
+            max_length=2,
+            required=True
+        )
+        self.add_item(self.player1_score)
+        
+        self.player2_score = discord.ui.TextInput(
+            label=player2_name[:45],
+            placeholder="Enter score (0-99)",
+            max_length=2,
+            required=True
+        )
+        self.add_item(self.player2_score)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            p1_score = int(self.player1_score.value)
+            p2_score = int(self.player2_score.value)
+        except:
+            return await interaction.response.send_message("❌ Invalid scores!", ephemeral=True)
+        
+        if p1_score < 0 or p2_score < 0:
+            return await interaction.response.send_message("❌ Scores must be positive!", ephemeral=True)
+        
+        if p1_score == p2_score:
+            return await interaction.response.send_message("❌ Scores cannot be tied!", ephemeral=True)
+        
+        # Determine winner
+        best_of = self.tournament.get("best_of", 1)
+        wins_needed = (best_of // 2) + 1
+        
+        # Update match
+        self.match["player1_score"] = p1_score
+        self.match["player2_score"] = p2_score
+        
+        if p1_score >= wins_needed:
+            self.match["winner"] = self.match["player1"]["id"]
+        elif p2_score >= wins_needed:
+            self.match["winner"] = self.match["player2"]["id"]
+        else:
+            # Just record the score, match not complete yet
+            update_tournament(self.tournament)
+            return await interaction.response.send_message(
+                f"📊 Score recorded: {p1_score} - {p2_score}\n"
+                f"Need {wins_needed} wins to complete match.",
+                ephemeral=True
+            )
+        
+        self.match["status"] = "completed"
+        
+        # Advance bracket
+        self.tournament["matches"] = advance_bracket(self.tournament)
+        update_tournament(self.tournament)
+        
+        winner_name = self.match["player1"]["name"] if self.match["winner"] == self.match["player1"]["id"] else self.match["player2"]["name"]
+        
+        await interaction.response.send_message(
+            f"✅ Match completed!\n"
+            f"**Winner:** {winner_name} ({p1_score} - {p2_score})",
+            ephemeral=True
+        )
+        
+        # Check if tournament is complete
+        await check_tournament_complete(interaction, self.tournament)
+        
+        # Update bracket image
+        await update_bracket_display(interaction.guild, self.tournament)
+
+
+# ==========================================
+# EMBED BUILDERS
+# ==========================================
+
+def create_admin_embed(tournament):
+    """Create the admin panel embed"""
+    embed = discord.Embed(
+        title="⚙️ Configuration",
+        color=0x8B0000
+    )
+    
+    # Config section
+    config_text = (
+        f"📝 **Name:** {tournament['name']}\n"
+        f"🎯 **Best of:** {tournament['best_of']}\n"
+        f"👥 **Player Cap:** {tournament['max_participants']}\n"
+        f"📋 **Rules:** {'Custom rules entered.' if tournament['rules'] != 'No rules specified.' else 'None specified'}\n"
+        f"ℹ️ **Info:** {'Custom info entered.' if tournament['info'] != 'No additional info.' else 'None specified'}\n"
+        f"⚔️ **Bracket:** Single Elimination\n"
+        f"👤 **Team Size:** 1\n"
+        f"📊 **Status:** {tournament['status'].title()}\n"
+        f"👥 **Participants:** {len(tournament['participants'])}/{tournament['max_participants']}"
+    )
+    embed.add_field(name="Settings", value=config_text, inline=False)
+    
+    # Role restriction
+    if tournament.get("required_role_name"):
+        embed.add_field(
+            name="🔒 Role Restriction",
+            value=f"Required: @{tournament['required_role_name']}",
+            inline=False
+        )
+    
+    # Buttons explanation
+    buttons_text = (
+        "▶️ **Start** — Starts the tournament\n"
+        "📤 **Publish** — Opens registration\n"
+        "➖ **Unpublish** — Closes registration\n"
+        "✅ **Check-in** — Start check-in phase\n"
+        "🗑️ **Delete** — Deletes tournament\n"
+        "📝 **Config** — Edit settings\n"
+        "🔒 **Role** — Set required role\n"
+        "👥 **Players** — View participants"
+    )
+    embed.add_field(name="Controls", value=buttons_text, inline=False)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    
+    return embed
+
+
+def create_registration_embed(tournament):
+    """Create the registration portal embed"""
+    embed = discord.Embed(
+        title=tournament["name"],
+        color=0x8B0000
+    )
+    
+    embed.add_field(name="⚔️ Bracket", value=tournament["bracket_type"].replace("_", " ").title(), inline=True)
+    embed.add_field(name="🎯 Matches", value=f"Best {tournament['best_of']} of {tournament['best_of']}", inline=True)
+    embed.add_field(name="👤 Team Size", value="1", inline=True)
+    embed.add_field(
+        name="👥 Participants", 
+        value=f"{len(tournament['participants'])}/{tournament['max_participants']}", 
+        inline=True
+    )
+    embed.add_field(name="📊 Status", value=tournament["status"].title(), inline=True)
+    
+    if tournament.get("required_role_name"):
+        embed.add_field(name="🔒 Required Role", value=f"@{tournament['required_role_name']}", inline=True)
+    
+    if tournament["info"] and tournament["info"] != "No additional info.":
+        embed.add_field(name="ℹ️ Information", value=tournament["info"], inline=False)
+    
+    if tournament["rules"] and tournament["rules"] != "No rules specified.":
+        embed.add_field(name="📋 Rules", value=tournament["rules"], inline=False)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    
+    return embed
+
+
+def create_results_embed(tournament):
+    """Create tournament results embed"""
+    embed = discord.Embed(
+        title=f"🏆 {tournament['name']} — Results",
+        color=0xFFD700
+    )
+    
+    # Get standings
+    standings = get_standings(tournament)
+    
+    standings_text = ""
+    medals = ["🥇", "🥈", "🥉", "4️⃣"]
+    for i, player in enumerate(standings[:4]):
+        medal = medals[i] if i < len(medals) else f"{i+1}."
+        standings_text += f"{medal} **{player['name']}**\n"
+    
+    embed.add_field(name="Standings", value=standings_text or "No results yet", inline=False)
+    embed.add_field(name="👥 Participants", value=f"{len(tournament['participants'])}/{tournament['max_participants']}", inline=True)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    
+    return embed
+
+
+def get_standings(tournament):
+    """Get tournament standings based on match results"""
+    matches = tournament.get("matches", [])
+    if not matches:
+        return []
+    
+    # Track eliminations by round
+    player_rounds = {}  # player_id -> highest round reached
+    
+    for match in matches:
+        if match["status"] == "completed" and match["winner"]:
+            # Winner advances
+            winner_id = match["winner"]
+            if match["player1"] and match["player1"]["id"] == winner_id:
+                winner = match["player1"]
+                loser = match["player2"]
+            else:
+                winner = match["player2"]
+                loser = match["player1"]
+            
+            if winner:
+                player_rounds[winner["id"]] = max(player_rounds.get(winner["id"], 0), match["round"] + 1)
+            if loser and loser["id"] != "BYE":
+                player_rounds[loser["id"]] = max(player_rounds.get(loser["id"], 0), match["round"])
+    
+    # Sort by highest round reached
+    participants = tournament.get("participants", [])
+    sorted_players = sorted(participants, key=lambda p: player_rounds.get(p["id"], 0), reverse=True)
+    
+    return sorted_players
+
+
+# ==========================================
+# VIEWS
+# ==========================================
+
+class TournamentAdminView(discord.ui.View):
+    """Admin control panel view"""
+    
+    def __init__(self, tournament_id):
+        super().__init__(timeout=None)
+        self.tournament_id = tournament_id
+    
+    def get_tournament(self):
+        data = load_tournament_data()
+        return data["tournaments"].get(self.tournament_id)
+    
+    @discord.ui.button(label="▶️", style=discord.ButtonStyle.success, custom_id="tourney_start", row=0)
+    async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        if len(tournament["participants"]) < 2:
+            return await interaction.response.send_message("❌ Need at least 2 participants!", ephemeral=True)
+        
+        if tournament["status"] == "active":
+            return await interaction.response.send_message("❌ Tournament already started!", ephemeral=True)
+        
+        # Confirmation
+        await interaction.response.send_message(
+            f"Are you sure you want to start the tournament with **{len(tournament['participants'])}** participants?",
+            view=StartConfirmView(self.tournament_id),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="📤", style=discord.ButtonStyle.primary, custom_id="tourney_publish", row=0)
+    async def publish_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        # Ask for channel
+        await interaction.response.send_message(
+            "Select the channel to publish the registration portal:",
+            view=ChannelSelectView(self.tournament_id),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="➖", style=discord.ButtonStyle.danger, custom_id="tourney_unpublish", row=0)
+    async def unpublish_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        tournament["status"] = "setup"
+        update_tournament(tournament)
+        
+        await interaction.response.send_message("✅ Registration closed!", ephemeral=True)
+    
+    @discord.ui.button(label="✅", style=discord.ButtonStyle.success, custom_id="tourney_checkin", row=0)
+    async def start_checkin(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        tournament["status"] = "checkin"
+        update_tournament(tournament)
+        
+        await interaction.response.send_message("✅ Check-in phase started!", ephemeral=True)
+    
+    @discord.ui.button(label="🗑️", style=discord.ButtonStyle.danger, custom_id="tourney_delete", row=1)
+    async def delete_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "⚠️ Are you sure you want to delete this tournament?",
+            view=DeleteConfirmView(self.tournament_id),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="📝", style=discord.ButtonStyle.secondary, custom_id="tourney_config", row=1)
+    async def edit_config(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        await interaction.response.send_modal(TournamentConfigModal(tournament))
+    
+    @discord.ui.button(label="🔒", style=discord.ButtonStyle.secondary, custom_id="tourney_role", row=1)
+    async def set_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        await interaction.response.send_message(
+            "Select a required role (only members with this role can join):",
+            view=RoleSelectView(self.tournament_id),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="👥", style=discord.ButtonStyle.secondary, custom_id="tourney_players", row=1)
+    async def view_players(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        participants = tournament.get("participants", [])
+        if not participants:
+            return await interaction.response.send_message("No participants yet!", ephemeral=True)
+        
+        embed = discord.Embed(
+            title=f"👥 Participants ({len(participants)}/{tournament['max_participants']})",
+            color=0x8B0000
+        )
+        
+        player_list = "\n".join([f"{i+1}. {p['name']}" for i, p in enumerate(participants[:25])])
+        if len(participants) > 25:
+            player_list += f"\n... and {len(participants) - 25} more"
+        
+        embed.description = player_list
+        embed.set_footer(text="✝ THE FALLEN ✝")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class TournamentRegistrationView(discord.ui.View):
+    """Registration portal view"""
+    
+    def __init__(self, tournament_id):
+        super().__init__(timeout=None)
+        self.tournament_id = tournament_id
+    
+    def get_tournament(self):
+        data = load_tournament_data()
+        return data["tournaments"].get(self.tournament_id)
+    
+    @discord.ui.button(label="Register", style=discord.ButtonStyle.success, custom_id="tourney_register")
+    async def register(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        if tournament["status"] not in ["registration", "checkin"]:
+            return await interaction.response.send_message("❌ Registration is not open!", ephemeral=True)
+        
+        # Check role restriction
+        if tournament.get("required_role_id"):
+            role = interaction.guild.get_role(int(tournament["required_role_id"]))
+            if role and role not in interaction.user.roles:
+                return await interaction.response.send_message(
+                    f"❌ You need the **@{tournament['required_role_name']}** role to join!",
+                    ephemeral=True
+                )
+        
+        # Check if already registered
+        user_id = str(interaction.user.id)
+        if any(p["id"] == user_id for p in tournament["participants"]):
+            return await interaction.response.send_message("❌ You're already registered!", ephemeral=True)
+        
+        # Check capacity
+        if len(tournament["participants"]) >= tournament["max_participants"]:
+            return await interaction.response.send_message("❌ Tournament is full!", ephemeral=True)
+        
+        # Add participant
+        tournament["participants"].append({
+            "id": user_id,
+            "name": interaction.user.display_name,
+            "seed": len(tournament["participants"]) + 1
+        })
+        update_tournament(tournament)
+        
+        await interaction.response.send_message(
+            f"✅ You have been registered for **{tournament['name']}**! 🎉",
+            ephemeral=True
+        )
+        
+        # Update registration embed
+        await update_registration_embed(interaction, tournament)
+    
+    @discord.ui.button(label="Leave", style=discord.ButtonStyle.secondary, custom_id="tourney_leave")
+    async def leave(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        if tournament["status"] == "active":
+            return await interaction.response.send_message("❌ Cannot leave after tournament started!", ephemeral=True)
+        
+        user_id = str(interaction.user.id)
+        tournament["participants"] = [p for p in tournament["participants"] if p["id"] != user_id]
+        update_tournament(tournament)
+        
+        await interaction.response.send_message("✅ You have left the tournament.", ephemeral=True)
+        await update_registration_embed(interaction, tournament)
+    
+    @discord.ui.button(label="Spectate", style=discord.ButtonStyle.primary, custom_id="tourney_spectate")
+    async def spectate(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tournament = self.get_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        user_id = str(interaction.user.id)
+        if user_id not in tournament.get("spectators", []):
+            if "spectators" not in tournament:
+                tournament["spectators"] = []
+            tournament["spectators"].append(user_id)
+            update_tournament(tournament)
+            await interaction.response.send_message("👀 You're now spectating this tournament!", ephemeral=True)
+        else:
+            tournament["spectators"].remove(user_id)
+            update_tournament(tournament)
+            await interaction.response.send_message("👀 You're no longer spectating.", ephemeral=True)
+
+
+class MatchScoreView(discord.ui.View):
+    """View for submitting match scores"""
+    
+    def __init__(self, tournament_id, match_id):
+        super().__init__(timeout=None)
+        self.tournament_id = tournament_id
+        self.match_id = match_id
+    
+    @discord.ui.button(label="Score", style=discord.ButtonStyle.primary, custom_id="match_score")
+    async def submit_score(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = load_tournament_data()
+        tournament = data["tournaments"].get(self.tournament_id)
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        match = next((m for m in tournament["matches"] if m["id"] == self.match_id), None)
+        if not match:
+            return await interaction.response.send_message("❌ Match not found!", ephemeral=True)
+        
+        if match["status"] == "completed":
+            return await interaction.response.send_message("❌ Match already completed!", ephemeral=True)
+        
+        # Check if user is in the match or is staff
+        user_id = str(interaction.user.id)
+        is_player = (match["player1"] and match["player1"]["id"] == user_id) or \
+                   (match["player2"] and match["player2"]["id"] == user_id)
+        
+        # For now, allow anyone to submit (staff can do it)
+        # In production, you'd check for staff role
+        
+        p1_name = match["player1"]["name"] if match["player1"] else "Player 1"
+        p2_name = match["player2"]["name"] if match["player2"] else "Player 2"
+        
+        await interaction.response.send_modal(
+            ScoreSubmitModal(tournament, match, p1_name, p2_name)
+        )
+
+
+class StartConfirmView(discord.ui.View):
+    """Confirmation view for starting tournament"""
+    
+    def __init__(self, tournament_id):
+        super().__init__(timeout=60)
+        self.tournament_id = tournament_id
+    
+    @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        
+        data = load_tournament_data()
+        tournament = data["tournaments"].get(self.tournament_id)
+        if not tournament:
+            return await interaction.followup.send("❌ Tournament not found!", ephemeral=True)
+        
+        # Generate bracket
+        tournament["matches"] = generate_bracket(tournament["participants"])
+        tournament["status"] = "active"
+        tournament["started_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        
+        update_tournament(tournament)
+        
+        await interaction.followup.send("✅ Tournament started! Creating match threads...", ephemeral=True)
+        
+        # Create bracket display
+        await create_bracket_display(interaction.guild, tournament)
+        
+        # Create match threads
+        await create_match_threads(interaction.guild, tournament)
+        
+        self.stop()
+    
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Cancelled.", ephemeral=True)
+        self.stop()
+
+
+class DeleteConfirmView(discord.ui.View):
+    """Confirmation view for deleting tournament"""
+    
+    def __init__(self, tournament_id):
+        super().__init__(timeout=60)
+        self.tournament_id = tournament_id
+    
+    @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = load_tournament_data()
+        
+        if self.tournament_id in data["tournaments"]:
+            del data["tournaments"][self.tournament_id]
+        
+        if data["active_tournament"] == self.tournament_id:
+            data["active_tournament"] = None
+        
+        save_tournament_data(data)
+        
+        await interaction.response.send_message("✅ Tournament deleted!", ephemeral=True)
+        self.stop()
+    
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Cancelled.", ephemeral=True)
+        self.stop()
+
+
+class ChannelSelectView(discord.ui.View):
+    """View for selecting publish channel"""
+    
+    def __init__(self, tournament_id):
+        super().__init__(timeout=120)
+        self.tournament_id = tournament_id
+    
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select a channel...",
+        min_values=1,
+        max_values=1
+    )
+    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        channel = select.values[0]
+        
+        data = load_tournament_data()
+        tournament = data["tournaments"].get(self.tournament_id)
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        await interaction.response.send_modal(TournamentPublishModal(tournament, channel))
+        self.stop()
+
+
+class RoleSelectView(discord.ui.View):
+    """View for selecting required role"""
+    
+    def __init__(self, tournament_id):
+        super().__init__(timeout=120)
+        self.tournament_id = tournament_id
+    
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Select a required role...",
+        min_values=0,
+        max_values=1
+    )
+    async def role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
+        data = load_tournament_data()
+        tournament = data["tournaments"].get(self.tournament_id)
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        if select.values:
+            role = select.values[0]
+            tournament["required_role_id"] = str(role.id)
+            tournament["required_role_name"] = role.name
+            update_tournament(tournament)
+            await interaction.response.send_message(f"✅ Required role set to **@{role.name}**", ephemeral=True)
+        else:
+            tournament["required_role_id"] = None
+            tournament["required_role_name"] = None
+            update_tournament(tournament)
+            await interaction.response.send_message("✅ Role restriction removed.", ephemeral=True)
+        
+        self.stop()
+
+
+class TournamentEndView(discord.ui.View):
+    """View shown when tournament ends"""
+    
+    def __init__(self, tournament_id):
+        super().__init__(timeout=None)
+        self.tournament_id = tournament_id
+    
+    @discord.ui.button(label="Delete Tournament", style=discord.ButtonStyle.danger, custom_id="tourney_end_delete")
+    async def delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "⚠️ Are you sure you want to delete this tournament?",
+            view=DeleteConfirmView(self.tournament_id),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="Re-open", style=discord.ButtonStyle.secondary, custom_id="tourney_end_reopen")
+    async def reopen(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = load_tournament_data()
+        tournament = data["tournaments"].get(self.tournament_id)
+        if tournament:
+            tournament["status"] = "active"
+            update_tournament(tournament)
+            await interaction.response.send_message("✅ Tournament re-opened!", ephemeral=True)
+    
+    @discord.ui.button(label="Publish Results", style=discord.ButtonStyle.primary, custom_id="tourney_end_publish")
+    async def publish(self, interaction: discord.Interaction, button: discord.ui.Button):
+        data = load_tournament_data()
+        tournament = data["tournaments"].get(self.tournament_id)
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        # Create results embed
+        embed = create_results_embed(tournament)
+        
+        # Add bracket image
+        bracket_img = await create_bracket_image(tournament)
+        
+        if bracket_img:
+            file = discord.File(bracket_img, filename="bracket.png")
+            embed.set_image(url="attachment://bracket.png")
+            await interaction.response.send_message(embed=embed, file=file)
+        else:
+            await interaction.response.send_message(embed=embed)
+
+
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
+
+async def create_admin_panel(channel, tournament):
+    """Create and send admin panel"""
+    embed = create_admin_embed(tournament)
+    view = TournamentAdminView(tournament["id"])
+    
+    msg = await channel.send(embed=embed, view=view)
+    
+    tournament["messages"]["admin_panel"] = str(msg.id)
+    update_tournament(tournament)
+    
+    return msg
+
+
+async def update_registration_embed(interaction, tournament):
+    """Update the registration portal embed"""
+    if not tournament["messages"].get("registration_portal"):
+        return
+    
+    try:
+        channel_id = tournament["channels"].get("registration")
+        if not channel_id:
+            return
+        
+        channel = interaction.guild.get_channel(int(channel_id))
+        if not channel:
+            return
+        
+        msg = await channel.fetch_message(int(tournament["messages"]["registration_portal"]))
+        embed = create_registration_embed(tournament)
+        await msg.edit(embed=embed)
+    except Exception as e:
+        print(f"Failed to update registration embed: {e}")
+
+
+async def create_bracket_display(guild, tournament):
+    """Create bracket display in bracket channel or current channel"""
+    bracket_img = await create_bracket_image(tournament)
+    
+    if not bracket_img:
+        return
+    
+    # Find or create bracket channel
+    channel_id = tournament["channels"].get("registration")
+    if channel_id:
+        channel = guild.get_channel(int(channel_id))
+        if channel:
+            file = discord.File(bracket_img, filename="bracket.png")
+            embed = discord.Embed(
+                title=f"🏆 {tournament['name']} — Bracket",
+                color=0x8B0000
+            )
+            embed.set_image(url="attachment://bracket.png")
+            embed.set_footer(text="✝ THE FALLEN ✝")
+            
+            msg = await channel.send(embed=embed, file=file)
+            tournament["messages"]["bracket_display"] = str(msg.id)
+            update_tournament(tournament)
+
+
+async def update_bracket_display(guild, tournament):
+    """Update the bracket display image"""
+    if not tournament["messages"].get("bracket_display"):
+        return
+    
+    try:
+        channel_id = tournament["channels"].get("registration")
+        if not channel_id:
+            return
+        
+        channel = guild.get_channel(int(channel_id))
+        if not channel:
+            return
+        
+        msg = await channel.fetch_message(int(tournament["messages"]["bracket_display"]))
+        
+        bracket_img = await create_bracket_image(tournament)
+        if bracket_img:
+            file = discord.File(bracket_img, filename="bracket.png")
+            embed = discord.Embed(
+                title=f"🏆 {tournament['name']} — Bracket",
+                color=0x8B0000
+            )
+            embed.set_image(url="attachment://bracket.png")
+            embed.set_footer(text="✝ THE FALLEN ✝")
+            
+            await msg.edit(embed=embed, attachments=[file])
+    except Exception as e:
+        print(f"Failed to update bracket display: {e}")
+
+
+async def create_match_threads(guild, tournament):
+    """Create threads for each active match"""
+    channel_id = tournament["channels"].get("registration")
+    if not channel_id:
+        return
+    
+    channel = guild.get_channel(int(channel_id))
+    if not channel:
+        return
+    
+    for match in tournament["matches"]:
+        if match["status"] == "pending" and match["player1"] and match["player2"]:
+            if match["player1"]["id"] == "BYE" or match["player2"]["id"] == "BYE":
+                continue
+            
+            # Rate limit protection
+            await asyncio.sleep(THREAD_CREATE_DELAY)
+            
+            try:
+                thread_name = f"{match['player1']['name']} vs {match['player2']['name']}"
+                thread = await channel.create_thread(
+                    name=thread_name[:100],
+                    type=discord.ChannelType.public_thread,
+                    auto_archive_duration=1440  # 24 hours
+                )
+                
+                match["thread_id"] = str(thread.id)
+                match["status"] = "in_progress"
+                
+                # Send match info
+                p1 = guild.get_member(int(match["player1"]["id"]))
+                p2 = guild.get_member(int(match["player2"]["id"]))
+                
+                mentions = ""
+                if p1:
+                    mentions += p1.mention + " "
+                if p2:
+                    mentions += p2.mention
+                
+                embed = discord.Embed(
+                    title=f"⚔️ {match['player1']['name']} vs {match['player2']['name']}",
+                    description=(
+                        f"**Match ID:** {match['id']}\n"
+                        f"**Best of:** {tournament['best_of']}\n\n"
+                        f"**Rules:**\n{tournament['rules']}\n\n"
+                        f"**Info:**\n{tournament['info']}"
+                    ),
+                    color=0x8B0000
+                )
+                embed.set_footer(text="Click Score when match is complete")
+                
+                await thread.send(
+                    content=f"{mentions}\n\nBegin your match! Click **Score** when complete.",
+                    embed=embed,
+                    view=MatchScoreView(tournament["id"], match["id"])
+                )
+                
+            except Exception as e:
+                print(f"Failed to create match thread: {e}")
+    
+    update_tournament(tournament)
+
+
+async def check_tournament_complete(interaction, tournament):
+    """Check if all matches are complete"""
+    matches = tournament.get("matches", [])
+    if not matches:
+        return
+    
+    # Find final match (highest round)
+    max_round = max(m["round"] for m in matches)
+    final_match = next((m for m in matches if m["round"] == max_round), None)
+    
+    if final_match and final_match["status"] == "completed":
+        # Tournament complete!
+        tournament["status"] = "completed"
+        tournament["ended_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        tournament["winner"] = final_match["winner"]
+        
+        update_tournament(tournament)
+        
+        # Get winner name
+        winner = next((p for p in tournament["participants"] if p["id"] == tournament["winner"]), None)
+        winner_name = winner["name"] if winner else "Unknown"
+        
+        # Send completion message
+        embed = discord.Embed(
+            title="🏆 Tournament Complete!",
+            description=f"**{tournament['name']}** has ended!\n\n🥇 **Winner:** {winner_name}",
+            color=0xFFD700
+        )
+        
+        standings = get_standings(tournament)
+        if len(standings) >= 2:
+            embed.add_field(name="🥈 2nd Place", value=standings[1]["name"], inline=True)
+        if len(standings) >= 3:
+            embed.add_field(name="🥉 3rd Place", value=standings[2]["name"], inline=True)
+        
+        embed.set_footer(text="✝ THE FALLEN ✝")
+        
+        channel_id = tournament["channels"].get("registration")
+        if channel_id:
+            channel = interaction.guild.get_channel(int(channel_id))
+            if channel:
+                await channel.send(embed=embed, view=TournamentEndView(tournament["id"]))
+
+
+# ==========================================
+# SLASH COMMANDS
+# ==========================================
+
+def setup_tournament_commands(bot):
+    """Setup tournament slash commands"""
+    
+    @bot.tree.command(name="tournament", description="Create a new tournament")
+    @app_commands.checks.has_any_role("Staff", "Admin", "Owner", "Co-Owner", "Head Staff")
+    async def tournament_create(interaction: discord.Interaction):
+        """Create a new tournament"""
+        # Check if there's already an active tournament
+        tournament = get_active_tournament()
+        if tournament and tournament["status"] != "completed":
+            return await interaction.response.send_message(
+                f"❌ There's already an active tournament: **{tournament['name']}**\n"
+                f"Delete it first or wait for it to complete.",
+                ephemeral=True
+            )
+        
+        await interaction.response.send_modal(TournamentCreateModal())
+    
+    @bot.tree.command(name="bracket", description="View the current tournament bracket")
+    async def view_bracket(interaction: discord.Interaction):
+        """View tournament bracket"""
+        tournament = get_active_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        await interaction.response.defer()
+        
+        bracket_img = await create_bracket_image(tournament)
+        if bracket_img:
+            file = discord.File(bracket_img, filename="bracket.png")
+            embed = discord.Embed(
+                title=f"🏆 {tournament['name']} — Bracket",
+                color=0x8B0000
+            )
+            embed.set_image(url="attachment://bracket.png")
+            embed.set_footer(text="✝ THE FALLEN ✝")
+            await interaction.followup.send(embed=embed, file=file)
+        else:
+            await interaction.followup.send("❌ Could not generate bracket image.")
+    
+    @bot.tree.command(name="participants", description="View tournament participants")
+    async def view_participants(interaction: discord.Interaction):
+        """View tournament participants"""
+        tournament = get_active_tournament()
+        if not tournament:
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        participants = tournament.get("participants", [])
+        
+        embed = discord.Embed(
+            title=f"👥 {tournament['name']} — Participants",
+            description=f"**{len(participants)}/{tournament['max_participants']}** registered",
+            color=0x8B0000
+        )
+        
+        if participants:
+            player_list = "\n".join([f"`{i+1}.` {p['name']}" for i, p in enumerate(participants[:25])])
+            if len(participants) > 25:
+                player_list += f"\n*... and {len(participants) - 25} more*"
+            embed.add_field(name="Players", value=player_list, inline=False)
+        else:
+            embed.add_field(name="Players", value="No participants yet.", inline=False)
+        
+        embed.set_footer(text="✝ THE FALLEN ✝")
+        await interaction.response.send_message(embed=embed)
+    
+    return [tournament_create, view_bracket, view_participants]
+
+
+# Setup tournament commands
+def setup_tournament_slash_commands():
+    """Register tournament slash commands with the bot"""
+    
+    @bot.tree.command(name="tournament", description="Create a new tournament")
+    @app_commands.checks.has_any_role("Staff", "Admin", "Owner", "Co-Owner", "Head Staff")
+    async def tournament_cmd(interaction: discord.Interaction):
+        tournament = get_active_tourney()
+        if tournament and tournament["status"] not in ["completed"]:
+            return await interaction.response.send_message(
+                f"❌ Active tournament exists: **{tournament['name']}**\nDelete it first.",
+                ephemeral=True
+            )
+        await interaction.response.send_modal(TournamentCreateModal())
+    
+    @bot.tree.command(name="bracket", description="View tournament bracket")
+    async def bracket_cmd(interaction: discord.Interaction):
+        tournament = get_active_tourney()
+        if not tournament:
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        await interaction.response.defer()
+        bracket_img = await create_tourney_bracket_image(tournament)
+        if bracket_img:
+            file = discord.File(bracket_img, filename="bracket.png")
+            embed = discord.Embed(title=f"🏆 {tournament['name']} — Bracket", color=0x8B0000)
+            embed.set_image(url="attachment://bracket.png")
+            await interaction.followup.send(embed=embed, file=file)
+        else:
+            await interaction.followup.send("❌ Could not generate bracket.")
+    
+    @bot.tree.command(name="participants", description="View tournament participants")
+    async def participants_cmd(interaction: discord.Interaction):
+        tournament = get_active_tourney()
+        if not tournament:
+            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+        
+        embed = discord.Embed(
+            title=f"👥 {tournament['name']} — Participants",
+            description=f"**{len(tournament['participants'])}/{tournament['max_participants']}** registered",
+            color=0x8B0000
+        )
+        
+        if tournament["participants"]:
+            player_list = "\n".join([f"`{i+1}.` {p['name']}" for i, p in enumerate(tournament["participants"][:25])])
+            embed.add_field(name="Players", value=player_list or "None", inline=False)
+        
+        await interaction.response.send_message(embed=embed)
+
+
+# Call setup on bot ready
+@bot.event
+async def on_ready_tournament():
+    setup_tournament_slash_commands()
 
 
 # Run the bot with reconnect enabled
@@ -18165,7 +20165,7 @@ if __name__ == "__main__":
                 print(f"Starting bot... (attempt {retry_count + 1})")
                 await bot.start(TOKEN)
             except discord.errors.HTTPException as e:
-                if e.status == 429:  # Rate limited
+                if e.status == 429:
                     retry_after = getattr(e, 'retry_after', 60)
                     print(f"Rate limited! Waiting {retry_after} seconds...")
                     await asyncio.sleep(retry_after)
@@ -18184,7 +20184,6 @@ if __name__ == "__main__":
         
         print("Max retries reached. Exiting.")
     
-    # Run with asyncio
     try:
         asyncio.run(run_bot())
     except KeyboardInterrupt:
