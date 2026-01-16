@@ -6659,32 +6659,29 @@ class HelpSelect(discord.ui.Select):
             )
         
         elif self.values[0] == "Tournaments":
-            e.title="🏆 Tournament System"
+            e.title="🏆 Tournament System V3"
             e.description=(
                 "**👤 How to Participate**\n"
-                "• Click **⚔️ Join Tournament** on panel\n"
-                "• Click **📊 View Bracket** to see visual bracket\n"
-                "• Click **🚪 Leave** to withdraw\n\n"
-                "**🎭 Role Requirements**\n"
-                "Some tournaments require specific roles\n"
-                "(e.g., Mainer only, Stage 0-2 only)\n\n"
-                "**🖼️ Visual Bracket Image**\n"
-                "Brackets display as images showing:\n"
-                "• All matches with player names\n"
-                "• Color coded (grey/red/green)\n"
-                "• Champion highlight when complete\n\n"
-                "**🏅 Champion Rewards**\n"
-                "🏆 5,000 Coins + 500 XP!\n"
-                "Optional: Auto Top 10 update\n\n"
-                "**🛡️ Staff Commands**\n"
-                "`!setup_tournament` - Setup panel\n"
-                "Then click **Create Tournament** and fill:\n"
-                "• Name, Channel ID, Role, Max, Top10\n\n"
-                "Use **⚙️ Staff: Manage** button to:\n"
-                "• Start tournament\n"
-                "• Report winners (dropdown - no IDs!)\n"
-                "• View bracket image\n"
-                "• End tournament"
+                "• Click **Register** on tournament portal\n"
+                "• Click **Leave** to withdraw\n"
+                "• Click **Spectate** to watch\n\n"
+                "**⚔️ During Matches**\n"
+                "• Match threads created automatically\n"
+                "• Click **Score** button to report results\n"
+                "• Bracket image updates live!\n\n"
+                "**🖼️ Commands**\n"
+                "`!tournament` — Create new tournament\n"
+                "`/bracket` — View current bracket\n"
+                "`/participants` — View registered players\n\n"
+                "**🔒 Role Restrictions**\n"
+                "Staff can restrict tournaments to specific roles\n"
+                "(e.g., Mainer only, Stage 2+ only)\n\n"
+                "**🏅 Features**\n"
+                "• Visual bracket images\n"
+                "• Auto match thread creation\n"
+                "• Score tracking (Best of 1/3/5/7)\n"
+                "• Winner announcements\n"
+                "• Standings display"
             )
             
         elif self.values[0] == "Events":
@@ -9519,95 +9516,8 @@ class RosterCommands(commands.GroupCog, name="roster"):
         await interaction.response.send_message(embed=embed)
 
 
-class TournamentCommands(commands.GroupCog, name="tournament"):
-    """Tournament management commands"""
-    
-    def __init__(self, bot):
-        self.bot = bot
-        super().__init__()
-    
-    @app_commands.command(name="create", description="Admin: Create a new tournament")
-    @app_commands.describe(name="Tournament name", channel="Channel to post panel (optional)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def tournament_create(self, interaction: discord.Interaction, name: str, channel: discord.TextChannel = None):
-        """Create a new tournament with panel"""
-        target_channel = channel or interaction.channel
-        
-        data = load_tournaments_data()
-        
-        if data.get("active") and data["active"].get("status") == "active":
-            return await interaction.response.send_message("❌ A tournament is already active!", ephemeral=True)
-        
-        tournament_id = f"tournament_{int(datetime.datetime.now().timestamp())}"
-        
-        data["active"] = {
-            "id": tournament_id,
-            "name": name,
-            "participants": [],
-            "bracket": None,
-            "status": "registration",
-            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "winner": None
-        }
-        save_tournaments_data(data)
-        
-        embed = discord.Embed(
-            title=f"🏆 {name.upper()}",
-            description="**Registration is OPEN!**\n\nClick the buttons below to join or leave.\nStaff can manage the tournament with the Staff button.",
-            color=0xFFD700
-        )
-        embed.add_field(name="📊 Status", value="Registration Open", inline=True)
-        embed.add_field(name="👥 Participants", value="0", inline=True)
-        embed.set_footer(text=f"Tournament ID: {tournament_id}")
-        
-        await target_channel.send(embed=embed, view=TournamentPanelView())
-        await interaction.response.send_message(f"✅ Tournament **{name}** created in {target_channel.mention}!", ephemeral=True)
-    
-    @app_commands.command(name="panel", description="Admin: Re-post the tournament panel")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def tournament_panel(self, interaction: discord.Interaction):
-        """Re-post the tournament panel"""
-        data = load_tournaments_data()
-        
-        if not data.get("active"):
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
-        tournament = data["active"]
-        
-        embed = discord.Embed(
-            title=f"🏆 {tournament['name'].upper()}",
-            description="Click the buttons below to interact with the tournament.",
-            color=0xFFD700
-        )
-        embed.add_field(name="📊 Status", value=tournament["status"].title(), inline=True)
-        embed.add_field(name="👥 Participants", value=str(len(tournament["participants"])), inline=True)
-        
-        await interaction.response.send_message(embed=embed, view=TournamentPanelView())
-    
-    @app_commands.command(name="end", description="Admin: End the current tournament")
-    @app_commands.describe(confirm="Type 'confirm' to end")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def tournament_end(self, interaction: discord.Interaction, confirm: str = None):
-        """End the current tournament"""
-        if confirm != "confirm":
-            return await interaction.response.send_message(
-                "⚠️ This will end the tournament!\nUse `/tournament end confirm` to confirm.",
-                ephemeral=True
-            )
-        
-        data = load_tournaments_data()
-        
-        if not data.get("active"):
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
-        # Archive
-        if "history" not in data:
-            data["history"] = []
-        data["history"].append(data["active"])
-        data["active"] = None
-        save_tournaments_data(data)
-        
-        await interaction.response.send_message("✅ Tournament ended and archived!")
+# OLD TOURNAMENT COG REMOVED - Using V3 system at end of file
+# class TournamentCommands - DISABLED
 
 
 class LevelCommands(commands.GroupCog, name="lvl"):
@@ -9723,7 +9633,7 @@ async def setup_cogs():
     await bot.add_cog(ImmunityCommands(bot))
     await bot.add_cog(EventCommands(bot))
     await bot.add_cog(RosterCommands(bot))
-    await bot.add_cog(TournamentCommands(bot))
+    # TournamentCommands removed - using new V3 system
     await bot.add_cog(LevelCommands(bot))
 
 @bot.event
@@ -12883,454 +12793,454 @@ async def elo_reset_cmd(ctx, confirm: str = None):
 # TOURNAMENT COMMANDS (Panel-based)
 # ==========================================
 
-@bot.command(name="tournament_create")
-@commands.has_permissions(administrator=True)
-async def tournament_create_cmd(ctx, name: str, channel: discord.TextChannel = None, required_role: discord.Role = None, max_participants: int = 16):
-    """
-    Create a new tournament
-    Usage: !tournament_create "Tournament Name" #channel @role max_participants
-    Example: !tournament_create "Top 10 Showdown" #tournaments @Mainers 10
-    """
-    tournament = create_tournament(
-        name, 
-        ctx.author.id,
-        required_role_id=str(required_role.id) if required_role else None,
-        required_role_name=required_role.name if required_role else None,
-        channel_id=str((channel or ctx.channel).id),
-        max_participants=max(2, min(32, max_participants))
-    )
-    
-    if not tournament:
-        return await ctx.send("❌ There's already an active tournament! End it first with `!tournament_end confirm`")
-    
-    target_channel = channel or ctx.channel
-    
-    # Create embed with visual bracket text
-    bracket_text = create_visual_bracket_text(tournament, ctx.guild)
-    
-    embed = discord.Embed(
-        title=f"🏆 {name}",
-        description=bracket_text,
-        color=0xffd700
-    )
-    
-    embed.add_field(name="Status", value="📝 Signups Open", inline=True)
-    embed.add_field(name="Participants", value=f"0/{max_participants}", inline=True)
-    
-    if required_role:
-        embed.add_field(name="🎭 Requirement", value=required_role.name, inline=True)
-    
-    embed.set_footer(text="✝ The Fallen Tournament ✝")
-    
-    msg = await target_channel.send(embed=embed, view=TournamentPanelView())
-    
-    # Save message ID
-    data = load_tournaments()
-    if data["active"]:
-        data["active"]["message_id"] = str(msg.id)
-        save_tournaments(data)
-    
-    role_text = f" (Requires **{required_role.name}**)" if required_role else ""
-    await ctx.send(f"✅ Tournament **{name}** created in {target_channel.mention}!{role_text}")
-    
-    try:
-        await ctx.message.delete()
-    except:
-        pass
-
-
-@bot.command(name="setup_tournament")
-@commands.has_permissions(administrator=True)
-async def setup_tournament_panel(ctx):
-    """Setup a tournament creation panel for staff"""
-    embed = discord.Embed(
-        title="🏆 Tournament System",
-        description=(
-            "Create and manage tournaments with visual brackets!\n\n"
-            "**Features:**\n"
-            "• Visual bracket display\n"
-            "• Role restrictions (e.g., Mainer only)\n"
-            "• Auto bracket generation\n"
-            "• Easy winner reporting via dropdown\n"
-            "• Champion rewards (5,000 coins + 500 XP)\n"
-            "• Optional Top 10 auto-update\n\n"
-            "Click **Create Tournament** below to start!"
-        ),
-        color=0xffd700
-    )
-    embed.set_footer(text="✝ The Fallen Tournament System ✝")
-    
-    await ctx.send(embed=embed, view=TournamentSetupView())
-    await ctx.message.delete()
-
-
-class TournamentSetupView(discord.ui.View):
-    """Panel for staff to create tournaments"""
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="➕ Create Tournament", style=discord.ButtonStyle.success, custom_id="tournament_setup_create")
-    async def create_tournament_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not is_staff(interaction.user):
-            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
-        
-        data = load_tournaments()
-        if data.get("active"):
-            return await interaction.response.send_message(
-                "❌ There's already an active tournament! End it first with `!tournament_end confirm`",
-                ephemeral=True
-            )
-        
-        await interaction.response.send_modal(TournamentCreateModal())
-    
-    @discord.ui.button(label="📊 View Current", style=discord.ButtonStyle.primary, custom_id="tournament_setup_view")
-    async def view_current_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        tournament = get_active_tournament()
-        
-        if not tournament:
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
-        # Create visual bracket image
-        if PIL_AVAILABLE and tournament.get("bracket"):
-            try:
-                img = await create_tournament_bracket_image(tournament, interaction.guild)
-                if img:
-                    file = discord.File(img, filename="bracket.png")
-                    await interaction.response.send_message(file=file, ephemeral=True)
-                    return
-            except Exception as e:
-                print(f"Bracket image error: {e}")
-        
-        # Fallback to text
-        bracket_text = create_visual_bracket_text(tournament, interaction.guild)
-        embed = discord.Embed(
-            title=f"🏆 {tournament['name']}",
-            description=bracket_text,
-            color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-class TournamentCreateModal(discord.ui.Modal, title="🏆 Create Tournament"):
-    name = discord.ui.TextInput(
-        label="Tournament Name",
-        placeholder="e.g., Weekly 1v1, Top 10 Showdown",
-        style=discord.TextStyle.short,
-        required=True,
-        max_length=50
-    )
-    
-    channel_id = discord.ui.TextInput(
-        label="Channel ID (where to post)",
-        placeholder="Right-click channel > Copy Channel ID",
-        style=discord.TextStyle.short,
-        required=True,
-        max_length=20
-    )
-    
-    role_name = discord.ui.TextInput(
-        label="Required Role Name (leave blank for open)",
-        placeholder="e.g., Mainer, Stage 2",
-        style=discord.TextStyle.short,
-        required=False,
-        max_length=50
-    )
-    
-    max_participants = discord.ui.TextInput(
-        label="Max Participants (2-32)",
-        placeholder="16",
-        style=discord.TextStyle.short,
-        required=False,
-        max_length=2
-    )
-    
-    update_top10 = discord.ui.TextInput(
-        label="Update Top 10 on win? (yes/no)",
-        placeholder="no",
-        style=discord.TextStyle.short,
-        required=False,
-        max_length=3
-    )
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        # Parse inputs
-        try:
-            channel = interaction.guild.get_channel(int(self.channel_id.value))
-            if not channel:
-                return await interaction.response.send_message("❌ Channel not found! Make sure you copied the Channel ID correctly.", ephemeral=True)
-        except:
-            return await interaction.response.send_message("❌ Invalid Channel ID!", ephemeral=True)
-        
-        # Find role if specified
-        required_role = None
-        role_name = self.role_name.value.strip() if self.role_name.value else None
-        if role_name:
-            required_role = discord.utils.get(interaction.guild.roles, name=role_name)
-            if not required_role:
-                return await interaction.response.send_message(f"❌ Role '{role_name}' not found!", ephemeral=True)
-        
-        # Parse max participants
-        try:
-            max_p = int(self.max_participants.value) if self.max_participants.value else 16
-            max_p = max(2, min(32, max_p))
-        except:
-            max_p = 16
-        
-        # Parse top 10 update
-        update_top10 = self.update_top10.value.lower() in ["yes", "y", "true", "1"] if self.update_top10.value else False
-        
-        # Create tournament
-        tournament = create_tournament(
-            self.name.value,
-            interaction.user.id,
-            required_role_id=str(required_role.id) if required_role else None,
-            required_role_name=required_role.name if required_role else None,
-            channel_id=str(channel.id),
-            max_participants=max_p
-        )
-        
-        if not tournament:
-            return await interaction.response.send_message("❌ Failed to create tournament!", ephemeral=True)
-        
-        # Add top 10 flag
-        data = load_tournaments()
-        if data["active"]:
-            data["active"]["update_top10"] = update_top10
-            save_tournaments(data)
-        
-        # Create signup embed
-        bracket_text = create_visual_bracket_text(tournament, interaction.guild)
-        
-        embed = discord.Embed(
-            title=f"🏆 {tournament['name']}",
-            description=bracket_text,
-            color=0xffd700
-        )
-        
-        embed.add_field(name="Status", value="📝 Signups Open", inline=True)
-        embed.add_field(name="Participants", value=f"0/{max_p}", inline=True)
-        
-        if required_role:
-            embed.add_field(name="🎭 Requirement", value=required_role.name, inline=True)
-        
-        if update_top10:
-            embed.add_field(name="🏅 Top 10", value="Winner updates Top 10!", inline=True)
-        
-        embed.set_footer(text="✝ The Fallen Tournament ✝")
-        
-        # Post to channel and ping role if set
-        ping_content = required_role.mention if required_role else None
-        msg = await channel.send(content=ping_content, embed=embed, view=TournamentPanelView())
-        
-        # Save message ID
-        data = load_tournaments()
-        if data["active"]:
-            data["active"]["message_id"] = str(msg.id)
-            save_tournaments(data)
-        
-        await interaction.response.send_message(
-            f"✅ Tournament **{tournament['name']}** created!\n"
-            f"📍 Posted in {channel.mention}\n"
-            f"👥 Max: {max_p} participants\n"
-            f"🎭 Role: {required_role.name if required_role else 'Open to all'}\n"
-            f"🏅 Top 10 Update: {'Yes' if update_top10 else 'No'}",
-            ephemeral=True
-        )
-
-
-async def create_tournament_bracket_image(tournament, guild):
-    """Create a visual tournament bracket image"""
-    if not PIL_AVAILABLE:
-        return None
-    
-    bracket = tournament.get("bracket")
-    if not bracket:
-        return None
-    
-    rounds = bracket.get("rounds", [])
-    if not rounds:
-        return None
-    
-    num_rounds = len(rounds)
-    first_round_matches = len(rounds[0])
-    
-    # Calculate dimensions
-    match_width = 180
-    match_height = 55
-    round_spacing = 220
-    
-    width = num_rounds * round_spacing + 100
-    height = max(400, first_round_matches * (match_height + 30) + 180)
-    
-    # Create dark background
-    img = Image.new("RGBA", (width, height), (20, 20, 30, 255))
-    draw = ImageDraw.Draw(img)
-    
-    # Load fonts
-    try:
-        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-        round_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
-        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
-    except:
-        title_font = round_font = name_font = small_font = ImageFont.load_default()
-    
-    # Header
-    draw.rectangle([(0, 0), (width, 60)], fill=(139, 0, 0))
-    title = f"🏆 {tournament['name'].upper()}"
-    draw.text((width // 2, 30), title, font=title_font, fill=(255, 255, 255), anchor="mm")
-    
-    # Round names
-    round_names = []
-    for i in range(num_rounds):
-        if i == num_rounds - 1:
-            round_names.append("🏆 Finals")
-        elif i == num_rounds - 2:
-            round_names.append("Semifinals")
-        elif i == num_rounds - 3:
-            round_names.append("Quarterfinals")
-        else:
-            round_names.append(f"Round {i + 1}")
-    
-    # Draw connecting lines and matches
-    match_positions = {}  # Store positions for drawing lines
-    
-    for round_idx, round_matches in enumerate(rounds):
-        x = 50 + round_idx * round_spacing
-        num_matches = len(round_matches)
-        
-        available_height = height - 140
-        if num_matches > 0:
-            spacing = available_height / num_matches
-        else:
-            spacing = available_height
-        
-        # Round label
-        round_name = round_names[round_idx] if round_idx < len(round_names) else f"Round {round_idx + 1}"
-        draw.text((x + match_width // 2, 80), round_name, font=round_font, fill=(200, 200, 200), anchor="mm")
-        
-        for match_idx, match in enumerate(round_matches):
-            y = 100 + match_idx * spacing + (spacing - match_height) / 2
-            
-            # Store position
-            match_positions[(round_idx, match_idx)] = (x + match_width, y + match_height // 2)
-            
-            # Draw connecting line to next round
-            if round_idx < num_rounds - 1:
-                next_match_idx = match_idx // 2
-                next_x = 50 + (round_idx + 1) * round_spacing
-                next_y = 100 + next_match_idx * (available_height / len(rounds[round_idx + 1])) + ((available_height / len(rounds[round_idx + 1])) - match_height) / 2 + match_height // 2
-                
-                # Horizontal line from match
-                draw.line([(x + match_width, y + match_height // 2), (x + match_width + 15, y + match_height // 2)], fill=(80, 80, 80), width=2)
-                # Vertical line
-                mid_x = x + match_width + 15
-                draw.line([(mid_x, y + match_height // 2), (mid_x, next_y)], fill=(80, 80, 80), width=2)
-            
-            # Match box
-            winner = match.get("winner")
-            if winner:
-                box_fill = (40, 80, 40)  # Green for completed
-            elif match.get("player1") and match.get("player2"):
-                box_fill = (80, 40, 40)  # Red for active
-            else:
-                box_fill = (50, 50, 60)  # Grey for waiting
-            
-            draw.rectangle([(x, y), (x + match_width, y + match_height)], fill=box_fill, outline=(100, 100, 100))
-            
-            # Player 1
-            p1_id = match.get("player1")
-            if p1_id:
-                member1 = guild.get_member(int(p1_id))
-                p1_name = member1.display_name[:18] if member1 else "Unknown"
-            else:
-                p1_name = "BYE" if round_idx == 0 else "TBD"
-            
-            p1_color = (255, 215, 0) if winner == p1_id else (255, 255, 255)
-            draw.text((x + 10, y + 12), p1_name, font=name_font, fill=p1_color)
-            
-            # VS divider
-            draw.line([(x + 5, y + match_height // 2), (x + match_width - 5, y + match_height // 2)], fill=(80, 80, 80), width=1)
-            
-            # Player 2
-            p2_id = match.get("player2")
-            if p2_id:
-                member2 = guild.get_member(int(p2_id))
-                p2_name = member2.display_name[:18] if member2 else "Unknown"
-            else:
-                p2_name = "BYE" if round_idx == 0 else "TBD"
-            
-            p2_color = (255, 215, 0) if winner == p2_id else (255, 255, 255)
-            draw.text((x + 10, y + match_height - 18), p2_name, font=name_font, fill=p2_color)
-            
-            # Match ID
-            draw.text((x + match_width - 5, y + 5), match.get("id", ""), font=small_font, fill=(100, 100, 100), anchor="rt")
-    
-    # Champion box if complete
-    if rounds[-1] and rounds[-1][0].get("winner"):
-        winner_id = rounds[-1][0]["winner"]
-        winner_member = guild.get_member(int(winner_id))
-        winner_name = winner_member.display_name if winner_member else "Unknown"
-        
-        # Champion highlight
-        champ_x = width - 150
-        champ_y = height // 2 - 30
-        draw.rectangle([(champ_x, champ_y), (champ_x + 120, champ_y + 60)], fill=(139, 0, 0), outline=(255, 215, 0), width=3)
-        draw.text((champ_x + 60, champ_y + 15), "🏆 CHAMPION", font=small_font, fill=(255, 215, 0), anchor="mm")
-        draw.text((champ_x + 60, champ_y + 40), winner_name[:15], font=name_font, fill=(255, 255, 255), anchor="mm")
-    
-    # Footer
-    draw.text((width // 2, height - 15), "✝ The Fallen Tournament ✝", font=small_font, fill=(100, 100, 100), anchor="mm")
-    
-    # Save to buffer
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    buffer.seek(0)
-    return buffer
-
-
-@bot.command(name="tournament_panel")
-@commands.has_permissions(administrator=True)
-async def tournament_panel_cmd(ctx):
-    """Post the tournament panel"""
-    tournament = get_active_tournament()
-    
-    if not tournament:
-        return await ctx.send("❌ No active tournament! Create one with `!tournament_create`")
-    
-    bracket_text = create_visual_bracket_text(tournament, ctx.guild)
-    
-    embed = discord.Embed(
-        title=f"🏆 {tournament['name']}",
-        description=bracket_text,
-        color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
-    )
-    
-    status_map = {"signup": "📝 Signups Open", "active": "🔴 In Progress", "complete": "✅ Complete"}
-    max_p = tournament.get("max_participants", 16)
-    
-    embed.add_field(name="Status", value=status_map.get(tournament["status"], tournament["status"]), inline=True)
-    embed.add_field(name="Participants", value=f"{len(tournament['participants'])}/{max_p}", inline=True)
-    
-    if tournament.get("required_role_name"):
-        embed.add_field(name="🎭 Requirement", value=tournament["required_role_name"], inline=True)
-    
-    embed.set_footer(text="✝ The Fallen Tournament ✝")
-    
-    await ctx.send(embed=embed, view=TournamentPanelView())
-
-
-@bot.command(name="tournament_end")
-@commands.has_permissions(administrator=True)
-async def tournament_end_cmd(ctx, confirm: str = None):
-    """End the current tournament"""
-    if confirm != "confirm":
-        return await ctx.send("⚠️ Use `!tournament_end confirm` to end the tournament.")
-    
-    if end_tournament():
-        await ctx.send("✅ Tournament ended!")
-    else:
-        await ctx.send("❌ No active tournament!")
+# OLD_TOURNEY: @bot.command(name="tournament_create")
+# OLD_TOURNEY: @commands.has_permissions(administrator=True)
+# OLD_TOURNEY: async def tournament_create_cmd(ctx, name: str, channel: discord.TextChannel = None, required_role: discord.Role = None, max_participants: int = 16):
+# OLD_TOURNEY:     """
+# OLD_TOURNEY:     Create a new tournament
+# OLD_TOURNEY:     Usage: !tournament_create "Tournament Name" #channel @role max_participants
+# OLD_TOURNEY:     Example: !tournament_create "Top 10 Showdown" #tournaments @Mainers 10
+# OLD_TOURNEY:     """
+# OLD_TOURNEY:     tournament = create_tournament(
+# OLD_TOURNEY:         name, 
+# OLD_TOURNEY:         ctx.author.id,
+# OLD_TOURNEY:         required_role_id=str(required_role.id) if required_role else None,
+# OLD_TOURNEY:         required_role_name=required_role.name if required_role else None,
+# OLD_TOURNEY:         channel_id=str((channel or ctx.channel).id),
+# OLD_TOURNEY:         max_participants=max(2, min(32, max_participants))
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     if not tournament:
+# OLD_TOURNEY:         return await ctx.send("❌ There's already an active tournament! End it first with `!tournament_end confirm`")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     target_channel = channel or ctx.channel
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Create embed with visual bracket text
+# OLD_TOURNEY:     bracket_text = create_visual_bracket_text(tournament, ctx.guild)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     embed = discord.Embed(
+# OLD_TOURNEY:         title=f"🏆 {name}",
+# OLD_TOURNEY:         description=bracket_text,
+# OLD_TOURNEY:         color=0xffd700
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     embed.add_field(name="Status", value="📝 Signups Open", inline=True)
+# OLD_TOURNEY:     embed.add_field(name="Participants", value=f"0/{max_participants}", inline=True)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     if required_role:
+# OLD_TOURNEY:         embed.add_field(name="🎭 Requirement", value=required_role.name, inline=True)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     embed.set_footer(text="✝ The Fallen Tournament ✝")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     msg = await target_channel.send(embed=embed, view=TournamentPanelView())
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Save message ID
+# OLD_TOURNEY:     data = load_tournaments()
+# OLD_TOURNEY:     if data["active"]:
+# OLD_TOURNEY:         data["active"]["message_id"] = str(msg.id)
+# OLD_TOURNEY:         save_tournaments(data)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     role_text = f" (Requires **{required_role.name}**)" if required_role else ""
+# OLD_TOURNEY:     await ctx.send(f"✅ Tournament **{name}** created in {target_channel.mention}!{role_text}")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     try:
+# OLD_TOURNEY:         await ctx.message.delete()
+# OLD_TOURNEY:     except:
+# OLD_TOURNEY:         pass
+# OLD_TOURNEY: 
+# OLD_TOURNEY: 
+# OLD_TOURNEY: @bot.command(name="setup_tournament")
+# OLD_TOURNEY: @commands.has_permissions(administrator=True)
+# OLD_TOURNEY: async def setup_tournament_panel(ctx):
+# OLD_TOURNEY:     """Setup a tournament creation panel for staff"""
+# OLD_TOURNEY:     embed = discord.Embed(
+# OLD_TOURNEY:         title="🏆 Tournament System",
+# OLD_TOURNEY:         description=(
+# OLD_TOURNEY:             "Create and manage tournaments with visual brackets!\n\n"
+# OLD_TOURNEY:             "**Features:**\n"
+# OLD_TOURNEY:             "• Visual bracket display\n"
+# OLD_TOURNEY:             "• Role restrictions (e.g., Mainer only)\n"
+# OLD_TOURNEY:             "• Auto bracket generation\n"
+# OLD_TOURNEY:             "• Easy winner reporting via dropdown\n"
+# OLD_TOURNEY:             "• Champion rewards (5,000 coins + 500 XP)\n"
+# OLD_TOURNEY:             "• Optional Top 10 auto-update\n\n"
+# OLD_TOURNEY:             "Click **Create Tournament** below to start!"
+# OLD_TOURNEY:         ),
+# OLD_TOURNEY:         color=0xffd700
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     embed.set_footer(text="✝ The Fallen Tournament System ✝")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     await ctx.send(embed=embed, view=TournamentSetupView())
+# OLD_TOURNEY:     await ctx.message.delete()
+# OLD_TOURNEY: 
+# OLD_TOURNEY: 
+# OLD_TOURNEY: class TournamentSetupView(discord.ui.View):
+# OLD_TOURNEY:     """Panel for staff to create tournaments"""
+# OLD_TOURNEY:     def __init__(self):
+# OLD_TOURNEY:         super().__init__(timeout=None)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     @discord.ui.button(label="➕ Create Tournament", style=discord.ButtonStyle.success, custom_id="tournament_setup_create")
+# OLD_TOURNEY:     async def create_tournament_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+# OLD_TOURNEY:         if not is_staff(interaction.user):
+# OLD_TOURNEY:             return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         data = load_tournaments()
+# OLD_TOURNEY:         if data.get("active"):
+# OLD_TOURNEY:             return await interaction.response.send_message(
+# OLD_TOURNEY:                 "❌ There's already an active tournament! End it first with `!tournament_end confirm`",
+# OLD_TOURNEY:                 ephemeral=True
+# OLD_TOURNEY:             )
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         await interaction.response.send_modal(TournamentCreateModal())
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     @discord.ui.button(label="📊 View Current", style=discord.ButtonStyle.primary, custom_id="tournament_setup_view")
+# OLD_TOURNEY:     async def view_current_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+# OLD_TOURNEY:         tournament = get_active_tournament()
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         if not tournament:
+# OLD_TOURNEY:             return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Create visual bracket image
+# OLD_TOURNEY:         if PIL_AVAILABLE and tournament.get("bracket"):
+# OLD_TOURNEY:             try:
+# OLD_TOURNEY:                 img = await create_tournament_bracket_image(tournament, interaction.guild)
+# OLD_TOURNEY:                 if img:
+# OLD_TOURNEY:                     file = discord.File(img, filename="bracket.png")
+# OLD_TOURNEY:                     await interaction.response.send_message(file=file, ephemeral=True)
+# OLD_TOURNEY:                     return
+# OLD_TOURNEY:             except Exception as e:
+# OLD_TOURNEY:                 print(f"Bracket image error: {e}")
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Fallback to text
+# OLD_TOURNEY:         bracket_text = create_visual_bracket_text(tournament, interaction.guild)
+# OLD_TOURNEY:         embed = discord.Embed(
+# OLD_TOURNEY:             title=f"🏆 {tournament['name']}",
+# OLD_TOURNEY:             description=bracket_text,
+# OLD_TOURNEY:             color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
+# OLD_TOURNEY:         )
+# OLD_TOURNEY:         await interaction.response.send_message(embed=embed, ephemeral=True)
+# OLD_TOURNEY: 
+# OLD_TOURNEY: 
+# OLD_TOURNEY: class TournamentCreateModal(discord.ui.Modal, title="🏆 Create Tournament"):
+# OLD_TOURNEY:     name = discord.ui.TextInput(
+# OLD_TOURNEY:         label="Tournament Name",
+# OLD_TOURNEY:         placeholder="e.g., Weekly 1v1, Top 10 Showdown",
+# OLD_TOURNEY:         style=discord.TextStyle.short,
+# OLD_TOURNEY:         required=True,
+# OLD_TOURNEY:         max_length=50
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     channel_id = discord.ui.TextInput(
+# OLD_TOURNEY:         label="Channel ID (where to post)",
+# OLD_TOURNEY:         placeholder="Right-click channel > Copy Channel ID",
+# OLD_TOURNEY:         style=discord.TextStyle.short,
+# OLD_TOURNEY:         required=True,
+# OLD_TOURNEY:         max_length=20
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     role_name = discord.ui.TextInput(
+# OLD_TOURNEY:         label="Required Role Name (leave blank for open)",
+# OLD_TOURNEY:         placeholder="e.g., Mainer, Stage 2",
+# OLD_TOURNEY:         style=discord.TextStyle.short,
+# OLD_TOURNEY:         required=False,
+# OLD_TOURNEY:         max_length=50
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     max_participants = discord.ui.TextInput(
+# OLD_TOURNEY:         label="Max Participants (2-32)",
+# OLD_TOURNEY:         placeholder="16",
+# OLD_TOURNEY:         style=discord.TextStyle.short,
+# OLD_TOURNEY:         required=False,
+# OLD_TOURNEY:         max_length=2
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     update_top10 = discord.ui.TextInput(
+# OLD_TOURNEY:         label="Update Top 10 on win? (yes/no)",
+# OLD_TOURNEY:         placeholder="no",
+# OLD_TOURNEY:         style=discord.TextStyle.short,
+# OLD_TOURNEY:         required=False,
+# OLD_TOURNEY:         max_length=3
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     async def on_submit(self, interaction: discord.Interaction):
+# OLD_TOURNEY:         # Parse inputs
+# OLD_TOURNEY:         try:
+# OLD_TOURNEY:             channel = interaction.guild.get_channel(int(self.channel_id.value))
+# OLD_TOURNEY:             if not channel:
+# OLD_TOURNEY:                 return await interaction.response.send_message("❌ Channel not found! Make sure you copied the Channel ID correctly.", ephemeral=True)
+# OLD_TOURNEY:         except:
+# OLD_TOURNEY:             return await interaction.response.send_message("❌ Invalid Channel ID!", ephemeral=True)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Find role if specified
+# OLD_TOURNEY:         required_role = None
+# OLD_TOURNEY:         role_name = self.role_name.value.strip() if self.role_name.value else None
+# OLD_TOURNEY:         if role_name:
+# OLD_TOURNEY:             required_role = discord.utils.get(interaction.guild.roles, name=role_name)
+# OLD_TOURNEY:             if not required_role:
+# OLD_TOURNEY:                 return await interaction.response.send_message(f"❌ Role '{role_name}' not found!", ephemeral=True)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Parse max participants
+# OLD_TOURNEY:         try:
+# OLD_TOURNEY:             max_p = int(self.max_participants.value) if self.max_participants.value else 16
+# OLD_TOURNEY:             max_p = max(2, min(32, max_p))
+# OLD_TOURNEY:         except:
+# OLD_TOURNEY:             max_p = 16
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Parse top 10 update
+# OLD_TOURNEY:         update_top10 = self.update_top10.value.lower() in ["yes", "y", "true", "1"] if self.update_top10.value else False
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Create tournament
+# OLD_TOURNEY:         tournament = create_tournament(
+# OLD_TOURNEY:             self.name.value,
+# OLD_TOURNEY:             interaction.user.id,
+# OLD_TOURNEY:             required_role_id=str(required_role.id) if required_role else None,
+# OLD_TOURNEY:             required_role_name=required_role.name if required_role else None,
+# OLD_TOURNEY:             channel_id=str(channel.id),
+# OLD_TOURNEY:             max_participants=max_p
+# OLD_TOURNEY:         )
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         if not tournament:
+# OLD_TOURNEY:             return await interaction.response.send_message("❌ Failed to create tournament!", ephemeral=True)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Add top 10 flag
+# OLD_TOURNEY:         data = load_tournaments()
+# OLD_TOURNEY:         if data["active"]:
+# OLD_TOURNEY:             data["active"]["update_top10"] = update_top10
+# OLD_TOURNEY:             save_tournaments(data)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Create signup embed
+# OLD_TOURNEY:         bracket_text = create_visual_bracket_text(tournament, interaction.guild)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         embed = discord.Embed(
+# OLD_TOURNEY:             title=f"🏆 {tournament['name']}",
+# OLD_TOURNEY:             description=bracket_text,
+# OLD_TOURNEY:             color=0xffd700
+# OLD_TOURNEY:         )
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         embed.add_field(name="Status", value="📝 Signups Open", inline=True)
+# OLD_TOURNEY:         embed.add_field(name="Participants", value=f"0/{max_p}", inline=True)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         if required_role:
+# OLD_TOURNEY:             embed.add_field(name="🎭 Requirement", value=required_role.name, inline=True)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         if update_top10:
+# OLD_TOURNEY:             embed.add_field(name="🏅 Top 10", value="Winner updates Top 10!", inline=True)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         embed.set_footer(text="✝ The Fallen Tournament ✝")
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Post to channel and ping role if set
+# OLD_TOURNEY:         ping_content = required_role.mention if required_role else None
+# OLD_TOURNEY:         msg = await channel.send(content=ping_content, embed=embed, view=TournamentPanelView())
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Save message ID
+# OLD_TOURNEY:         data = load_tournaments()
+# OLD_TOURNEY:         if data["active"]:
+# OLD_TOURNEY:             data["active"]["message_id"] = str(msg.id)
+# OLD_TOURNEY:             save_tournaments(data)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         await interaction.response.send_message(
+# OLD_TOURNEY:             f"✅ Tournament **{tournament['name']}** created!\n"
+# OLD_TOURNEY:             f"📍 Posted in {channel.mention}\n"
+# OLD_TOURNEY:             f"👥 Max: {max_p} participants\n"
+# OLD_TOURNEY:             f"🎭 Role: {required_role.name if required_role else 'Open to all'}\n"
+# OLD_TOURNEY:             f"🏅 Top 10 Update: {'Yes' if update_top10 else 'No'}",
+# OLD_TOURNEY:             ephemeral=True
+# OLD_TOURNEY:         )
+# OLD_TOURNEY: 
+# OLD_TOURNEY: 
+# OLD_TOURNEY: async def create_tournament_bracket_image(tournament, guild):
+# OLD_TOURNEY:     """Create a visual tournament bracket image"""
+# OLD_TOURNEY:     if not PIL_AVAILABLE:
+# OLD_TOURNEY:         return None
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     bracket = tournament.get("bracket")
+# OLD_TOURNEY:     if not bracket:
+# OLD_TOURNEY:         return None
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     rounds = bracket.get("rounds", [])
+# OLD_TOURNEY:     if not rounds:
+# OLD_TOURNEY:         return None
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     num_rounds = len(rounds)
+# OLD_TOURNEY:     first_round_matches = len(rounds[0])
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Calculate dimensions
+# OLD_TOURNEY:     match_width = 180
+# OLD_TOURNEY:     match_height = 55
+# OLD_TOURNEY:     round_spacing = 220
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     width = num_rounds * round_spacing + 100
+# OLD_TOURNEY:     height = max(400, first_round_matches * (match_height + 30) + 180)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Create dark background
+# OLD_TOURNEY:     img = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+# OLD_TOURNEY:     draw = ImageDraw.Draw(img)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Load fonts
+# OLD_TOURNEY:     try:
+# OLD_TOURNEY:         title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+# OLD_TOURNEY:         round_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+# OLD_TOURNEY:         name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
+# OLD_TOURNEY:         small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 10)
+# OLD_TOURNEY:     except:
+# OLD_TOURNEY:         title_font = round_font = name_font = small_font = ImageFont.load_default()
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Header
+# OLD_TOURNEY:     draw.rectangle([(0, 0), (width, 60)], fill=(139, 0, 0))
+# OLD_TOURNEY:     title = f"🏆 {tournament['name'].upper()}"
+# OLD_TOURNEY:     draw.text((width // 2, 30), title, font=title_font, fill=(255, 255, 255), anchor="mm")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Round names
+# OLD_TOURNEY:     round_names = []
+# OLD_TOURNEY:     for i in range(num_rounds):
+# OLD_TOURNEY:         if i == num_rounds - 1:
+# OLD_TOURNEY:             round_names.append("🏆 Finals")
+# OLD_TOURNEY:         elif i == num_rounds - 2:
+# OLD_TOURNEY:             round_names.append("Semifinals")
+# OLD_TOURNEY:         elif i == num_rounds - 3:
+# OLD_TOURNEY:             round_names.append("Quarterfinals")
+# OLD_TOURNEY:         else:
+# OLD_TOURNEY:             round_names.append(f"Round {i + 1}")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Draw connecting lines and matches
+# OLD_TOURNEY:     match_positions = {}  # Store positions for drawing lines
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     for round_idx, round_matches in enumerate(rounds):
+# OLD_TOURNEY:         x = 50 + round_idx * round_spacing
+# OLD_TOURNEY:         num_matches = len(round_matches)
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         available_height = height - 140
+# OLD_TOURNEY:         if num_matches > 0:
+# OLD_TOURNEY:             spacing = available_height / num_matches
+# OLD_TOURNEY:         else:
+# OLD_TOURNEY:             spacing = available_height
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Round label
+# OLD_TOURNEY:         round_name = round_names[round_idx] if round_idx < len(round_names) else f"Round {round_idx + 1}"
+# OLD_TOURNEY:         draw.text((x + match_width // 2, 80), round_name, font=round_font, fill=(200, 200, 200), anchor="mm")
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         for match_idx, match in enumerate(round_matches):
+# OLD_TOURNEY:             y = 100 + match_idx * spacing + (spacing - match_height) / 2
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             # Store position
+# OLD_TOURNEY:             match_positions[(round_idx, match_idx)] = (x + match_width, y + match_height // 2)
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             # Draw connecting line to next round
+# OLD_TOURNEY:             if round_idx < num_rounds - 1:
+# OLD_TOURNEY:                 next_match_idx = match_idx // 2
+# OLD_TOURNEY:                 next_x = 50 + (round_idx + 1) * round_spacing
+# OLD_TOURNEY:                 next_y = 100 + next_match_idx * (available_height / len(rounds[round_idx + 1])) + ((available_height / len(rounds[round_idx + 1])) - match_height) / 2 + match_height // 2
+# OLD_TOURNEY:                 
+# OLD_TOURNEY:                 # Horizontal line from match
+# OLD_TOURNEY:                 draw.line([(x + match_width, y + match_height // 2), (x + match_width + 15, y + match_height // 2)], fill=(80, 80, 80), width=2)
+# OLD_TOURNEY:                 # Vertical line
+# OLD_TOURNEY:                 mid_x = x + match_width + 15
+# OLD_TOURNEY:                 draw.line([(mid_x, y + match_height // 2), (mid_x, next_y)], fill=(80, 80, 80), width=2)
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             # Match box
+# OLD_TOURNEY:             winner = match.get("winner")
+# OLD_TOURNEY:             if winner:
+# OLD_TOURNEY:                 box_fill = (40, 80, 40)  # Green for completed
+# OLD_TOURNEY:             elif match.get("player1") and match.get("player2"):
+# OLD_TOURNEY:                 box_fill = (80, 40, 40)  # Red for active
+# OLD_TOURNEY:             else:
+# OLD_TOURNEY:                 box_fill = (50, 50, 60)  # Grey for waiting
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             draw.rectangle([(x, y), (x + match_width, y + match_height)], fill=box_fill, outline=(100, 100, 100))
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             # Player 1
+# OLD_TOURNEY:             p1_id = match.get("player1")
+# OLD_TOURNEY:             if p1_id:
+# OLD_TOURNEY:                 member1 = guild.get_member(int(p1_id))
+# OLD_TOURNEY:                 p1_name = member1.display_name[:18] if member1 else "Unknown"
+# OLD_TOURNEY:             else:
+# OLD_TOURNEY:                 p1_name = "BYE" if round_idx == 0 else "TBD"
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             p1_color = (255, 215, 0) if winner == p1_id else (255, 255, 255)
+# OLD_TOURNEY:             draw.text((x + 10, y + 12), p1_name, font=name_font, fill=p1_color)
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             # VS divider
+# OLD_TOURNEY:             draw.line([(x + 5, y + match_height // 2), (x + match_width - 5, y + match_height // 2)], fill=(80, 80, 80), width=1)
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             # Player 2
+# OLD_TOURNEY:             p2_id = match.get("player2")
+# OLD_TOURNEY:             if p2_id:
+# OLD_TOURNEY:                 member2 = guild.get_member(int(p2_id))
+# OLD_TOURNEY:                 p2_name = member2.display_name[:18] if member2 else "Unknown"
+# OLD_TOURNEY:             else:
+# OLD_TOURNEY:                 p2_name = "BYE" if round_idx == 0 else "TBD"
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             p2_color = (255, 215, 0) if winner == p2_id else (255, 255, 255)
+# OLD_TOURNEY:             draw.text((x + 10, y + match_height - 18), p2_name, font=name_font, fill=p2_color)
+# OLD_TOURNEY:             
+# OLD_TOURNEY:             # Match ID
+# OLD_TOURNEY:             draw.text((x + match_width - 5, y + 5), match.get("id", ""), font=small_font, fill=(100, 100, 100), anchor="rt")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Champion box if complete
+# OLD_TOURNEY:     if rounds[-1] and rounds[-1][0].get("winner"):
+# OLD_TOURNEY:         winner_id = rounds[-1][0]["winner"]
+# OLD_TOURNEY:         winner_member = guild.get_member(int(winner_id))
+# OLD_TOURNEY:         winner_name = winner_member.display_name if winner_member else "Unknown"
+# OLD_TOURNEY:         
+# OLD_TOURNEY:         # Champion highlight
+# OLD_TOURNEY:         champ_x = width - 150
+# OLD_TOURNEY:         champ_y = height // 2 - 30
+# OLD_TOURNEY:         draw.rectangle([(champ_x, champ_y), (champ_x + 120, champ_y + 60)], fill=(139, 0, 0), outline=(255, 215, 0), width=3)
+# OLD_TOURNEY:         draw.text((champ_x + 60, champ_y + 15), "🏆 CHAMPION", font=small_font, fill=(255, 215, 0), anchor="mm")
+# OLD_TOURNEY:         draw.text((champ_x + 60, champ_y + 40), winner_name[:15], font=name_font, fill=(255, 255, 255), anchor="mm")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Footer
+# OLD_TOURNEY:     draw.text((width // 2, height - 15), "✝ The Fallen Tournament ✝", font=small_font, fill=(100, 100, 100), anchor="mm")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     # Save to buffer
+# OLD_TOURNEY:     buffer = BytesIO()
+# OLD_TOURNEY:     img.save(buffer, format="PNG")
+# OLD_TOURNEY:     buffer.seek(0)
+# OLD_TOURNEY:     return buffer
+# OLD_TOURNEY: 
+# OLD_TOURNEY: 
+# OLD_TOURNEY: @bot.command(name="tournament_panel")
+# OLD_TOURNEY: @commands.has_permissions(administrator=True)
+# OLD_TOURNEY: async def tournament_panel_cmd(ctx):
+# OLD_TOURNEY:     """Post the tournament panel"""
+# OLD_TOURNEY:     tournament = get_active_tournament()
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     if not tournament:
+# OLD_TOURNEY:         return await ctx.send("❌ No active tournament! Create one with `!tournament_create`")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     bracket_text = create_visual_bracket_text(tournament, ctx.guild)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     embed = discord.Embed(
+# OLD_TOURNEY:         title=f"🏆 {tournament['name']}",
+# OLD_TOURNEY:         description=bracket_text,
+# OLD_TOURNEY:         color=0xffd700 if tournament["status"] == "signup" else 0xe74c3c
+# OLD_TOURNEY:     )
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     status_map = {"signup": "📝 Signups Open", "active": "🔴 In Progress", "complete": "✅ Complete"}
+# OLD_TOURNEY:     max_p = tournament.get("max_participants", 16)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     embed.add_field(name="Status", value=status_map.get(tournament["status"], tournament["status"]), inline=True)
+# OLD_TOURNEY:     embed.add_field(name="Participants", value=f"{len(tournament['participants'])}/{max_p}", inline=True)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     if tournament.get("required_role_name"):
+# OLD_TOURNEY:         embed.add_field(name="🎭 Requirement", value=tournament["required_role_name"], inline=True)
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     embed.set_footer(text="✝ The Fallen Tournament ✝")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     await ctx.send(embed=embed, view=TournamentPanelView())
+# OLD_TOURNEY: 
+# OLD_TOURNEY: 
+# OLD_TOURNEY: @bot.command(name="tournament_end")
+# OLD_TOURNEY: @commands.has_permissions(administrator=True)
+# OLD_TOURNEY: async def tournament_end_cmd(ctx, confirm: str = None):
+# OLD_TOURNEY:     """End the current tournament"""
+# OLD_TOURNEY:     if confirm != "confirm":
+# OLD_TOURNEY:         return await ctx.send("⚠️ Use `!tournament_end confirm` to end the tournament.")
+# OLD_TOURNEY:     
+# OLD_TOURNEY:     if end_tournament():
+# OLD_TOURNEY:         await ctx.send("✅ Tournament ended!")
+# OLD_TOURNEY:     else:
+# OLD_TOURNEY:         await ctx.send("❌ No active tournament!")
 
 # ==========================================
 # INACTIVITY COMMANDS
@@ -20021,38 +19931,24 @@ async def check_tournament_complete(interaction, tournament):
                 await channel.send(embed=embed, view=TournamentEndView(tournament["id"]))
 
 
+
 # ==========================================
-# SLASH COMMANDS
+# ==========================================
+# TOURNAMENT PREFIX COMMANDS
 # ==========================================
 
-def setup_tournament_commands(bot):
-    """Setup tournament slash commands"""
+@bot.command(name="bracket")
+async def bracket_prefix_cmd(ctx):
+    """
+    View the current tournament bracket
+    Usage: !bracket
+    """
+    tournament = get_active_tourney()
+    if not tournament:
+        return await ctx.send("❌ No active tournament!")
     
-    @bot.tree.command(name="tournament", description="Create a new tournament")
-    @app_commands.checks.has_any_role("Staff", "Admin", "Owner", "Co-Owner", "Head Staff")
-    async def tournament_create(interaction: discord.Interaction):
-        """Create a new tournament"""
-        # Check if there's already an active tournament
-        tournament = get_active_tournament()
-        if tournament and tournament["status"] != "completed":
-            return await interaction.response.send_message(
-                f"❌ There's already an active tournament: **{tournament['name']}**\n"
-                f"Delete it first or wait for it to complete.",
-                ephemeral=True
-            )
-        
-        await interaction.response.send_modal(TournamentCreateModal())
-    
-    @bot.tree.command(name="bracket", description="View the current tournament bracket")
-    async def view_bracket(interaction: discord.Interaction):
-        """View tournament bracket"""
-        tournament = get_active_tournament()
-        if not tournament:
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
-        await interaction.response.defer()
-        
-        bracket_img = await create_bracket_image(tournament)
+    async with ctx.typing():
+        bracket_img = await create_tourney_bracket_image(tournament)
         if bracket_img:
             file = discord.File(bracket_img, filename="bracket.png")
             embed = discord.Embed(
@@ -20061,93 +19957,86 @@ def setup_tournament_commands(bot):
             )
             embed.set_image(url="attachment://bracket.png")
             embed.set_footer(text="✝ THE FALLEN ✝")
-            await interaction.followup.send(embed=embed, file=file)
+            await ctx.send(embed=embed, file=file)
         else:
-            await interaction.followup.send("❌ Could not generate bracket image.")
+            await ctx.send("❌ Could not generate bracket image.")
+
+
+@bot.command(name="tparticipants", aliases=["tplayers"])
+async def tournament_participants_cmd(ctx):
+    """
+    View tournament participants
+    Usage: !tparticipants
+    """
+    tournament = get_active_tourney()
+    if not tournament:
+        return await ctx.send("❌ No active tournament!")
     
-    @bot.tree.command(name="participants", description="View tournament participants")
-    async def view_participants(interaction: discord.Interaction):
-        """View tournament participants"""
-        tournament = get_active_tournament()
-        if not tournament:
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
-        participants = tournament.get("participants", [])
-        
-        embed = discord.Embed(
-            title=f"👥 {tournament['name']} — Participants",
-            description=f"**{len(participants)}/{tournament['max_participants']}** registered",
-            color=0x8B0000
+    participants = tournament.get("participants", [])
+    
+    embed = discord.Embed(
+        title=f"👥 {tournament['name']} — Participants",
+        description=f"**{len(participants)}/{tournament['max_participants']}** registered",
+        color=0x8B0000
+    )
+    
+    if participants:
+        player_list = "\n".join([f"`{i+1}.` {p['name']}" for i, p in enumerate(participants[:25])])
+        if len(participants) > 25:
+            player_list += f"\n*... and {len(participants) - 25} more*"
+        embed.add_field(name="Players", value=player_list, inline=False)
+    else:
+        embed.add_field(name="Players", value="No participants yet.", inline=False)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    await ctx.send(embed=embed)
+
+
+# TOURNAMENT PREFIX COMMAND
+# ==========================================
+
+@bot.command(name="tournament")
+@commands.has_any_role("Staff", "Admin", "Owner", "Co-Owner", "Head Staff")
+async def tournament_prefix_cmd(ctx):
+    """
+    Create a new tournament (opens modal via button)
+    Usage: !tournament
+    """
+    tournament = get_active_tourney()
+    if tournament and tournament["status"] not in ["completed"]:
+        return await ctx.send(
+            f"❌ Active tournament exists: **{tournament['name']}**\n"
+            f"Delete it first using the admin panel.",
+            delete_after=10
         )
-        
-        if participants:
-            player_list = "\n".join([f"`{i+1}.` {p['name']}" for i, p in enumerate(participants[:25])])
-            if len(participants) > 25:
-                player_list += f"\n*... and {len(participants) - 25} more*"
-            embed.add_field(name="Players", value=player_list, inline=False)
-        else:
-            embed.add_field(name="Players", value="No participants yet.", inline=False)
-        
-        embed.set_footer(text="✝ THE FALLEN ✝")
-        await interaction.response.send_message(embed=embed)
     
-    return [tournament_create, view_bracket, view_participants]
+    embed = discord.Embed(
+        title="🏆 Create Tournament",
+        description="Click the button below to create a new tournament.",
+        color=0x8B0000
+    )
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    
+    view = TournamentCreateButtonView()
+    await ctx.send(embed=embed, view=view)
+    
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
-# Setup tournament commands
-def setup_tournament_slash_commands():
-    """Register tournament slash commands with the bot"""
+class TournamentCreateButtonView(discord.ui.View):
+    """Button to open tournament create modal"""
+    def __init__(self):
+        super().__init__(timeout=300)
     
-    @bot.tree.command(name="tournament", description="Create a new tournament")
-    @app_commands.checks.has_any_role("Staff", "Admin", "Owner", "Co-Owner", "Head Staff")
-    async def tournament_cmd(interaction: discord.Interaction):
-        tournament = get_active_tourney()
-        if tournament and tournament["status"] not in ["completed"]:
-            return await interaction.response.send_message(
-                f"❌ Active tournament exists: **{tournament['name']}**\nDelete it first.",
-                ephemeral=True
-            )
+    @discord.ui.button(label="➕ Create Tournament", style=discord.ButtonStyle.success)
+    async def create_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
         await interaction.response.send_modal(TournamentCreateModal())
-    
-    @bot.tree.command(name="bracket", description="View tournament bracket")
-    async def bracket_cmd(interaction: discord.Interaction):
-        tournament = get_active_tourney()
-        if not tournament:
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
-        await interaction.response.defer()
-        bracket_img = await create_tourney_bracket_image(tournament)
-        if bracket_img:
-            file = discord.File(bracket_img, filename="bracket.png")
-            embed = discord.Embed(title=f"🏆 {tournament['name']} — Bracket", color=0x8B0000)
-            embed.set_image(url="attachment://bracket.png")
-            await interaction.followup.send(embed=embed, file=file)
-        else:
-            await interaction.followup.send("❌ Could not generate bracket.")
-    
-    @bot.tree.command(name="participants", description="View tournament participants")
-    async def participants_cmd(interaction: discord.Interaction):
-        tournament = get_active_tourney()
-        if not tournament:
-            return await interaction.response.send_message("❌ No active tournament!", ephemeral=True)
-        
-        embed = discord.Embed(
-            title=f"👥 {tournament['name']} — Participants",
-            description=f"**{len(tournament['participants'])}/{tournament['max_participants']}** registered",
-            color=0x8B0000
-        )
-        
-        if tournament["participants"]:
-            player_list = "\n".join([f"`{i+1}.` {p['name']}" for i, p in enumerate(tournament["participants"][:25])])
-            embed.add_field(name="Players", value=player_list or "None", inline=False)
-        
-        await interaction.response.send_message(embed=embed)
-
-
-# Call setup on bot ready
-@bot.event
-async def on_ready_tournament():
-    setup_tournament_slash_commands()
 
 
 # Run the bot with reconnect enabled
