@@ -5093,30 +5093,65 @@ MUTE_ROLE_NAME = "Muted"
 
 # Warning categories with point values
 WARNING_CATEGORIES = {
-    # 1 Point - Minor stuff
+    # ==========================================
+    # 1-2 Points - Minor Stuff
+    # ==========================================
     "spam": {"points": 1, "name": "Spamming", "description": "Excessive messaging or spam"},
-    
-    # 2 Points - Arguments/Disrespect
     "arguing": {"points": 2, "name": "Arguing", "description": "Arguing with members"},
     "disrespect": {"points": 2, "name": "Disrespect", "description": "Disrespecting members or staff"},
     
-    # 3-4 Points - Serious stuff
-    "nsfw": {"points": 4, "name": "NSFW Content", "description": "Posting NSFW content or gifs"},
-    "religion": {"points": 4, "name": "Religion Disrespect", "description": "Disrespecting religious beliefs"},
-    "fighting": {"points": 4, "name": "Fighting After Mute", "description": "Continuing to fight after being muted"},
-    "impersonate": {"points": 4, "name": "Impersonating Staff", "description": "Pretending to be a staff member"},
-    "racism": {"points": 4, "name": "Racism", "description": "Racist comments or behavior"},
-    "slightnsfw": {"points": 3, "name": "Slight NSFW", "description": "Borderline NSFW content"},
+    # ==========================================
+    # 3-4 Points - Bad Stuff
+    # ==========================================
+    "slightnsfw": {"points": 3, "name": "Slight NSFW", "description": "Borderline NSFW content - ask staff if unsure!"},
     "slightracism": {"points": 3, "name": "Slight Racism", "description": "Minor racist remarks"},
+    "nsfw": {"points": 4, "name": "NSFW Content", "description": "Posting NSFW content or gifs"},
+    "religion": {"points": 4, "name": "Religion Disrespect", "description": "Generally disrespecting religious beliefs"},
+    "fighting": {"points": 4, "name": "Fighting After Mute", "description": "Continuing to fight after being muted - you had your chance"},
+    "impersonate": {"points": 4, "name": "Impersonating Staff", "description": "Pretending to be a staff member without permission"},
+    "racism": {"points": 4, "name": "Racism", "description": "Racist comments or behavior"},
     
-    # 5 Points - Severe
+    # ==========================================
+    # 5 Points - Severe (higher level of 3-4pt offenses)
+    # ==========================================
     "severe": {"points": 5, "name": "Severe Offense", "description": "Severe version of other offenses"},
     
-    # INSTANT BAN - No tolerance
-    "pedo": {"points": 999, "name": "Pedo Jokes/Content", "description": "Any pedophilia-related content", "instant_ban": True},
-    "extremeracism": {"points": 999, "name": "Extreme Racism", "description": "Extreme racist content", "instant_ban": True},
-    "doxxing": {"points": 999, "name": "Doxxing", "description": "Sharing personal information", "instant_ban": True},
-    "threats": {"points": 999, "name": "Death Threats", "description": "Threatening harm to others", "instant_ban": True},
+    # ==========================================
+    # INSTANT BAN - Zero Tolerance (Blacklistable in TSBCC)
+    # ==========================================
+    # Pedophilia related
+    "pedo": {"points": 999, "name": "Pedo Content/Defense", "description": "Anything good about pedophilia or attempting to defend it", "instant_ban": True},
+    
+    # Rape/Sexual threats
+    "grape": {"points": 999, "name": "🍇 Jokes/Threats", "description": "Grape jokes or threats of any kind", "instant_ban": True},
+    
+    # Racism - Extreme
+    "extremeracism": {"points": 999, "name": "Extreme Racism", "description": "Hard R, excessive N word, extreme racist content", "instant_ban": True},
+    "hardr": {"points": 999, "name": "Hard R", "description": "Use of hard R racial slur", "instant_ban": True},
+    "nword": {"points": 999, "name": "Excessive N Word", "description": "Excessive use of N word", "instant_ban": True},
+    
+    # Nazism/Hate
+    "nazism": {"points": 999, "name": "Glorifying Nazism", "description": "Any glorification of Nazism", "instant_ban": True},
+    "hatespeech": {"points": 999, "name": "Extreme Hate Speech", "description": "General extreme hate speech", "instant_ban": True},
+    
+    # Homophobia
+    "homophobia": {"points": 999, "name": "Extreme Homophobia", "description": "Extreme homophobic content - keep opinions to yourself", "instant_ban": True},
+    
+    # Religion - Extreme
+    "extremereligion": {"points": 999, "name": "Extreme Religion Disrespect", "description": "Extreme form of religion disrespect", "instant_ban": True},
+    
+    # Threats
+    "threats": {"points": 999, "name": "Death Threats", "description": "Genuine death threats - extreme action will be taken", "instant_ban": True},
+    "doxx": {"points": 999, "name": "Doxxing", "description": "Any form of doxx jokes or threats", "instant_ban": True},
+    
+    # NSFW - Extreme
+    "purensfw": {"points": 999, "name": "Pure NSFW/Porn", "description": "Straight up porn or explicit content", "instant_ban": True},
+    "gore": {"points": 999, "name": "Extreme Gore", "description": "Sending any form of gore", "instant_ban": True},
+    "graphic": {"points": 999, "name": "Graphic Content", "description": "Graphic sexual or exploitive images/texts", "instant_ban": True},
+    
+    # Server Safety
+    "alt": {"points": 999, "name": "Alt Account", "description": "Alt accounts not allowed - TSBCC rule", "instant_ban": True},
+    "raid": {"points": 999, "name": "Nuking/Raiding", "description": "Nuking, raiding, or even joking about it", "instant_ban": True},
 }
 
 # Punishment thresholds
@@ -5752,8 +5787,8 @@ async def strike_announcement(ctx):
     
     # Main announcement embed
     embed1 = discord.Embed(
-        title="⚠️ NEW WARNING & STRIKE SYSTEM ⚠️",
-        description="We have implemented a **new warning and strike system** to keep The Fallen a safe and enjoyable community for everyone.\n\nThis system uses a **point-based approach** to track offenses and apply fair, consistent punishments.",
+        title="⚠️ WARNING & STRIKE SYSTEM ⚠️",
+        description="**Strike points are dependent on WHAT you got warned for and the severity.**\n\nIf it is something extreme, like 🍇 jokes/threats, then **extreme action will be taken**.\nIf it is something like constant arguing, **little action will be taken**.\n\nThis system uses a **point-based approach** to track offenses and apply fair, consistent punishments.",
         color=0xFF6600
     )
     embed1.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
@@ -5769,13 +5804,14 @@ async def strike_announcement(ctx):
         "  10   │ 🔨 Banned\n"
         "```"
     )
-    embed1.add_field(name="📊 How It Works", value=threshold_text, inline=False)
+    embed1.add_field(name="📊 Punishment Thresholds", value=threshold_text, inline=False)
     
     await ctx.send(embed=embed1)
     
     # Minor offenses embed
     embed2 = discord.Embed(
-        title="📗 MINOR OFFENSES (1-2 Points)",
+        title="📗 LITTLE STUFF (1-2 Points)",
+        description="*Not worth too much. Can be adjusted.*",
         color=0x2ecc71
     )
     minor_text = (
@@ -5785,55 +5821,78 @@ async def strike_announcement(ctx):
         "• Arguing with members\n"
         "• Disrespect to members/staff"
     )
-    embed2.description = minor_text
+    embed2.add_field(name="Offenses", value=minor_text, inline=False)
     
     await ctx.send(embed=embed2)
     
     # Moderate offenses embed
     embed3 = discord.Embed(
-        title="📙 MODERATE OFFENSES (3-4 Points)",
+        title="📙 BAD STUFF (3-4 Points)",
+        description="*These things are still quite bad. Points depend on severity.*",
         color=0xF39C12
     )
     moderate_text = (
         "**3 Points:**\n"
-        "• Slight NSFW content\n"
-        "• Slight racism\n\n"
+        "• Slight NSFW *(If unsure of a gif, ask staff to verify. Don't say \"I didn't know!\")*\n"
+        "• Slight Racism\n\n"
         "**4 Points:**\n"
         "• NSFW content/gifs\n"
-        "• Religion disrespect\n"
-        "• Fighting after being muted\n"
-        "• Impersonating staff\n"
+        "• General religion disrespect *(Religions are a serious matter)*\n"
+        "• Fighting with members/staff after being muted *(You had your chance)*\n"
+        "• Impersonating staff *(Unless both parties allowed it)*\n"
         "• Racism"
     )
-    embed3.description = moderate_text
+    embed3.add_field(name="Offenses", value=moderate_text, inline=False)
     
     await ctx.send(embed=embed3)
     
     # Severe offenses embed
     embed4 = discord.Embed(
-        title="📕 SEVERE OFFENSES (5 Points)",
+        title="📕 SEVERE STUFF (5 Points)",
+        description="*Higher level versions of 3-4 point offenses.*",
         color=0xE74C3C
     )
-    embed4.description = "**5 Points:**\n• Severe versions of any above offenses"
+    embed4.add_field(name="Offenses", value="**5 Points:**\n• Severe versions of any above offenses\n• Borderline blacklistable behavior", inline=False)
     
     await ctx.send(embed=embed4)
     
-    # Zero tolerance embed
+    # Zero tolerance embed - Part 1
     embed5 = discord.Embed(
-        title="🚫 ZERO TOLERANCE - INSTANT PERMANENT BAN",
-        description="The following offenses result in an **IMMEDIATE PERMANENT BAN** with **NO warnings** and **NO appeals**:",
+        title="🚫 EXTREME STUFF - INSTANT PERMANENT BAN",
+        description="**Anything that could get you or another blacklisted gets you instantly banned.**\n\nThese are blacklistable in TSBCC so they are also bannable here.\n\n*Depending on severity and context, you MAY be able to appeal but in majority of cases it will be a permanent ban, no appeal. You will get DM'd if your ban is appealable or not.*",
         color=0x8B0000
     )
-    zero_tolerance_text = (
-        "❌ **Pedo jokes or content** - Any form\n"
-        "❌ **Extreme racism** - Slurs, hate speech\n"
-        "❌ **Doxxing** - Sharing personal information\n"
-        "❌ **Death threats** - Threatening harm to others\n\n"
-        "⚠️ **There are NO exceptions to these rules.**"
+    
+    zero_tolerance_text1 = (
+        "❌ **Glorifying Nazism**\n"
+        "❌ **Anything good about pedophilia or defending it**\n"
+        "❌ **🍇 jokes/threats**\n"
+        "❌ **Genuine death threats** *(Extreme action will be taken)*\n"
+        "❌ **Extreme religion disrespect**\n"
+        "❌ **Extreme racism** *(Hard R, excessive N word)*\n"
+        "❌ **Pure NSFW** *(Straight up 🌽 or similar)*\n"
     )
-    embed5.add_field(name="​", value=zero_tolerance_text, inline=False)
+    embed5.add_field(name="Zero Tolerance Offenses", value=zero_tolerance_text1, inline=False)
     
     await ctx.send(embed=embed5)
+    
+    # Zero tolerance embed - Part 2
+    embed5b = discord.Embed(
+        color=0x8B0000
+    )
+    zero_tolerance_text2 = (
+        "❌ **Alt Accounts** *(TSBCC doesn't allow them, we don't either)*\n"
+        "❌ **Extreme homophobia** *(Keep offensive opinions to yourself)*\n"
+        "❌ **Extreme gore** *(Any form)*\n"
+        "❌ **Any form of doxx jokes/threats**\n"
+        "❌ **Graphic sexual or exploitive images/texts**\n"
+        "❌ **Nuking/Raiding** *(Even joking about this could get you banned)*\n"
+        "❌ **General extreme hate speech**\n"
+    )
+    embed5b.add_field(name="​", value=zero_tolerance_text2, inline=False)
+    embed5b.add_field(name="⚠️ WARNING", value="**There are NO exceptions to these rules.**", inline=False)
+    
+    await ctx.send(embed=embed5b)
     
     # Final info embed
     embed6 = discord.Embed(
@@ -5847,12 +5906,12 @@ async def strike_announcement(ctx):
     )
     embed6.add_field(
         name="⚖️ Appeals",
-        value="If you believe a warning was issued unfairly, you may appeal to a High Staff member.\n**Zero tolerance offenses cannot be appealed.**",
+        value="If you believe a warning was issued unfairly, you may appeal to a High Staff member.\n**Zero tolerance offenses are generally NOT appealable** *(you will be notified if yours is)*.",
         inline=False
     )
     embed6.add_field(
         name="⚠️ Important",
-        value="**Ignorance is not an excuse.** If you're unsure whether something is allowed, **ask a staff member first.**",
+        value="**Ignorance is not an excuse.** If you're unsure whether something is allowed, **ask a staff member FIRST.**\n\nDon't say \"I didn't know!\" - You have been told to ask beforehand.",
         inline=False
     )
     embed6.set_footer(text="✝ The Fallen ✝ • Stay safe and have fun!")
