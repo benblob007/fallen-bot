@@ -13049,58 +13049,8 @@ async def log_tryout(ctx,
     await ctx.send(embed=embed)
 
 # ==========================================
-# WARNING & MODERATION COMMANDS
+# STAFF MODERATION COMMANDS
 # ==========================================
-
-@bot.hybrid_command(name="warn", description="Staff: Warn a user")
-async def warn(ctx, member: discord.Member, *, reason: str = "No reason provided"):
-    """Warn a user"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    data = load_data()
-    uid = str(member.id)
-    data = ensure_user_structure(data, uid)
-    
-    warning = {"reason": reason, "by": ctx.author.id, "date": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-    data["users"][uid]["warnings"].append(warning)
-    save_data(data)
-    
-    count = len(data["users"][uid]["warnings"])
-    embed = discord.Embed(title="⚠️ Warning Issued", description=f"{member.mention} has been warned.", color=0xFFA500)
-    embed.add_field(name="Reason", value=reason, inline=False)
-    embed.add_field(name="Total Warnings", value=f"{count}/3", inline=True)
-    
-    await ctx.send(embed=embed)
-    await log_action(ctx.guild, "⚠️ Warning", f"{member.mention} by {ctx.author.mention}\nReason: {reason}", 0xFFA500)
-
-@bot.hybrid_command(name="warnings", description="Staff: View a user's warnings")
-async def warnings(ctx, member: discord.Member):
-    """View user's warnings"""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    user_warnings = get_user_data(member.id).get("warnings", [])
-    embed = discord.Embed(title=f"⚠️ {member.display_name}'s Warnings", color=0xFFA500)
-    
-    if not user_warnings:
-        embed.description = "No warnings on record."
-    else:
-        for i, w in enumerate(user_warnings, 1):
-            embed.add_field(name=f"Warning #{i}", value=f"**Reason:** {w['reason']}\n**By:** <@{w['by']}>", inline=False)
-    
-    embed.set_footer(text=f"Total: {len(user_warnings)}/3")
-    await ctx.send(embed=embed)
-
-@bot.hybrid_command(name="clearwarnings", description="Staff: Clear a user's warnings")
-async def clearwarnings(ctx, member: discord.Member):
-    """Clear all warnings"""
-    if not is_high_staff(ctx.author):
-        return await ctx.send("❌ High Staff only.", ephemeral=True)
-    
-    update_user_data(member.id, "warnings", [])
-    await ctx.send(f"✅ Cleared all warnings for {member.mention}")
-    await log_action(ctx.guild, "⚠️ Warnings Cleared", f"{member.mention} by {ctx.author.mention}", 0x2ecc71)
 
 @bot.command(name="promote", description="Staff: Promote a user")
 async def promote(ctx, member: discord.Member, role: discord.Role):
