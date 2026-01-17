@@ -892,51 +892,49 @@ def create_leaderboard_embed(guild):
 
 
 # --- TOP 10 LEADERBOARD IMAGE GENERATION ---
-# New horizontal background: 1920x1080
+# Background: 1920x1080 
 # Layout: Left column (1-5), Center (TOP PLAYER), Right column (6-10)
 LEADERBOARD_BG_FILE = "leaderboard_bg.png"
 
 # CENTER - TOP PLAYER (Rank 1 featured prominently in the large dashed circle)
+# From Photoshop Image 4: center X ~960 (half of 1920), Y ~265
 TOP_PLAYER_POSITION = {
-    "avatar_center": (960, 232),  # Center of the large dashed circle (middle of 1920)
-    "avatar_size": 145,           # Big enough to fill the dashed circle
-    "name_y": 380                 # Just below "TOP PLAYER" text
+    "avatar_center": (960, 265),  # Center of the large dashed circle
+    "avatar_size": 155,           # To fill the dashed circle nicely
+    "name_y": 410                 # Below "TOP PLAYER" text
 }
 
 # LEFT COLUMN - Ranks 1-5
-# Avatars go in the circular gear/cog shapes on the LEFT side of each row
-# Names go in the red pill-shaped bars to the RIGHT of the avatars
-# Format: (center_x, center_y, avatar_size)
+# Based on Photoshop: Left avatar center X ~200
+# Row Y positions: ~222, ~347, ~472, ~597, ~722 (spacing ~125px)
 LEADERBOARD_AVATAR_POSITIONS = {
-    1: (178, 200, 62),    # Rank 1 - first row left cog
-    2: (178, 315, 62),    # Rank 2 - second row left cog  
-    3: (178, 430, 62),    # Rank 3 - third row left cog
-    4: (178, 545, 62),    # Rank 4 - fourth row left cog
-    5: (178, 660, 62),    # Rank 5 - fifth row left cog
-    # RIGHT COLUMN - Ranks 6-10
-    # Avatars go in the circular gear/cog shapes on the RIGHT side
-    6: (1742, 200, 62),   # Rank 6
-    7: (1742, 315, 62),   # Rank 7
-    8: (1742, 430, 62),   # Rank 8
-    9: (1742, 545, 62),   # Rank 9
-    10: (1742, 660, 62),  # Rank 10
+    1: (200, 222, 72),    # Rank 1
+    2: (200, 347, 72),    # Rank 2
+    3: (200, 472, 72),    # Rank 3
+    4: (200, 597, 72),    # Rank 4
+    5: (200, 722, 72),    # Rank 5
+    # RIGHT COLUMN - Ranks 6-10 (mirrored: 1920 - 200 = 1720)
+    6: (1720, 222, 72),   # Rank 6
+    7: (1720, 347, 72),   # Rank 7
+    8: (1720, 472, 72),   # Rank 8
+    9: (1720, 597, 72),   # Rank 9
+    10: (1720, 722, 72),  # Rank 10
 }
 
-# Name positions - these go INSIDE the red pill-shaped bars
-# Left column: names in bars to the RIGHT of avatars (left-aligned text)
-# Right column: names in bars to the LEFT of avatars (right-aligned text)
-# Format: (x, y, alignment) - y is vertical center of the text
+# Name positions - in the red pill-shaped bars
+# Left bars: text starts around X:280 (after avatar gap)
+# Right bars: text ends around X:1640 (before avatar gap)
 LEADERBOARD_NAME_POSITIONS = {
-    1: (260, 200, "left"),    # In the top red bar, row 1
-    2: (260, 315, "left"),    # Row 2
-    3: (260, 430, "left"),    # Row 3
-    4: (260, 545, "left"),    # Row 4
-    5: (260, 660, "left"),    # Row 5
-    6: (1660, 200, "right"),  # Right side, row 1
-    7: (1660, 315, "right"),  # Row 2
-    8: (1660, 430, "right"),  # Row 3
-    9: (1660, 545, "right"),  # Row 4
-    10: (1660, 660, "right"), # Row 5
+    1: (280, 200, "left"),
+    2: (280, 325, "left"),
+    3: (280, 450, "left"),
+    4: (280, 575, "left"),
+    5: (280, 700, "left"),
+    6: (1640, 200, "right"),
+    7: (1640, 325, "right"),
+    8: (1640, 450, "right"),
+    9: (1640, 575, "right"),
+    10: (1640, 700, "right"),
 }
 
 
