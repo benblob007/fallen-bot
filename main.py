@@ -923,18 +923,20 @@ LEADERBOARD_AVATAR_POSITIONS = {
     10: (1684, 796, 70),  # Rank 10 - +142px
 }
 
-# Name positions - in the red pill bars (to the right of left cogs, left of right cogs)
+# Name positions - in the red pill bars
+# From Photoshop: Left bar starts at X:327, Right bar at X:1399
+# Row 1 Y: 206, Row 2 Y: 357, spacing: 151px
 LEADERBOARD_NAME_POSITIONS = {
-    1: (300, 213, "left"),
-    2: (300, 355, "left"),
-    3: (300, 497, "left"),
-    4: (300, 639, "left"),
-    5: (300, 781, "left"),
-    6: (1618, 208, "right"),
-    7: (1618, 350, "right"),
-    8: (1618, 492, "right"),
-    9: (1618, 634, "right"),
-    10: (1618, 776, "right"),
+    1: (327, 206, "left"),
+    2: (327, 357, "left"),
+    3: (327, 508, "left"),
+    4: (327, 659, "left"),
+    5: (327, 810, "left"),
+    6: (1552, 206, "right"),   # 1399 + 153 (text width area)
+    7: (1552, 357, "right"),
+    8: (1552, 508, "right"),
+    9: (1552, 659, "right"),
+    10: (1552, 810, "right"),
 }
 
 
