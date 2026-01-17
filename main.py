@@ -19640,15 +19640,51 @@ class ChannelSelectView(discord.ui.View):
         max_values=1
     )
     async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
-        channel = select.values[0]
-        
-        data = load_tournament_data()
-        tournament = data["tournaments"].get(self.tournament_id)
-        if not tournament:
-            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
-        
-        await interaction.response.send_modal(TournamentPublishModal(tournament, channel))
-        self.stop()
+        try:
+            selected_channel = select.values[0]
+            
+            # Resolve the channel object
+            channel = interaction.guild.get_channel(selected_channel.id)
+            if not channel:
+                return await interaction.response.send_message("❌ Could not find that channel!", ephemeral=True)
+            
+            data = load_tournament_data()
+            tournament = data["tournaments"].get(self.tournament_id)
+            if not tournament:
+                return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+            
+            # Instead of modal, just publish directly
+            await interaction.response.defer(ephemeral=True)
+            
+            # Create registration portal embed
+            embed = create_registration_embed(tournament)
+            
+            # Send to target channel
+            view = TournamentRegistrationView(tournament["id"])
+            msg = await channel.send(
+                content="🏆 **Tournament registration is now open!**",
+                embed=embed,
+                view=view
+            )
+            
+            # Save message ID
+            tournament["messages"]["registration_portal"] = str(msg.id)
+            tournament["channels"]["registration"] = str(channel.id)
+            tournament["status"] = "registration"
+            update_tournament(tournament)
+            
+            await interaction.followup.send(
+                f"✅ Registration portal published to {channel.mention}!",
+                ephemeral=True
+            )
+            self.stop()
+            
+        except Exception as e:
+            print(f"Publish error: {e}")
+            try:
+                await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+            except:
+                await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
 
 class RoleSelectView(discord.ui.View):
