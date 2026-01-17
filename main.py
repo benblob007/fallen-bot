@@ -5085,6 +5085,657 @@ async def send_event_reminder(event, minutes):
         break  # Only send to first guild found
 
 # ==========================================
+# WARNING/STRIKE SYSTEM
+# ==========================================
+
+WARNINGS_FILE = "warnings_data.json"
+MUTE_ROLE_NAME = "Muted"
+
+# Warning categories with point values
+WARNING_CATEGORIES = {
+    # 1 Point - Minor stuff
+    "spam": {"points": 1, "name": "Spamming", "description": "Excessive messaging or spam"},
+    
+    # 2 Points - Arguments/Disrespect
+    "arguing": {"points": 2, "name": "Arguing", "description": "Arguing with members"},
+    "disrespect": {"points": 2, "name": "Disrespect", "description": "Disrespecting members or staff"},
+    
+    # 3-4 Points - Serious stuff
+    "nsfw": {"points": 4, "name": "NSFW Content", "description": "Posting NSFW content or gifs"},
+    "religion": {"points": 4, "name": "Religion Disrespect", "description": "Disrespecting religious beliefs"},
+    "fighting": {"points": 4, "name": "Fighting After Mute", "description": "Continuing to fight after being muted"},
+    "impersonate": {"points": 4, "name": "Impersonating Staff", "description": "Pretending to be a staff member"},
+    "racism": {"points": 4, "name": "Racism", "description": "Racist comments or behavior"},
+    "slightnsfw": {"points": 3, "name": "Slight NSFW", "description": "Borderline NSFW content"},
+    "slightracism": {"points": 3, "name": "Slight Racism", "description": "Minor racist remarks"},
+    
+    # 5 Points - Severe
+    "severe": {"points": 5, "name": "Severe Offense", "description": "Severe version of other offenses"},
+    
+    # INSTANT BAN - No tolerance
+    "pedo": {"points": 999, "name": "Pedo Jokes/Content", "description": "Any pedophilia-related content", "instant_ban": True},
+    "extremeracism": {"points": 999, "name": "Extreme Racism", "description": "Extreme racist content", "instant_ban": True},
+    "doxxing": {"points": 999, "name": "Doxxing", "description": "Sharing personal information", "instant_ban": True},
+    "threats": {"points": 999, "name": "Death Threats", "description": "Threatening harm to others", "instant_ban": True},
+}
+
+# Punishment thresholds
+PUNISHMENT_THRESHOLDS = [
+    {"points": 3, "action": "mute", "duration": 3600, "name": "1 hour mute"},      # 1 hour
+    {"points": 5, "action": "mute", "duration": 86400, "name": "24 hour mute"},    # 24 hours
+    {"points": 7, "action": "kick", "duration": 0, "name": "Kick"},
+    {"points": 10, "action": "ban", "duration": 0, "name": "Ban"},
+]
+
+def load_warnings_data():
+    """Load warnings data from file"""
+    try:
+        with open(WARNINGS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"users": {}}
+
+def save_warnings_data(data):
+    """Save warnings data to file"""
+    with open(WARNINGS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def get_user_warnings(user_id):
+    """Get all warnings for a user"""
+    data = load_warnings_data()
+    uid = str(user_id)
+    return data["users"].get(uid, {"warnings": [], "total_points": 0})
+
+def add_warning(user_id, category, reason, staff_id, points=None):
+    """Add a warning to a user"""
+    data = load_warnings_data()
+    uid = str(user_id)
+    
+    if uid not in data["users"]:
+        data["users"][uid] = {"warnings": [], "total_points": 0}
+    
+    # Get points from category or use custom
+    if points is None:
+        cat_info = WARNING_CATEGORIES.get(category, {})
+        points = cat_info.get("points", 1)
+    
+    warning = {
+        "id": f"w_{int(datetime.datetime.now().timestamp())}",
+        "category": category,
+        "reason": reason,
+        "points": points,
+        "staff_id": str(staff_id),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "expired": False
+    }
+    
+    data["users"][uid]["warnings"].append(warning)
+    data["users"][uid]["total_points"] = sum(
+        w["points"] for w in data["users"][uid]["warnings"] if not w.get("expired", False)
+    )
+    
+    save_warnings_data(data)
+    return warning, data["users"][uid]["total_points"]
+
+def clear_user_warnings(user_id):
+    """Clear all warnings for a user"""
+    data = load_warnings_data()
+    uid = str(user_id)
+    
+    if uid in data["users"]:
+        data["users"][uid] = {"warnings": [], "total_points": 0}
+        save_warnings_data(data)
+        return True
+    return False
+
+def remove_warning(user_id, warning_id):
+    """Remove a specific warning"""
+    data = load_warnings_data()
+    uid = str(user_id)
+    
+    if uid in data["users"]:
+        warnings = data["users"][uid]["warnings"]
+        data["users"][uid]["warnings"] = [w for w in warnings if w["id"] != warning_id]
+        data["users"][uid]["total_points"] = sum(
+            w["points"] for w in data["users"][uid]["warnings"] if not w.get("expired", False)
+        )
+        save_warnings_data(data)
+        return True
+    return False
+
+async def get_or_create_mute_role(guild):
+    """Get or create the mute role"""
+    mute_role = discord.utils.get(guild.roles, name=MUTE_ROLE_NAME)
+    
+    if not mute_role:
+        try:
+            # Create the mute role
+            mute_role = await guild.create_role(
+                name=MUTE_ROLE_NAME,
+                color=discord.Color.dark_gray(),
+                reason="Created by Fallen Bot for warning system"
+            )
+            
+            # Set permissions for all channels
+            for channel in guild.channels:
+                try:
+                    await channel.set_permissions(mute_role, 
+                        send_messages=False,
+                        add_reactions=False,
+                        speak=False,
+                        stream=False
+                    )
+                except:
+                    pass
+            
+            print(f"✅ Created Muted role in {guild.name}")
+        except Exception as e:
+            print(f"❌ Failed to create Muted role: {e}")
+            return None
+    
+    return mute_role
+
+async def apply_punishment(member, total_points, guild):
+    """Apply appropriate punishment based on total points"""
+    punishment = None
+    
+    for threshold in PUNISHMENT_THRESHOLDS:
+        if total_points >= threshold["points"]:
+            punishment = threshold
+    
+    if not punishment:
+        return None
+    
+    action = punishment["action"]
+    
+    try:
+        if action == "mute":
+            mute_role = await get_or_create_mute_role(guild)
+            if mute_role and mute_role not in member.roles:
+                await member.add_roles(mute_role, reason=f"Warning system: {total_points} points")
+                
+                # Schedule unmute
+                duration = punishment["duration"]
+                asyncio.create_task(schedule_unmute(member, mute_role, duration))
+                
+                return f"🔇 Muted for {punishment['name']}"
+        
+        elif action == "kick":
+            await member.kick(reason=f"Warning system: {total_points} points reached kick threshold")
+            return "👢 Kicked from server"
+        
+        elif action == "ban":
+            await member.ban(reason=f"Warning system: {total_points} points reached ban threshold")
+            return "🔨 Banned from server"
+    
+    except Exception as e:
+        print(f"Failed to apply punishment: {e}")
+        return None
+    
+    return None
+
+async def schedule_unmute(member, mute_role, duration):
+    """Schedule automatic unmute after duration"""
+    await asyncio.sleep(duration)
+    try:
+        if mute_role in member.roles:
+            await member.remove_roles(mute_role, reason="Mute duration expired")
+    except:
+        pass
+
+async def send_warning_dm(member, warning, total_points, punishment=None):
+    """Send DM to user about their warning"""
+    try:
+        cat_info = WARNING_CATEGORIES.get(warning["category"], {})
+        
+        embed = discord.Embed(
+            title="⚠️ Warning Received",
+            description=f"You have received a warning in **The Fallen**",
+            color=0xFF6600
+        )
+        
+        embed.add_field(name="Offense", value=cat_info.get("name", warning["category"]), inline=True)
+        embed.add_field(name="Points", value=f"+{warning['points']}", inline=True)
+        embed.add_field(name="Total Points", value=str(total_points), inline=True)
+        
+        if warning.get("reason"):
+            embed.add_field(name="Reason", value=warning["reason"], inline=False)
+        
+        if punishment:
+            embed.add_field(name="🚨 Punishment Applied", value=punishment, inline=False)
+        
+        # Show thresholds
+        threshold_text = ""
+        for t in PUNISHMENT_THRESHOLDS:
+            marker = "→" if total_points >= t["points"] else "•"
+            threshold_text += f"{marker} {t['points']} points: {t['name']}\n"
+        embed.add_field(name="Punishment Thresholds", value=threshold_text, inline=False)
+        
+        embed.set_footer(text="✝ The Fallen ✝ • Appeal to staff if you believe this is unfair")
+        embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        
+        await member.send(embed=embed)
+        return True
+    except:
+        return False
+
+
+# WARNING COMMANDS
+# ==========================================
+
+@bot.command(name="warn")
+async def warn_user(ctx, member: discord.Member = None, category: str = None, *, reason: str = None):
+    """
+    Warn a user with a preset category
+    Usage: !warn @user <category> [reason]
+    Categories: spam, arguing, disrespect, nsfw, racism, pedo, etc.
+    """
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if not member:
+        return await ctx.send("❌ Please mention a user: `!warn @user <category> [reason]`")
+    
+    if not category:
+        # Show available categories
+        embed = discord.Embed(
+            title="⚠️ Warning Categories",
+            description="Use: `!warn @user <category> [reason]`",
+            color=0xFF6600
+        )
+        
+        categories_text = ""
+        for cat_id, cat_info in WARNING_CATEGORIES.items():
+            instant = "🚫 INSTANT BAN" if cat_info.get("instant_ban") else f"{cat_info['points']} pts"
+            categories_text += f"`{cat_id}` - {cat_info['name']} ({instant})\n"
+        
+        embed.add_field(name="Categories", value=categories_text, inline=False)
+        embed.set_footer(text="✝ The Fallen ✝")
+        return await ctx.send(embed=embed)
+    
+    category = category.lower()
+    
+    if category not in WARNING_CATEGORIES:
+        return await ctx.send(f"❌ Unknown category `{category}`. Use `!warn` to see all categories.")
+    
+    cat_info = WARNING_CATEGORIES[category]
+    
+    # Check for instant ban
+    if cat_info.get("instant_ban"):
+        try:
+            # DM before ban
+            try:
+                ban_embed = discord.Embed(
+                    title="🚫 You Have Been Banned",
+                    description=f"You have been permanently banned from **The Fallen**",
+                    color=0xFF0000
+                )
+                ban_embed.add_field(name="Reason", value=f"{cat_info['name']}: {reason or 'No additional details'}", inline=False)
+                ban_embed.set_footer(text="This is a zero-tolerance offense. No appeals.")
+                await member.send(embed=ban_embed)
+            except:
+                pass
+            
+            await member.ban(reason=f"Zero tolerance: {cat_info['name']} - {reason or 'No reason provided'}")
+            
+            embed = discord.Embed(
+                title="🚫 User Banned",
+                description=f"{member.mention} has been **permanently banned**",
+                color=0xFF0000
+            )
+            embed.add_field(name="Offense", value=cat_info["name"], inline=True)
+            embed.add_field(name="By", value=ctx.author.mention, inline=True)
+            if reason:
+                embed.add_field(name="Reason", value=reason, inline=False)
+            embed.set_footer(text="✝ The Fallen ✝ • Zero Tolerance Policy")
+            
+            await ctx.send(embed=embed)
+            await log_action(ctx.guild, "🚫 INSTANT BAN", f"{member} banned for {cat_info['name']}\nBy: {ctx.author.mention}\nReason: {reason or 'N/A'}", 0xFF0000)
+            return
+            
+        except Exception as e:
+            return await ctx.send(f"❌ Failed to ban user: {e}")
+    
+    # Regular warning
+    warning, total_points = add_warning(member.id, category, reason, ctx.author.id)
+    
+    # Apply punishment if threshold reached
+    punishment = await apply_punishment(member, total_points, ctx.guild)
+    
+    # DM the user
+    dm_sent = await send_warning_dm(member, warning, total_points, punishment)
+    
+    # Send confirmation
+    embed = discord.Embed(
+        title="⚠️ Warning Issued",
+        description=f"{member.mention} has been warned",
+        color=0xFF6600
+    )
+    embed.add_field(name="Offense", value=cat_info["name"], inline=True)
+    embed.add_field(name="Points", value=f"+{warning['points']}", inline=True)
+    embed.add_field(name="Total Points", value=str(total_points), inline=True)
+    embed.add_field(name="Issued By", value=ctx.author.mention, inline=True)
+    embed.add_field(name="DM Sent", value="✅" if dm_sent else "❌", inline=True)
+    
+    if reason:
+        embed.add_field(name="Reason", value=reason, inline=False)
+    
+    if punishment:
+        embed.add_field(name="🚨 Punishment Applied", value=punishment, inline=False)
+    
+    embed.set_footer(text="✝ The Fallen ✝")
+    await ctx.send(embed=embed)
+    
+    # Log
+    await log_action(ctx.guild, "⚠️ Warning Issued", f"{member.mention} warned for {cat_info['name']}\nPoints: +{warning['points']} (Total: {total_points})\nBy: {ctx.author.mention}", 0xFF6600)
+
+
+@bot.command(name="strike")
+async def strike_user(ctx, member: discord.Member = None, points: int = None, *, reason: str = None):
+    """
+    Give a custom point strike to a user
+    Usage: !strike @user <points> <reason>
+    """
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if not member or points is None:
+        return await ctx.send("❌ Usage: `!strike @user <points> <reason>`")
+    
+    if points < 1 or points > 10:
+        return await ctx.send("❌ Points must be between 1 and 10")
+    
+    if not reason:
+        return await ctx.send("❌ Please provide a reason for the strike")
+    
+    warning, total_points = add_warning(member.id, "custom", reason, ctx.author.id, points=points)
+    
+    # Apply punishment
+    punishment = await apply_punishment(member, total_points, ctx.guild)
+    
+    # DM user
+    dm_sent = await send_warning_dm(member, warning, total_points, punishment)
+    
+    embed = discord.Embed(
+        title="⚠️ Strike Issued",
+        description=f"{member.mention} has been given a strike",
+        color=0xFF4500
+    )
+    embed.add_field(name="Points", value=f"+{points}", inline=True)
+    embed.add_field(name="Total Points", value=str(total_points), inline=True)
+    embed.add_field(name="Issued By", value=ctx.author.mention, inline=True)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    
+    if punishment:
+        embed.add_field(name="🚨 Punishment Applied", value=punishment, inline=False)
+    
+    embed.set_footer(text="✝ The Fallen ✝")
+    await ctx.send(embed=embed)
+    
+    await log_action(ctx.guild, "⚠️ Strike Issued", f"{member.mention} striked\nPoints: +{points} (Total: {total_points})\nReason: {reason}\nBy: {ctx.author.mention}", 0xFF4500)
+
+
+@bot.command(name="warnings", aliases=["warns", "checkwarns"])
+async def check_warnings(ctx, member: discord.Member = None):
+    """
+    Check warnings for a user
+    Usage: !warnings [@user]
+    """
+    target = member or ctx.author
+    
+    # Staff can check anyone, members only themselves
+    if member and member != ctx.author and not is_staff(ctx.author):
+        return await ctx.send("❌ You can only check your own warnings.", delete_after=5)
+    
+    user_data = get_user_warnings(target.id)
+    warnings = user_data.get("warnings", [])
+    total_points = user_data.get("total_points", 0)
+    
+    embed = discord.Embed(
+        title=f"⚠️ Warnings - {target.display_name}",
+        color=0xFF6600 if total_points > 0 else 0x2ecc71
+    )
+    
+    # Points bar
+    max_display = 10
+    filled = min(total_points, max_display)
+    bar = "🔴" * filled + "⚫" * (max_display - filled)
+    embed.add_field(name="Total Points", value=f"{bar}\n**{total_points}/10** points", inline=False)
+    
+    # Next punishment
+    next_punishment = None
+    for t in PUNISHMENT_THRESHOLDS:
+        if total_points < t["points"]:
+            next_punishment = t
+            break
+    
+    if next_punishment:
+        points_needed = next_punishment["points"] - total_points
+        embed.add_field(name="Next Punishment", value=f"{next_punishment['name']} in **{points_needed}** more points", inline=False)
+    elif total_points >= 10:
+        embed.add_field(name="⚠️ Status", value="**BAN THRESHOLD REACHED**", inline=False)
+    
+    # Warning history
+    if warnings:
+        history_text = ""
+        for w in warnings[-10:]:  # Last 10 warnings
+            cat_info = WARNING_CATEGORIES.get(w["category"], {"name": w["category"]})
+            timestamp = datetime.datetime.fromisoformat(w["timestamp"].replace('Z', '+00:00'))
+            time_str = f"<t:{int(timestamp.timestamp())}:R>"
+            history_text += f"• **{cat_info.get('name', w['category'])}** (+{w['points']}) - {time_str}\n"
+        
+        embed.add_field(name=f"Warning History ({len(warnings)} total)", value=history_text or "None", inline=False)
+    else:
+        embed.add_field(name="Warning History", value="✅ No warnings! Keep it up!", inline=False)
+    
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.set_footer(text="✝ The Fallen ✝")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="clearwarns", aliases=["clearwarnings"])
+async def clear_warnings(ctx, member: discord.Member = None):
+    """
+    Clear all warnings for a user (High Staff only)
+    Usage: !clearwarns @user
+    """
+    if not is_high_staff(ctx.author):
+        return await ctx.send("❌ High Staff only!", delete_after=5)
+    
+    if not member:
+        return await ctx.send("❌ Please mention a user: `!clearwarns @user`")
+    
+    user_data = get_user_warnings(member.id)
+    old_points = user_data.get("total_points", 0)
+    old_count = len(user_data.get("warnings", []))
+    
+    if clear_user_warnings(member.id):
+        embed = discord.Embed(
+            title="✅ Warnings Cleared",
+            description=f"All warnings for {member.mention} have been cleared",
+            color=0x2ecc71
+        )
+        embed.add_field(name="Warnings Removed", value=str(old_count), inline=True)
+        embed.add_field(name="Points Cleared", value=str(old_points), inline=True)
+        embed.add_field(name="Cleared By", value=ctx.author.mention, inline=True)
+        embed.set_footer(text="✝ The Fallen ✝")
+        await ctx.send(embed=embed)
+        
+        # Remove mute role if they have it
+        mute_role = discord.utils.get(ctx.guild.roles, name=MUTE_ROLE_NAME)
+        if mute_role and mute_role in member.roles:
+            try:
+                await member.remove_roles(mute_role, reason="Warnings cleared")
+                await ctx.send(f"✅ Also removed {MUTE_ROLE_NAME} role from {member.mention}", delete_after=5)
+            except:
+                pass
+        
+        await log_action(ctx.guild, "✅ Warnings Cleared", f"{member.mention}'s warnings cleared\n{old_count} warnings, {old_points} points\nBy: {ctx.author.mention}", 0x2ecc71)
+    else:
+        await ctx.send(f"ℹ️ {member.mention} has no warnings to clear.")
+
+
+@bot.command(name="removewarn", aliases=["deletewarn"])
+async def remove_warn(ctx, member: discord.Member = None, warning_id: str = None):
+    """
+    Remove a specific warning (Staff only)
+    Usage: !removewarn @user <warning_id>
+    """
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if not member or not warning_id:
+        return await ctx.send("❌ Usage: `!removewarn @user <warning_id>`\nUse `!warnings @user` to see warning IDs")
+    
+    if remove_warning(member.id, warning_id):
+        user_data = get_user_warnings(member.id)
+        await ctx.send(f"✅ Warning `{warning_id}` removed from {member.mention}. New total: **{user_data['total_points']}** points")
+        await log_action(ctx.guild, "🗑️ Warning Removed", f"Warning {warning_id} removed from {member.mention}\nBy: {ctx.author.mention}", 0xF1C40F)
+    else:
+        await ctx.send(f"❌ Warning `{warning_id}` not found for {member.mention}")
+
+
+@bot.command(name="warnlist", aliases=["warncategories"])
+async def warn_list(ctx):
+    """Show all warning categories and their points"""
+    embed = discord.Embed(
+        title="⚠️ Warning Categories",
+        description="Use: `!warn @user <category> [reason]`",
+        color=0xFF6600
+    )
+    
+    # Group by severity
+    minor = []
+    moderate = []
+    severe = []
+    instant_ban = []
+    
+    for cat_id, cat_info in WARNING_CATEGORIES.items():
+        entry = f"`{cat_id}` - {cat_info['name']}"
+        if cat_info.get("instant_ban"):
+            instant_ban.append(entry)
+        elif cat_info["points"] >= 5:
+            severe.append(f"{entry} ({cat_info['points']} pts)")
+        elif cat_info["points"] >= 3:
+            moderate.append(f"{entry} ({cat_info['points']} pts)")
+        else:
+            minor.append(f"{entry} ({cat_info['points']} pts)")
+    
+    if minor:
+        embed.add_field(name="📗 Minor (1-2 pts)", value="\n".join(minor), inline=False)
+    if moderate:
+        embed.add_field(name="📙 Moderate (3-4 pts)", value="\n".join(moderate), inline=False)
+    if severe:
+        embed.add_field(name="📕 Severe (5 pts)", value="\n".join(severe), inline=False)
+    if instant_ban:
+        embed.add_field(name="🚫 INSTANT BAN", value="\n".join(instant_ban), inline=False)
+    
+    # Thresholds
+    threshold_text = ""
+    for t in PUNISHMENT_THRESHOLDS:
+        threshold_text += f"• **{t['points']} points** → {t['name']}\n"
+    embed.add_field(name="📊 Punishment Thresholds", value=threshold_text, inline=False)
+    
+    embed.set_footer(text="✝ The Fallen ✝")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="mute")
+async def mute_user(ctx, member: discord.Member = None, duration: str = None, *, reason: str = None):
+    """
+    Manually mute a user
+    Usage: !mute @user <duration> [reason]
+    Duration: 1h, 30m, 1d, etc.
+    """
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if not member:
+        return await ctx.send("❌ Usage: `!mute @user <duration> [reason]`")
+    
+    # Parse duration
+    if not duration:
+        duration = "1h"
+    
+    duration_seconds = 0
+    duration_str = duration.lower()
+    
+    if 'd' in duration_str:
+        duration_seconds = int(duration_str.replace('d', '')) * 86400
+    elif 'h' in duration_str:
+        duration_seconds = int(duration_str.replace('h', '')) * 3600
+    elif 'm' in duration_str:
+        duration_seconds = int(duration_str.replace('m', '')) * 60
+    else:
+        try:
+            duration_seconds = int(duration_str) * 60  # Default to minutes
+        except:
+            return await ctx.send("❌ Invalid duration. Use format: 1h, 30m, 1d")
+    
+    mute_role = await get_or_create_mute_role(ctx.guild)
+    if not mute_role:
+        return await ctx.send("❌ Failed to get/create mute role")
+    
+    try:
+        await member.add_roles(mute_role, reason=f"Muted by {ctx.author}: {reason or 'No reason'}")
+        
+        # Schedule unmute
+        asyncio.create_task(schedule_unmute(member, mute_role, duration_seconds))
+        
+        embed = discord.Embed(
+            title="🔇 User Muted",
+            description=f"{member.mention} has been muted",
+            color=0x95a5a6
+        )
+        embed.add_field(name="Duration", value=duration, inline=True)
+        embed.add_field(name="By", value=ctx.author.mention, inline=True)
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        embed.set_footer(text="✝ The Fallen ✝")
+        
+        await ctx.send(embed=embed)
+        await log_action(ctx.guild, "🔇 User Muted", f"{member.mention} muted for {duration}\nReason: {reason or 'N/A'}\nBy: {ctx.author.mention}", 0x95a5a6)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Failed to mute: {e}")
+
+
+@bot.command(name="unmute")
+async def unmute_user(ctx, member: discord.Member = None):
+    """
+    Unmute a user
+    Usage: !unmute @user
+    """
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if not member:
+        return await ctx.send("❌ Usage: `!unmute @user`")
+    
+    mute_role = discord.utils.get(ctx.guild.roles, name=MUTE_ROLE_NAME)
+    
+    if not mute_role or mute_role not in member.roles:
+        return await ctx.send(f"ℹ️ {member.mention} is not muted.")
+    
+    try:
+        await member.remove_roles(mute_role, reason=f"Unmuted by {ctx.author}")
+        
+        embed = discord.Embed(
+            title="🔊 User Unmuted",
+            description=f"{member.mention} has been unmuted",
+            color=0x2ecc71
+        )
+        embed.add_field(name="By", value=ctx.author.mention, inline=True)
+        embed.set_footer(text="✝ The Fallen ✝")
+        
+        await ctx.send(embed=embed)
+        await log_action(ctx.guild, "🔊 User Unmuted", f"{member.mention} unmuted by {ctx.author.mention}", 0x2ecc71)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Failed to unmute: {e}")
+
+
+# ==========================================
 # INACTIVITY STRIKE SYSTEM
 # ==========================================
 
