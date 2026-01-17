@@ -906,35 +906,34 @@ TOP_PLAYER_POSITION = {
 }
 
 # LEFT COLUMN - Ranks 1-5
-# From Photoshop Info panel Image 1/2: X: 236, Y: 225 for rank 1
-# That's the corner, so center is approximately (200, 190) for ~70px avatar
-# Row spacing ~115px
+# Need to move RIGHT into the cog circles
+# Looking at output: avatars are too far left, need to shift right ~30px
 LEADERBOARD_AVATAR_POSITIONS = {
-    1: (200, 190, 70),    # Rank 1 - derived from X:236, Y:225
-    2: (200, 305, 70),    # Rank 2 (+115)
-    3: (200, 420, 70),    # Rank 3
-    4: (200, 535, 70),    # Rank 4
-    5: (200, 650, 70),    # Rank 5
-    # RIGHT COLUMN - Ranks 6-10 (mirrored)
-    6: (1720, 190, 70),   # Rank 6
-    7: (1720, 305, 70),   # Rank 7
-    8: (1720, 420, 70),   # Rank 8
-    9: (1720, 535, 70),   # Rank 9
-    10: (1720, 650, 70),  # Rank 10
+    1: (178, 175, 70),    # Rank 1 - move into cog
+    2: (178, 290, 70),    # Rank 2
+    3: (178, 405, 70),    # Rank 3
+    4: (178, 520, 70),    # Rank 4
+    5: (178, 635, 70),    # Rank 5
+    # RIGHT COLUMN - Ranks 6-10
+    6: (1278, 175, 70),   # Rank 6
+    7: (1278, 290, 70),   # Rank 7
+    8: (1278, 405, 70),   # Rank 8
+    9: (1278, 520, 70),   # Rank 9
+    10: (1278, 635, 70),  # Rank 10
 }
 
-# Name positions - From Image 1 text box started around X: 416 (after avatar)
+# Name positions - move into the red pill bars
 LEADERBOARD_NAME_POSITIONS = {
-    1: (280, 170, "left"),
-    2: (280, 285, "left"),
-    3: (280, 400, "left"),
-    4: (280, 515, "left"),
-    5: (280, 630, "left"),
-    6: (1640, 170, "right"),
-    7: (1640, 285, "right"),
-    8: (1640, 400, "right"),
-    9: (1640, 515, "right"),
-    10: (1640, 630, "right"),
+    1: (250, 155, "left"),
+    2: (250, 270, "left"),
+    3: (250, 385, "left"),
+    4: (250, 500, "left"),
+    5: (250, 615, "left"),
+    6: (1205, 155, "right"),
+    7: (1205, 270, "right"),
+    8: (1205, 385, "right"),
+    9: (1205, 500, "right"),
+    10: (1205, 615, "right"),
 }
 
 
