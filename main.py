@@ -896,44 +896,47 @@ def create_leaderboard_embed(guild):
 # Layout: Left column (1-5), Center (TOP PLAYER), Right column (6-10)
 LEADERBOARD_BG_FILE = "leaderboard_bg.png"
 
-# CENTER - TOP PLAYER (Rank 1 featured prominently)
+# CENTER - TOP PLAYER (Rank 1 featured prominently in the large dashed circle)
 TOP_PLAYER_POSITION = {
-    "avatar_center": (728, 178),  # Center of the large circle
-    "avatar_size": 120,           # Diameter to fit the circular frame
-    "name_y": 505                 # Below the kanji characters
+    "avatar_center": (960, 232),  # Center of the large dashed circle (middle of 1920)
+    "avatar_size": 145,           # Big enough to fill the dashed circle
+    "name_y": 380                 # Just below "TOP PLAYER" text
 }
 
 # LEFT COLUMN - Ranks 1-5
-# These match the numbered badge positions (1-5 on left side)
+# Avatars go in the circular gear/cog shapes on the LEFT side of each row
+# Names go in the red pill-shaped bars to the RIGHT of the avatars
 # Format: (center_x, center_y, avatar_size)
 LEADERBOARD_AVATAR_POSITIONS = {
-    1: (175, 200, 75),    # Rank 1 - badge "1"
-    2: (175, 320, 75),    # Rank 2 - badge "2"
-    3: (175, 440, 75),    # Rank 3 - badge "3"
-    4: (175, 560, 75),    # Rank 4 - badge "4"
-    5: (175, 680, 75),    # Rank 5 - badge "5"
+    1: (178, 200, 62),    # Rank 1 - first row left cog
+    2: (178, 315, 62),    # Rank 2 - second row left cog  
+    3: (178, 430, 62),    # Rank 3 - third row left cog
+    4: (178, 545, 62),    # Rank 4 - fourth row left cog
+    5: (178, 660, 62),    # Rank 5 - fifth row left cog
     # RIGHT COLUMN - Ranks 6-10
-    6: (1260, 200, 75),   # Rank 6 - badge "6"
-    7: (1260, 320, 75),   # Rank 7 - badge "7"
-    8: (1260, 440, 75),   # Rank 8 - badge "8"
-    9: (1260, 560, 75),   # Rank 9 - badge "9"
-    10: (1260, 680, 75),  # Rank 10 - badge "10"
+    # Avatars go in the circular gear/cog shapes on the RIGHT side
+    6: (1742, 200, 62),   # Rank 6
+    7: (1742, 315, 62),   # Rank 7
+    8: (1742, 430, 62),   # Rank 8
+    9: (1742, 545, 62),   # Rank 9
+    10: (1742, 660, 62),  # Rank 10
 }
 
-# Name positions - (x, y, alignment)
-# Left column: names go in the red bars to the right of avatars
-# Right column: names go in the red bars to the left of avatars
+# Name positions - these go INSIDE the red pill-shaped bars
+# Left column: names in bars to the RIGHT of avatars (left-aligned text)
+# Right column: names in bars to the LEFT of avatars (right-aligned text)
+# Format: (x, y, alignment) - y is vertical center of the text
 LEADERBOARD_NAME_POSITIONS = {
-    1: (260, 168, "left"),
-    2: (260, 288, "left"),
-    3: (260, 408, "left"),
-    4: (260, 528, "left"),
-    5: (260, 648, "left"),
-    6: (1175, 168, "right"),
-    7: (1175, 288, "right"),
-    8: (1175, 408, "right"),
-    9: (1175, 528, "right"),
-    10: (1175, 648, "right"),
+    1: (260, 200, "left"),    # In the top red bar, row 1
+    2: (260, 315, "left"),    # Row 2
+    3: (260, 430, "left"),    # Row 3
+    4: (260, 545, "left"),    # Row 4
+    5: (260, 660, "left"),    # Row 5
+    6: (1660, 200, "right"),  # Right side, row 1
+    7: (1660, 315, "right"),  # Row 2
+    8: (1660, 430, "right"),  # Row 3
+    9: (1660, 545, "right"),  # Row 4
+    10: (1660, 660, "right"), # Row 5
 }
 
 
@@ -968,16 +971,16 @@ async def create_top10_leaderboard_image(guild):
         print("⚠️ Leaderboard background not found!")
         return None
     
-    # Ensure correct size for the new background
-    if bg_img.size != (1920, 1080):
-        bg_img = bg_img.resize((1920, 1080), Image.LANCZOS)
+    # Don't force resize - use the actual image dimensions
+    img_width, img_height = bg_img.size
+    print(f"Leaderboard image size: {img_width}x{img_height}")
     
     draw = ImageDraw.Draw(bg_img)
     
-    # Load fonts
+    # Load fonts - adjusted sizes for better fit
     try:
-        name_font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        name_font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
     except:
         name_font_large = name_font = ImageFont.load_default()
     
@@ -1029,11 +1032,12 @@ async def create_top10_leaderboard_image(guild):
             except Exception as e:
                 print(f"Error loading top player avatar: {e}")
             
-            # Draw name below center
+            # Draw name below TOP PLAYER text (centered on the center X position)
             name = member.display_name[:20]
             bbox = draw.textbbox((0, 0), name, font=name_font_large)
             text_w = bbox[2] - bbox[0]
-            name_x = 960 - text_w // 2
+            # Center the name on the TOP PLAYER center X position
+            name_x = TOP_PLAYER_POSITION["avatar_center"][0] - text_w // 2
             # Shadow
             draw.text((name_x + 2, TOP_PLAYER_POSITION["name_y"] + 2), name, fill=(0, 0, 0), font=name_font_large)
             draw.text((name_x, TOP_PLAYER_POSITION["name_y"]), name, fill=color_gold, font=name_font_large)
