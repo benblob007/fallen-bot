@@ -906,33 +906,35 @@ TOP_PLAYER_POSITION = {
 }
 
 # LEFT COLUMN - Ranks 1-5
-# Need even more RIGHT movement - cogs are further right than expected
+# From Photoshop: Left Cog 1 center at (234, 233), Cog 2 at ~(234, 375)
+# Row spacing: 375 - 233 = 142px
 LEADERBOARD_AVATAR_POSITIONS = {
-    1: (178, 228, 65),    # Rank 1 - center of first cog
-    2: (178, 343, 65),    # Rank 2 - Y +115
-    3: (178, 458, 65),    # Rank 3
-    4: (178, 573, 65),    # Rank 4
-    5: (178, 688, 65),    # Rank 5
-    # RIGHT COLUMN - Ranks 6-10 (1920 - 178 = 1742)
-    6: (1742, 228, 65),   # Rank 6
-    7: (1742, 343, 65),   # Rank 7
-    8: (1742, 458, 65),   # Rank 8
-    9: (1742, 573, 65),   # Rank 9
-    10: (1742, 688, 65),  # Rank 10
+    1: (234, 233, 70),    # Rank 1 - EXACT from Photoshop
+    2: (234, 375, 70),    # Rank 2 - +142px
+    3: (234, 517, 70),    # Rank 3 - +142px
+    4: (234, 659, 70),    # Rank 4 - +142px
+    5: (234, 801, 70),    # Rank 5 - +142px
+    # RIGHT COLUMN - Ranks 6-10
+    # From Photoshop: Right Cog 6 center at (1684, 228)
+    6: (1684, 228, 70),   # Rank 6 - EXACT from Photoshop
+    7: (1684, 370, 70),   # Rank 7 - +142px
+    8: (1684, 512, 70),   # Rank 8 - +142px
+    9: (1684, 654, 70),   # Rank 9 - +142px
+    10: (1684, 796, 70),  # Rank 10 - +142px
 }
 
-# Name positions - in the red pill bars
+# Name positions - in the red pill bars (to the right of left cogs, left of right cogs)
 LEADERBOARD_NAME_POSITIONS = {
-    1: (245, 205, "left"),
-    2: (245, 320, "left"),
-    3: (245, 435, "left"),
-    4: (245, 550, "left"),
-    5: (245, 665, "left"),
-    6: (1675, 205, "right"),
-    7: (1675, 320, "right"),
-    8: (1675, 435, "right"),
-    9: (1675, 550, "right"),
-    10: (1675, 665, "right"),
+    1: (300, 213, "left"),
+    2: (300, 355, "left"),
+    3: (300, 497, "left"),
+    4: (300, 639, "left"),
+    5: (300, 781, "left"),
+    6: (1618, 208, "right"),
+    7: (1618, 350, "right"),
+    8: (1618, 492, "right"),
+    9: (1618, 634, "right"),
+    10: (1618, 776, "right"),
 }
 
 
