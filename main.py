@@ -898,40 +898,42 @@ LEADERBOARD_BG_FILE = "leaderboard_bg.png"
 
 # CENTER - TOP PLAYER (Rank 1 featured prominently)
 TOP_PLAYER_POSITION = {
-    "avatar_center": (960, 232),  # Center of the large circle
-    "avatar_size": 140,           # Diameter to fit the circular frame
-    "name_y": 650                 # Below the kanji characters
+    "avatar_center": (728, 178),  # Center of the large circle
+    "avatar_size": 120,           # Diameter to fit the circular frame
+    "name_y": 505                 # Below the kanji characters
 }
 
 # LEFT COLUMN - Ranks 1-5
+# These match the numbered badge positions (1-5 on left side)
 # Format: (center_x, center_y, avatar_size)
 LEADERBOARD_AVATAR_POSITIONS = {
-    1: (175, 200, 70),    # Rank 1
-    2: (175, 312, 70),    # Rank 2
-    3: (175, 425, 70),    # Rank 3
-    4: (175, 538, 70),    # Rank 4
-    5: (175, 685, 70),    # Rank 5
+    1: (175, 200, 75),    # Rank 1 - badge "1"
+    2: (175, 320, 75),    # Rank 2 - badge "2"
+    3: (175, 440, 75),    # Rank 3 - badge "3"
+    4: (175, 560, 75),    # Rank 4 - badge "4"
+    5: (175, 680, 75),    # Rank 5 - badge "5"
     # RIGHT COLUMN - Ranks 6-10
-    6: (1745, 200, 70),   # Rank 6
-    7: (1745, 312, 70),   # Rank 7
-    8: (1745, 425, 70),   # Rank 8
-    9: (1745, 538, 70),   # Rank 9
-    10: (1745, 685, 70),  # Rank 10
+    6: (1260, 200, 75),   # Rank 6 - badge "6"
+    7: (1260, 320, 75),   # Rank 7 - badge "7"
+    8: (1260, 440, 75),   # Rank 8 - badge "8"
+    9: (1260, 560, 75),   # Rank 9 - badge "9"
+    10: (1260, 680, 75),  # Rank 10 - badge "10"
 }
 
 # Name positions - (x, y, alignment)
-# Left column: left-aligned, Right column: right-aligned
+# Left column: names go in the red bars to the right of avatars
+# Right column: names go in the red bars to the left of avatars
 LEADERBOARD_NAME_POSITIONS = {
-    1: (230, 200, "left"),
-    2: (230, 312, "left"),
-    3: (230, 425, "left"),
-    4: (230, 538, "left"),
-    5: (230, 685, "left"),
-    6: (1710, 200, "right"),
-    7: (1710, 312, "right"),
-    8: (1710, 425, "right"),
-    9: (1710, 538, "right"),
-    10: (1710, 685, "right"),
+    1: (260, 168, "left"),
+    2: (260, 288, "left"),
+    3: (260, 408, "left"),
+    4: (260, 528, "left"),
+    5: (260, 648, "left"),
+    6: (1175, 168, "right"),
+    7: (1175, 288, "right"),
+    8: (1175, 408, "right"),
+    9: (1175, 528, "right"),
+    10: (1175, 648, "right"),
 }
 
 
@@ -8343,7 +8345,7 @@ class LeaderboardView(discord.ui.View):
         if not is_high_staff(interaction.user):
             return await interaction.response.send_message("❌ High Staff only.", ephemeral=True)
         
-        await interaction.response.send_modal(EditDesignModal(load_data()["theme"]))
+        await interaction.response.send_message("🎨 Design is controlled by the background image. Upload a new `leaderboard_bg.png` to change it.", ephemeral=True)
 
 class EditLeaderboardModal(discord.ui.Modal, title="Edit Roster"):
     roster_data = discord.ui.TextInput(
@@ -8369,7 +8371,22 @@ class EditLeaderboardModal(discord.ui.Modal, title="Edit Roster"):
         new_roster = (new_roster + [None] * 10)[:10]
         save_leaderboard(new_roster)
         
-        await interaction.response.edit_message(embed=create_leaderboard_embed(interaction.guild))
+        # Generate and update with new image instead of embed
+        await interaction.response.defer()
+        
+        try:
+            img_buffer = await create_top10_leaderboard_image(interaction.guild)
+            if img_buffer:
+                file = discord.File(img_buffer, filename="leaderboard.png")
+                await interaction.message.edit(attachments=[file], view=LeaderboardView())
+                await interaction.followup.send("✅ Roster updated!", ephemeral=True)
+            else:
+                # Fallback to embed if image fails
+                await interaction.message.edit(embed=create_leaderboard_embed(interaction.guild), view=LeaderboardView())
+                await interaction.followup.send("✅ Roster updated (embed mode - image generation failed).", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error updating: {e}", ephemeral=True)
+        
         await log_action(interaction.guild, "📝 Roster Updated", f"Updated by {interaction.user.mention}", 0xF1C40F)
 
 class EditDesignModal(discord.ui.Modal, title="Edit Theme"):
