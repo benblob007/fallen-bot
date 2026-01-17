@@ -5735,6 +5735,131 @@ async def unmute_user(ctx, member: discord.Member = None):
         await ctx.send(f"❌ Failed to unmute: {e}")
 
 
+@bot.command(name="strikeannouncement", aliases=["announcestrikes"])
+async def strike_announcement(ctx):
+    """
+    Post the strike system announcement (High Staff only)
+    Usage: !strikeannouncement
+    """
+    if not is_high_staff(ctx.author):
+        return await ctx.send("❌ High Staff only!", delete_after=5)
+    
+    # Delete the command message
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+    
+    # Main announcement embed
+    embed1 = discord.Embed(
+        title="⚠️ NEW WARNING & STRIKE SYSTEM ⚠️",
+        description="We have implemented a **new warning and strike system** to keep The Fallen a safe and enjoyable community for everyone.\n\nThis system uses a **point-based approach** to track offenses and apply fair, consistent punishments.",
+        color=0xFF6600
+    )
+    embed1.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    
+    # How it works
+    threshold_text = (
+        "```\n"
+        "Points │ Punishment\n"
+        "───────┼─────────────────\n"
+        "   3   │ 🔇 Muted 1 hour\n"
+        "   5   │ 🔇 Muted 24 hours\n"
+        "   7   │ 👢 Kicked\n"
+        "  10   │ 🔨 Banned\n"
+        "```"
+    )
+    embed1.add_field(name="📊 How It Works", value=threshold_text, inline=False)
+    
+    await ctx.send(embed=embed1)
+    
+    # Minor offenses embed
+    embed2 = discord.Embed(
+        title="📗 MINOR OFFENSES (1-2 Points)",
+        color=0x2ecc71
+    )
+    minor_text = (
+        "**1 Point:**\n"
+        "• Spamming\n\n"
+        "**2 Points:**\n"
+        "• Arguing with members\n"
+        "• Disrespect to members/staff"
+    )
+    embed2.description = minor_text
+    
+    await ctx.send(embed=embed2)
+    
+    # Moderate offenses embed
+    embed3 = discord.Embed(
+        title="📙 MODERATE OFFENSES (3-4 Points)",
+        color=0xF39C12
+    )
+    moderate_text = (
+        "**3 Points:**\n"
+        "• Slight NSFW content\n"
+        "• Slight racism\n\n"
+        "**4 Points:**\n"
+        "• NSFW content/gifs\n"
+        "• Religion disrespect\n"
+        "• Fighting after being muted\n"
+        "• Impersonating staff\n"
+        "• Racism"
+    )
+    embed3.description = moderate_text
+    
+    await ctx.send(embed=embed3)
+    
+    # Severe offenses embed
+    embed4 = discord.Embed(
+        title="📕 SEVERE OFFENSES (5 Points)",
+        color=0xE74C3C
+    )
+    embed4.description = "**5 Points:**\n• Severe versions of any above offenses"
+    
+    await ctx.send(embed=embed4)
+    
+    # Zero tolerance embed
+    embed5 = discord.Embed(
+        title="🚫 ZERO TOLERANCE - INSTANT PERMANENT BAN",
+        description="The following offenses result in an **IMMEDIATE PERMANENT BAN** with **NO warnings** and **NO appeals**:",
+        color=0x8B0000
+    )
+    zero_tolerance_text = (
+        "❌ **Pedo jokes or content** - Any form\n"
+        "❌ **Extreme racism** - Slurs, hate speech\n"
+        "❌ **Doxxing** - Sharing personal information\n"
+        "❌ **Death threats** - Threatening harm to others\n\n"
+        "⚠️ **There are NO exceptions to these rules.**"
+    )
+    embed5.add_field(name="​", value=zero_tolerance_text, inline=False)
+    
+    await ctx.send(embed=embed5)
+    
+    # Final info embed
+    embed6 = discord.Embed(
+        title="📋 CHECKING YOUR WARNINGS",
+        color=0x3498DB
+    )
+    embed6.add_field(
+        name="Check Your Status",
+        value="Use `!warnings` to see your current points and warning history.",
+        inline=False
+    )
+    embed6.add_field(
+        name="⚖️ Appeals",
+        value="If you believe a warning was issued unfairly, you may appeal to a High Staff member.\n**Zero tolerance offenses cannot be appealed.**",
+        inline=False
+    )
+    embed6.add_field(
+        name="⚠️ Important",
+        value="**Ignorance is not an excuse.** If you're unsure whether something is allowed, **ask a staff member first.**",
+        inline=False
+    )
+    embed6.set_footer(text="✝ The Fallen ✝ • Stay safe and have fun!")
+    
+    await ctx.send(embed=embed6)
+
+
 # ==========================================
 # INACTIVITY STRIKE SYSTEM
 # ==========================================
