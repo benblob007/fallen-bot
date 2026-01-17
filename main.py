@@ -890,6 +890,180 @@ def create_leaderboard_embed(guild):
     embed.set_footer(text="Updated"); embed.timestamp = discord.utils.utcnow()
     return embed
 
+
+# --- TOP 10 LEADERBOARD IMAGE GENERATION ---
+LEADERBOARD_BG_FILE = "leaderboard_bg.png"
+
+# Avatar positions on the 1024x1536 background
+# Format: (center_x, center_y, avatar_size)
+LEADERBOARD_AVATAR_POSITIONS = {
+    1: (152, 280, 90),    # Rank 1 - larger, special position with crown
+    2: (152, 405, 70),    # Rank 2 - slightly decorated
+    3: (152, 505, 55),    # Rank 3-10 - standard size
+    4: (152, 600, 55),
+    5: (152, 700, 55),
+    6: (152, 798, 55),
+    7: (152, 895, 55),
+    8: (152, 993, 55),
+    9: (152, 1090, 55),
+    10: (152, 1188, 55),
+}
+
+# Name positions (x position for left-aligned text, y is same as avatar center)
+LEADERBOARD_NAME_POSITIONS = {
+    1: (220, 280),
+    2: (210, 405),
+    3: (200, 505),
+    4: (200, 600),
+    5: (200, 700),
+    6: (200, 798),
+    7: (200, 895),
+    8: (200, 993),
+    9: (200, 1090),
+    10: (200, 1188),
+}
+
+
+async def create_top10_leaderboard_image(guild):
+    """
+    Create the visual Top 10 leaderboard image with player avatars
+    Returns BytesIO buffer with PNG image
+    """
+    if not PIL_AVAILABLE:
+        return None
+    
+    # Load background
+    bg_paths = [
+        LEADERBOARD_BG_FILE,
+        f"/home/container/{LEADERBOARD_BG_FILE}",
+        f"assets/{LEADERBOARD_BG_FILE}",
+        "/mnt/user-data/uploads/ChatGPT_Image_Jan_17__2026__12_51_22_AM.png"
+    ]
+    
+    bg_img = None
+    for path in bg_paths:
+        try:
+            bg_img = Image.open(path).convert("RGBA")
+            print(f"✅ Loaded leaderboard background from: {path}")
+            break
+        except:
+            continue
+    
+    if not bg_img:
+        print("⚠️ Leaderboard background not found!")
+        return None
+    
+    # Create drawing context
+    draw = ImageDraw.Draw(bg_img)
+    
+    # Load fonts
+    try:
+        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+    except:
+        name_font = small_font = ImageFont.load_default()
+    
+    # Load roster data
+    roster = load_leaderboard()
+    
+    # Process each rank
+    for rank in range(1, 11):
+        user_id = roster[rank - 1] if rank - 1 < len(roster) else None
+        
+        # Get positions
+        avatar_pos = LEADERBOARD_AVATAR_POSITIONS.get(rank)
+        name_pos = LEADERBOARD_NAME_POSITIONS.get(rank)
+        
+        if not avatar_pos or not name_pos:
+            continue
+        
+        center_x, center_y, avatar_size = avatar_pos
+        name_x, name_y = name_pos
+        
+        if user_id:
+            # Get member
+            member = guild.get_member(int(user_id)) if isinstance(user_id, str) else guild.get_member(user_id)
+            
+            if member:
+                # Download avatar
+                try:
+                    avatar_url = member.display_avatar.with_format('png').with_size(128).url
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(avatar_url) as resp:
+                            if resp.status == 200:
+                                avatar_data = await resp.read()
+                                avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
+                                avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.LANCZOS)
+                                
+                                # Create circular mask
+                                mask = Image.new("L", (avatar_size, avatar_size), 0)
+                                mask_draw = ImageDraw.Draw(mask)
+                                mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+                                
+                                # Apply mask
+                                avatar_img.putalpha(mask)
+                                
+                                # Paste avatar
+                                paste_x = center_x - avatar_size // 2
+                                paste_y = center_y - avatar_size // 2
+                                bg_img.paste(avatar_img, (paste_x, paste_y), avatar_img)
+                except Exception as e:
+                    print(f"Failed to load avatar for rank {rank}: {e}")
+                
+                # Draw name
+                display_name = member.display_name[:20]  # Truncate long names
+                
+                # Name color based on rank
+                if rank == 1:
+                    name_color = (255, 215, 0)  # Gold
+                elif rank == 2:
+                    name_color = (192, 192, 192)  # Silver
+                elif rank == 3:
+                    name_color = (205, 127, 50)  # Bronze
+                else:
+                    name_color = (220, 180, 150)  # Copper/tan
+                
+                # Draw name with shadow for readability
+                draw.text((name_x + 2, name_y + 2), display_name, font=name_font, fill=(0, 0, 0, 128), anchor="lm")
+                draw.text((name_x, name_y), display_name, font=name_font, fill=name_color, anchor="lm")
+            else:
+                # Member not found in guild
+                draw.text((name_x, name_y), "LEFT SERVER", font=small_font, fill=(150, 100, 100), anchor="lm")
+        else:
+            # Vacant slot - already has placeholder in background
+            pass
+    
+    # Save to buffer
+    buffer = BytesIO()
+    bg_img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
+async def update_top10_leaderboard_message(guild, channel_id=None, message_id=None):
+    """Update the Top 10 leaderboard message with new image"""
+    try:
+        img_buffer = await create_top10_leaderboard_image(guild)
+        if not img_buffer:
+            return False
+        
+        if channel_id and message_id:
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                try:
+                    msg = await channel.fetch_message(int(message_id))
+                    file = discord.File(img_buffer, filename="leaderboard.png")
+                    await msg.edit(attachments=[file])
+                    return True
+                except:
+                    pass
+        
+        return False
+    except Exception as e:
+        print(f"Failed to update leaderboard: {e}")
+        return False
+
 # --- ARCANE-STYLE LEVEL CARD ---
 async def generate_level_card_url(member, user_data, rank):
     """Generate a level card image using external API"""
@@ -6667,21 +6841,24 @@ class HelpSelect(discord.ui.Select):
                 "• Click **Spectate** to watch\n\n"
                 "**⚔️ During Matches**\n"
                 "• Match threads created automatically\n"
-                "• Click **Score** button to report results\n"
+                "• Staff click **Report Score** button\n"
                 "• Bracket image updates live!\n\n"
-                "**🖼️ Commands**\n"
+                "**🛠️ Staff Commands**\n"
                 "`!tournament` — Create new tournament\n"
-                "`/bracket` — View current bracket\n"
-                "`/participants` — View registered players\n\n"
-                "**🔒 Role Restrictions**\n"
-                "Staff can restrict tournaments to specific roles\n"
-                "(e.g., Mainer only, Stage 2+ only)\n\n"
-                "**🏅 Features**\n"
-                "• Visual bracket images\n"
-                "• Auto match thread creation\n"
-                "• Score tracking (Best of 1/3/5/7)\n"
-                "• Winner announcements\n"
-                "• Standings display"
+                "`!bracket` — View current bracket\n"
+                "`!tparticipants` — View registered players\n"
+                "`!tstatus` — Tournament status\n"
+                "`!tsetwinner @user` — Set winner manually\n"
+                "`!tendtournament` — End tournament\n"
+                "`!tdeletetournament` — Delete tournament\n\n"
+                "**🎁 End of Tournament**\n"
+                "• 🏆 Update Top 10 with winner\n"
+                "• 🎁 Give rewards (coins + XP)\n"
+                "• 📢 Publish results\n\n"
+                "**💰 Reward Amounts**\n"
+                "🥇 1st: 5,000 coins + 500 XP\n"
+                "🥈 2nd: 2,500 coins + 250 XP\n"
+                "🥉 3rd: 1,000 coins + 100 XP"
             )
             
         elif self.values[0] == "Events":
@@ -11282,9 +11459,68 @@ async def voicetop(ctx):
 @bot.command(name="top10_setup", description="Admin: Set up the Top 10 ranked leaderboard panel")
 @commands.has_permissions(administrator=True)
 async def top10_setup(ctx):
-    """Create the Top 10 ranked leaderboard panel"""
-    embed = create_leaderboard_embed(ctx.guild)
-    await ctx.send(embed=embed, view=LeaderboardView())
+    """Create the Top 10 ranked leaderboard panel with visual image"""
+    async with ctx.typing():
+        # Try to create visual image first
+        img_buffer = await create_top10_leaderboard_image(ctx.guild)
+        
+        if img_buffer:
+            file = discord.File(img_buffer, filename="leaderboard.png")
+            msg = await ctx.send(file=file, view=LeaderboardView())
+            
+            # Save message info for future updates
+            full_data = load_data()
+            full_data["leaderboard_message"] = {
+                "channel_id": str(ctx.channel.id),
+                "message_id": str(msg.id)
+            }
+            save_data(full_data)
+            
+            await ctx.send("✅ Visual leaderboard posted! It will auto-update when tournaments end.", delete_after=10)
+        else:
+            # Fallback to embed
+            embed = create_leaderboard_embed(ctx.guild)
+            await ctx.send(embed=embed, view=LeaderboardView())
+
+
+@bot.command(name="top10_refresh", aliases=["refreshtop10"])
+@commands.has_permissions(administrator=True) 
+async def top10_refresh(ctx):
+    """Refresh the Top 10 leaderboard image"""
+    async with ctx.typing():
+        img_buffer = await create_top10_leaderboard_image(ctx.guild)
+        
+        if img_buffer:
+            file = discord.File(img_buffer, filename="leaderboard.png")
+            await ctx.send(file=file)
+        else:
+            await ctx.send("❌ Failed to generate leaderboard image. Make sure `leaderboard_bg.png` exists.")
+
+
+@bot.command(name="top10_update")
+@commands.has_permissions(administrator=True)
+async def top10_update(ctx):
+    """Update the existing Top 10 leaderboard message"""
+    full_data = load_data()
+    lb_info = full_data.get("leaderboard_message", {})
+    
+    if not lb_info.get("channel_id") or not lb_info.get("message_id"):
+        return await ctx.send("❌ No leaderboard message saved. Use `!top10_setup` first.")
+    
+    async with ctx.typing():
+        img_buffer = await create_top10_leaderboard_image(ctx.guild)
+        
+        if img_buffer:
+            try:
+                channel = ctx.guild.get_channel(int(lb_info["channel_id"]))
+                msg = await channel.fetch_message(int(lb_info["message_id"]))
+                file = discord.File(img_buffer, filename="leaderboard.png")
+                await msg.edit(attachments=[file])
+                await ctx.send("✅ Leaderboard updated!", delete_after=5)
+            except Exception as e:
+                await ctx.send(f"❌ Failed to update: {e}")
+        else:
+            await ctx.send("❌ Failed to generate image.")
 
 # ==========================================
 # CLAN ROSTER SYSTEM (EU Roster Style)
@@ -18582,61 +18818,141 @@ def update_tournament(tournament):
 
 def generate_bracket(participants, seeded=False):
     """
-    Generate single elimination bracket
-    Returns list of rounds, each round is list of matches
+    Generate single elimination bracket with proper BYE distribution
+    Handles any number of participants (not just powers of 2)
     """
     if not participants:
         return []
     
-    # Shuffle if not seeded
-    if not seeded:
-        random.shuffle(participants)
+    # Make a copy to avoid modifying original
+    players = [p.copy() for p in participants]
     
-    # Pad to nearest power of 2
-    num_participants = len(participants)
+    # Always shuffle for random matchups
+    random.shuffle(players)
+    
+    # Assign seeds after shuffle
+    for i, p in enumerate(players):
+        p["seed"] = i + 1
+    
+    num_participants = len(players)
+    
+    # Find nearest power of 2 that's >= num_participants
     bracket_size = 1
     while bracket_size < num_participants:
         bracket_size *= 2
     
-    # Add BYEs
-    while len(participants) < bracket_size:
-        participants.append({"id": "BYE", "name": "BYE", "seed": 999})
+    # Calculate number of BYEs needed
+    num_byes = bracket_size - num_participants
     
-    # Generate first round matches
+    # Create BYE entries
+    byes = [{"id": "BYE", "name": "BYE", "seed": 999} for _ in range(num_byes)]
+    
+    # Distribute BYEs evenly - top seeds get BYEs
+    # This means players at the end of shuffled list get BYEs (random advantage)
+    bracket_players = []
+    bye_index = 0
+    
+    for i in range(bracket_size):
+        if i < num_participants:
+            bracket_players.append(players[i])
+        else:
+            bracket_players.append(byes[bye_index])
+            bye_index += 1
+    
+    # Interleave BYEs with real players for fair distribution
+    # Put BYEs in second position of each pair where possible
+    final_order = []
+    real_players = [p for p in bracket_players if p["id"] != "BYE"]
+    bye_players = [p for p in bracket_players if p["id"] == "BYE"]
+    
+    # Pair real players first, then add BYEs to remaining slots
+    random.shuffle(real_players)  # Shuffle again for extra randomness
+    
+    # Create pairs - give BYEs to random players
+    pairs_needed = bracket_size // 2
+    bye_recipients = random.sample(range(len(real_players)), min(len(bye_players), len(real_players)))
+    
+    used_players = set()
     matches = []
     match_id = 1
-    for i in range(0, len(participants), 2):
-        match = {
-            "id": f"M{match_id}",
-            "round": 1,
-            "player1": participants[i],
-            "player2": participants[i + 1],
-            "player1_score": 0,
-            "player2_score": 0,
-            "winner": None,
-            "status": "pending",  # pending, in_progress, completed
-            "thread_id": None
-        }
-        
-        # Auto-advance BYEs
-        if participants[i]["id"] == "BYE":
-            match["winner"] = participants[i + 1]["id"]
-            match["status"] = "completed"
-        elif participants[i + 1]["id"] == "BYE":
-            match["winner"] = participants[i]["id"]
-            match["status"] = "completed"
-        
-        matches.append(match)
-        match_id += 1
     
-    # Calculate total rounds
-    total_rounds = int(math.log2(bracket_size))
+    # First, create matches for players who get BYEs (auto-advance)
+    for idx in bye_recipients:
+        if idx < len(real_players) and bye_players:
+            player = real_players[idx]
+            bye = bye_players.pop(0)
+            used_players.add(idx)
+            
+            match = {
+                "id": f"M{match_id}",
+                "round": 1,
+                "player1": player,
+                "player2": bye,
+                "player1_score": 0,
+                "player2_score": 0,
+                "winner": player["id"],  # Auto-advance
+                "status": "completed",
+                "thread_id": None
+            }
+            matches.append(match)
+            match_id += 1
+    
+    # Then create matches for remaining players
+    remaining = [p for i, p in enumerate(real_players) if i not in used_players]
+    random.shuffle(remaining)
+    
+    for i in range(0, len(remaining), 2):
+        if i + 1 < len(remaining):
+            match = {
+                "id": f"M{match_id}",
+                "round": 1,
+                "player1": remaining[i],
+                "player2": remaining[i + 1],
+                "player1_score": 0,
+                "player2_score": 0,
+                "winner": None,
+                "status": "pending",
+                "thread_id": None
+            }
+            matches.append(match)
+            match_id += 1
+        elif remaining:
+            # Odd player left - give them a BYE
+            match = {
+                "id": f"M{match_id}",
+                "round": 1,
+                "player1": remaining[i],
+                "player2": {"id": "BYE", "name": "BYE", "seed": 999},
+                "player1_score": 0,
+                "player2_score": 0,
+                "winner": remaining[i]["id"],
+                "status": "completed",
+                "thread_id": None
+            }
+            matches.append(match)
+            match_id += 1
+    
+    # Sort matches by ID to maintain order
+    matches.sort(key=lambda m: int(m["id"][1:]))
+    
+    # Recalculate match IDs
+    for i, m in enumerate(matches):
+        m["id"] = f"M{i + 1}"
+    match_id = len(matches) + 1
+    
+    # Calculate total rounds needed
+    total_rounds = max(1, math.ceil(math.log2(bracket_size)))
     
     # Generate placeholder matches for future rounds
     current_round_matches = len(matches)
+    
     for round_num in range(2, total_rounds + 1):
-        next_round_matches = current_round_matches // 2
+        next_round_matches = max(1, current_round_matches // 2)
+        
         for i in range(next_round_matches):
+            # Calculate which matches feed into this one
+            feed_start = match_id - current_round_matches - (i * 2) - 2 + (next_round_matches * 2)
+            
             match = {
                 "id": f"M{match_id}",
                 "round": round_num,
@@ -18645,14 +18961,60 @@ def generate_bracket(participants, seeded=False):
                 "player1_score": 0,
                 "player2_score": 0,
                 "winner": None,
-                "status": "waiting",  # waiting for previous round
+                "status": "waiting",
                 "thread_id": None,
-                "feeds_from": [f"M{match_id - next_round_matches * 2 + i * 2}", 
-                               f"M{match_id - next_round_matches * 2 + i * 2 + 1}"]
+                "feeds_from": [f"M{match_id - next_round_matches * 2 + i * 2 + 1}", 
+                               f"M{match_id - next_round_matches * 2 + i * 2 + 2}"]
             }
             matches.append(match)
             match_id += 1
+        
         current_round_matches = next_round_matches
+        
+        if next_round_matches <= 1:
+            break
+    
+    # Auto-advance BYE winners to next round
+    matches = auto_advance_byes(matches)
+    
+    return matches
+
+
+def auto_advance_byes(matches):
+    """Auto-advance winners from BYE matches to next rounds"""
+    changed = True
+    while changed:
+        changed = False
+        for match in matches:
+            if match["status"] == "waiting" and "feeds_from" in match:
+                feed1_id, feed2_id = match["feeds_from"]
+                
+                feeder1 = next((m for m in matches if m["id"] == feed1_id), None)
+                feeder2 = next((m for m in matches if m["id"] == feed2_id), None)
+                
+                if feeder1 and feeder2:
+                    if feeder1["status"] == "completed" and feeder2["status"] == "completed":
+                        # Both feeders complete, advance winners
+                        winner1 = None
+                        winner2 = None
+                        
+                        if feeder1["winner"]:
+                            if feeder1["player1"] and feeder1["player1"]["id"] == feeder1["winner"]:
+                                winner1 = feeder1["player1"]
+                            elif feeder1["player2"] and feeder1["player2"]["id"] == feeder1["winner"]:
+                                winner1 = feeder1["player2"]
+                        
+                        if feeder2["winner"]:
+                            if feeder2["player1"] and feeder2["player1"]["id"] == feeder2["winner"]:
+                                winner2 = feeder2["player1"]
+                            elif feeder2["player2"] and feeder2["player2"]["id"] == feeder2["winner"]:
+                                winner2 = feeder2["player2"]
+                        
+                        if winner1 and winner2:
+                            match["player1"] = winner1
+                            match["player2"] = winner2
+                            match["status"] = "pending"
+                            changed = True
     
     return matches
 
@@ -19521,15 +19883,19 @@ class TournamentRegistrationView(discord.ui.View):
 
 
 class MatchScoreView(discord.ui.View):
-    """View for submitting match scores"""
+    """View for submitting match scores - STAFF ONLY"""
     
     def __init__(self, tournament_id, match_id):
         super().__init__(timeout=None)
         self.tournament_id = tournament_id
         self.match_id = match_id
     
-    @discord.ui.button(label="Score", style=discord.ButtonStyle.primary, custom_id="match_score")
+    @discord.ui.button(label="⚔️ Report Score", style=discord.ButtonStyle.primary, custom_id="match_score")
     async def submit_score(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # STAFF ONLY CHECK
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Only staff can report match scores!", ephemeral=True)
+        
         data = load_tournament_data()
         tournament = data["tournaments"].get(self.tournament_id)
         if not tournament:
@@ -19541,14 +19907,6 @@ class MatchScoreView(discord.ui.View):
         
         if match["status"] == "completed":
             return await interaction.response.send_message("❌ Match already completed!", ephemeral=True)
-        
-        # Check if user is in the match or is staff
-        user_id = str(interaction.user.id)
-        is_player = (match["player1"] and match["player1"]["id"] == user_id) or \
-                   (match["player2"] and match["player2"]["id"] == user_id)
-        
-        # For now, allow anyone to submit (staff can do it)
-        # In production, you'd check for staff role
         
         p1_name = match["player1"]["name"] if match["player1"] else "Player 1"
         p2_name = match["player2"]["name"] if match["player2"] else "Player 2"
@@ -19604,19 +19962,35 @@ class DeleteConfirmView(discord.ui.View):
         super().__init__(timeout=60)
         self.tournament_id = tournament_id
     
-    @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🗑️ Yes, Delete", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        data = load_tournament_data()
+        try:
+            data = load_tournament_data()
+            
+            tournament_name = "Unknown"
+            if self.tournament_id in data["tournaments"]:
+                tournament_name = data["tournaments"][self.tournament_id].get("name", "Unknown")
+                del data["tournaments"][self.tournament_id]
+            
+            if data["active_tournament"] == self.tournament_id:
+                data["active_tournament"] = None
+            
+            save_tournament_data(data)
+            
+            await interaction.response.send_message(
+                f"✅ Tournament **{tournament_name}** has been deleted!", 
+                ephemeral=True
+            )
+            
+            # Try to delete the original admin panel message
+            try:
+                await interaction.message.delete()
+            except:
+                pass
+                
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error deleting: {e}", ephemeral=True)
         
-        if self.tournament_id in data["tournaments"]:
-            del data["tournaments"][self.tournament_id]
-        
-        if data["active_tournament"] == self.tournament_id:
-            data["active_tournament"] = None
-        
-        save_tournament_data(data)
-        
-        await interaction.response.send_message("✅ Tournament deleted!", ephemeral=True)
         self.stop()
     
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
@@ -19728,16 +20102,20 @@ class TournamentEndView(discord.ui.View):
         super().__init__(timeout=None)
         self.tournament_id = tournament_id
     
-    @discord.ui.button(label="Delete Tournament", style=discord.ButtonStyle.danger, custom_id="tourney_end_delete")
+    @discord.ui.button(label="🗑️ Delete", style=discord.ButtonStyle.danger, custom_id="tourney_end_delete")
     async def delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
         await interaction.response.send_message(
             "⚠️ Are you sure you want to delete this tournament?",
             view=DeleteConfirmView(self.tournament_id),
             ephemeral=True
         )
     
-    @discord.ui.button(label="Re-open", style=discord.ButtonStyle.secondary, custom_id="tourney_end_reopen")
+    @discord.ui.button(label="🔄 Re-open", style=discord.ButtonStyle.secondary, custom_id="tourney_end_reopen")
     async def reopen(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
         data = load_tournament_data()
         tournament = data["tournaments"].get(self.tournament_id)
         if tournament:
@@ -19745,12 +20123,14 @@ class TournamentEndView(discord.ui.View):
             update_tournament(tournament)
             await interaction.response.send_message("✅ Tournament re-opened!", ephemeral=True)
     
-    @discord.ui.button(label="Publish Results", style=discord.ButtonStyle.primary, custom_id="tourney_end_publish")
+    @discord.ui.button(label="📢 Publish Results", style=discord.ButtonStyle.primary, custom_id="tourney_end_publish")
     async def publish(self, interaction: discord.Interaction, button: discord.ui.Button):
         data = load_tournament_data()
         tournament = data["tournaments"].get(self.tournament_id)
         if not tournament:
             return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        await interaction.response.defer()
         
         # Create results embed
         embed = create_results_embed(tournament)
@@ -19761,9 +20141,131 @@ class TournamentEndView(discord.ui.View):
         if bracket_img:
             file = discord.File(bracket_img, filename="bracket.png")
             embed.set_image(url="attachment://bracket.png")
-            await interaction.response.send_message(embed=embed, file=file)
+            await interaction.followup.send(embed=embed, file=file)
         else:
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
+    
+    @discord.ui.button(label="🏆 Update Top 10", style=discord.ButtonStyle.success, custom_id="tourney_end_top10")
+    async def update_top10(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Update the Top 10 roster with tournament winner"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_tournament_data()
+        tournament = data["tournaments"].get(self.tournament_id)
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        if not tournament.get("winner"):
+            return await interaction.response.send_message("❌ No winner determined yet!", ephemeral=True)
+        
+        # Show rank selection
+        await interaction.response.send_message(
+            "Select which rank to place the winner at:",
+            view=Top10RankSelectView(self.tournament_id, tournament["winner"]),
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="🎁 Give Rewards", style=discord.ButtonStyle.success, custom_id="tourney_end_rewards")
+    async def give_rewards(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Give coin/XP rewards to top 3"""
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        data = load_tournament_data()
+        tournament = data["tournaments"].get(self.tournament_id)
+        if not tournament:
+            return await interaction.response.send_message("❌ Tournament not found!", ephemeral=True)
+        
+        standings = get_standings(tournament)
+        if not standings:
+            return await interaction.response.send_message("❌ No standings to reward!", ephemeral=True)
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Reward amounts
+        rewards = [
+            (5000, 500),   # 1st: 5000 coins, 500 XP
+            (2500, 250),   # 2nd: 2500 coins, 250 XP
+            (1000, 100),   # 3rd: 1000 coins, 100 XP
+        ]
+        
+        reward_text = "**🎁 Rewards Given:**\n\n"
+        
+        for i, player in enumerate(standings[:3]):
+            if i >= len(rewards):
+                break
+            
+            coins, xp = rewards[i]
+            user_id = player["id"]
+            
+            if user_id == "BYE":
+                continue
+            
+            # Add coins and XP
+            add_coins(user_id, coins)
+            add_xp(user_id, xp)
+            
+            medal = ["🥇", "🥈", "🥉"][i]
+            reward_text += f"{medal} **{player['name']}**: +{coins:,} coins, +{xp} XP\n"
+        
+        await interaction.followup.send(reward_text, ephemeral=True)
+
+
+class Top10RankSelectView(discord.ui.View):
+    """Select which rank to place winner at"""
+    
+    def __init__(self, tournament_id, winner_id):
+        super().__init__(timeout=60)
+        self.tournament_id = tournament_id
+        self.winner_id = winner_id
+    
+    @discord.ui.select(
+        placeholder="Select rank position...",
+        options=[
+            discord.SelectOption(label=f"Rank {i}", value=str(i), emoji="🏆" if i == 1 else "⚔️")
+            for i in range(1, 11)
+        ]
+    )
+    async def rank_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        rank = int(select.values[0])
+        
+        try:
+            # Load current roster
+            roster = load_leaderboard()
+            
+            # Get winner info
+            data = load_tournament_data()
+            tournament = data["tournaments"].get(self.tournament_id)
+            winner_name = "Unknown"
+            if tournament:
+                winner = next((p for p in tournament.get("participants", []) if p["id"] == self.winner_id), None)
+                if winner:
+                    winner_name = winner["name"]
+            
+            # Remove winner if already in roster
+            if self.winner_id in roster:
+                roster.remove(self.winner_id)
+                roster.append(None)  # Keep 10 slots
+            
+            # Insert at new position (0-indexed)
+            roster.insert(rank - 1, self.winner_id)
+            
+            # Keep only top 10
+            roster = roster[:10]
+            
+            # Save
+            save_leaderboard(roster)
+            
+            await interaction.response.send_message(
+                f"✅ **{winner_name}** placed at **Rank {rank}** in Top 10!",
+                ephemeral=True
+            )
+            
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+        
+        self.stop()
 
 
 # ==========================================
@@ -19924,7 +20426,7 @@ async def create_match_threads(guild, tournament):
 
 
 async def check_tournament_complete(interaction, tournament):
-    """Check if all matches are complete"""
+    """Check if all matches are complete and auto-update Top 10"""
     matches = tournament.get("matches", [])
     if not matches:
         return
@@ -19941,22 +20443,83 @@ async def check_tournament_complete(interaction, tournament):
         
         update_tournament(tournament)
         
+        # Get standings
+        standings = get_standings(tournament)
+        
         # Get winner name
-        winner = next((p for p in tournament["participants"] if p["id"] == tournament["winner"]), None)
+        winner = standings[0] if standings else None
         winner_name = winner["name"] if winner else "Unknown"
+        
+        # AUTO-UPDATE TOP 10 with tournament standings
+        try:
+            roster = load_leaderboard()
+            
+            # Get top 10 from tournament (excluding BYEs)
+            top_10_players = [p for p in standings if p["id"] != "BYE"][:10]
+            
+            # Create new roster with tournament results
+            new_roster = []
+            for player in top_10_players:
+                new_roster.append(player["id"])
+            
+            # Pad with None if less than 10 players
+            while len(new_roster) < 10:
+                new_roster.append(None)
+            
+            # Save the new roster
+            save_leaderboard(new_roster)
+            
+            top10_updated = True
+        except Exception as e:
+            print(f"Failed to update Top 10: {e}")
+            top10_updated = False
+        
+        # Give rewards to top 3
+        rewards_given = []
+        reward_amounts = [
+            (5000, 500),   # 1st: 5000 coins, 500 XP
+            (2500, 250),   # 2nd: 2500 coins, 250 XP
+            (1000, 100),   # 3rd: 1000 coins, 100 XP
+        ]
+        
+        for i, player in enumerate(standings[:3]):
+            if player["id"] == "BYE":
+                continue
+            if i < len(reward_amounts):
+                coins, xp = reward_amounts[i]
+                try:
+                    add_coins(player["id"], coins)
+                    add_xp(player["id"], xp)
+                    rewards_given.append(f"{['🥇', '🥈', '🥉'][i]} **{player['name']}**: +{coins:,} coins, +{xp} XP")
+                except:
+                    pass
         
         # Send completion message
         embed = discord.Embed(
             title="🏆 Tournament Complete!",
-            description=f"**{tournament['name']}** has ended!\n\n🥇 **Winner:** {winner_name}",
+            description=f"**{tournament['name']}** has ended!\n\n🥇 **Champion:** {winner_name}",
             color=0xFFD700
         )
         
-        standings = get_standings(tournament)
-        if len(standings) >= 2:
-            embed.add_field(name="🥈 2nd Place", value=standings[1]["name"], inline=True)
-        if len(standings) >= 3:
-            embed.add_field(name="🥉 3rd Place", value=standings[2]["name"], inline=True)
+        # Add standings
+        standings_text = ""
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        for i, player in enumerate(standings[:10]):
+            if player["id"] == "BYE":
+                continue
+            medal = medals[i] if i < len(medals) else f"{i+1}."
+            standings_text += f"{medal} {player['name']}\n"
+        
+        if standings_text:
+            embed.add_field(name="📊 Final Standings", value=standings_text, inline=False)
+        
+        # Add rewards info
+        if rewards_given:
+            embed.add_field(name="🎁 Rewards", value="\n".join(rewards_given), inline=False)
+        
+        # Add Top 10 update status
+        if top10_updated:
+            embed.add_field(name="🏆 Top 10 Roster", value="✅ Updated with tournament results!", inline=False)
         
         embed.set_footer(text="✝ THE FALLEN ✝")
         
@@ -19965,6 +20528,24 @@ async def check_tournament_complete(interaction, tournament):
             channel = interaction.guild.get_channel(int(channel_id))
             if channel:
                 await channel.send(embed=embed, view=TournamentEndView(tournament["id"]))
+        
+        # UPDATE VISUAL LEADERBOARD IMAGE
+        if top10_updated:
+            try:
+                full_data = load_data()
+                lb_info = full_data.get("leaderboard_message", {})
+                
+                if lb_info.get("channel_id") and lb_info.get("message_id"):
+                    img_buffer = await create_top10_leaderboard_image(interaction.guild)
+                    if img_buffer:
+                        lb_channel = interaction.guild.get_channel(int(lb_info["channel_id"]))
+                        if lb_channel:
+                            lb_msg = await lb_channel.fetch_message(int(lb_info["message_id"]))
+                            file = discord.File(img_buffer, filename="leaderboard.png")
+                            await lb_msg.edit(attachments=[file])
+                            print("✅ Visual leaderboard image updated!")
+            except Exception as e:
+                print(f"Failed to update visual leaderboard: {e}")
 
 
 
@@ -20023,6 +20604,195 @@ async def tournament_participants_cmd(ctx):
         embed.add_field(name="Players", value=player_list, inline=False)
     else:
         embed.add_field(name="Players", value="No participants yet.", inline=False)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="tsetwinner")
+async def tournament_set_winner_cmd(ctx, member: discord.Member):
+    """
+    Manually set tournament winner (staff only)
+    Usage: !tsetwinner @user
+    """
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    tournament = get_active_tournament()
+    if not tournament:
+        return await ctx.send("❌ No active tournament!")
+    
+    # Check if member is in tournament
+    participant = next((p for p in tournament.get("participants", []) if p["id"] == str(member.id)), None)
+    if not participant:
+        return await ctx.send(f"❌ {member.display_name} is not in the tournament!")
+    
+    tournament["winner"] = str(member.id)
+    tournament["status"] = "completed"
+    tournament["ended_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    update_tournament(tournament)
+    
+    await ctx.send(f"✅ **{member.display_name}** set as tournament winner!")
+
+
+@bot.command(name="tendtournament", aliases=["endt"])
+async def tournament_end_cmd(ctx):
+    """
+    End current tournament (staff only)
+    Usage: !tendtournament
+    """
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    tournament = get_active_tournament()
+    if not tournament:
+        return await ctx.send("❌ No active tournament!")
+    
+    tournament["status"] = "completed"
+    tournament["ended_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    
+    # Get standings
+    standings = get_standings(tournament)
+    
+    # Set winner if we have standings
+    if standings and standings[0]["id"] != "BYE":
+        tournament["winner"] = standings[0]["id"]
+    
+    update_tournament(tournament)
+    
+    # AUTO-UPDATE TOP 10
+    top10_updated = False
+    try:
+        roster = load_leaderboard()
+        top_10_players = [p for p in standings if p["id"] != "BYE"][:10]
+        new_roster = [p["id"] for p in top_10_players]
+        while len(new_roster) < 10:
+            new_roster.append(None)
+        save_leaderboard(new_roster)
+        top10_updated = True
+    except Exception as e:
+        print(f"Failed to update Top 10: {e}")
+    
+    # GIVE REWARDS
+    rewards_given = []
+    reward_amounts = [(5000, 500), (2500, 250), (1000, 100)]
+    
+    for i, player in enumerate(standings[:3]):
+        if player["id"] == "BYE":
+            continue
+        if i < len(reward_amounts):
+            coins, xp = reward_amounts[i]
+            try:
+                add_coins(player["id"], coins)
+                add_xp(player["id"], xp)
+                rewards_given.append(f"{['🥇', '🥈', '🥉'][i]} **{player['name']}**: +{coins:,} coins, +{xp} XP")
+            except:
+                pass
+    
+    # Create end embed
+    embed = discord.Embed(
+        title=f"🏆 {tournament['name']} — Complete!",
+        description="Tournament has been ended.",
+        color=0xFFD700
+    )
+    
+    if standings:
+        standings_text = ""
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        for i, player in enumerate(standings[:10]):
+            if player["id"] == "BYE":
+                continue
+            medal = medals[i] if i < len(medals) else f"{i+1}."
+            standings_text += f"{medal} {player['name']}\n"
+        embed.add_field(name="📊 Final Standings", value=standings_text or "No standings", inline=False)
+    
+    if rewards_given:
+        embed.add_field(name="🎁 Rewards Given", value="\n".join(rewards_given), inline=False)
+    
+    if top10_updated:
+        embed.add_field(name="🏆 Top 10 Roster", value="✅ Updated!", inline=False)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    
+    await ctx.send(embed=embed, view=TournamentEndView(tournament["id"]))
+    
+    # UPDATE VISUAL LEADERBOARD IMAGE
+    if top10_updated:
+        try:
+            full_data = load_data()
+            lb_info = full_data.get("leaderboard_message", {})
+            
+            if lb_info.get("channel_id") and lb_info.get("message_id"):
+                img_buffer = await create_top10_leaderboard_image(ctx.guild)
+                if img_buffer:
+                    lb_channel = ctx.guild.get_channel(int(lb_info["channel_id"]))
+                    if lb_channel:
+                        lb_msg = await lb_channel.fetch_message(int(lb_info["message_id"]))
+                        file = discord.File(img_buffer, filename="leaderboard.png")
+                        await lb_msg.edit(attachments=[file])
+                        await ctx.send("✅ Visual leaderboard image also updated!", delete_after=5)
+        except Exception as e:
+            print(f"Failed to update visual leaderboard: {e}")
+
+
+@bot.command(name="tdeletetournament", aliases=["tdel"])
+async def tournament_delete_cmd(ctx):
+    """
+    Delete current tournament (staff only)
+    Usage: !tdeletetournament
+    """
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    tournament = get_active_tournament()
+    if not tournament:
+        return await ctx.send("❌ No active tournament!")
+    
+    data = load_tournament_data()
+    tournament_name = tournament.get("name", "Unknown")
+    
+    if tournament["id"] in data["tournaments"]:
+        del data["tournaments"][tournament["id"]]
+    data["active_tournament"] = None
+    save_tournament_data(data)
+    
+    await ctx.send(f"✅ Tournament **{tournament_name}** deleted!")
+
+
+@bot.command(name="tstatus")
+async def tournament_status_cmd(ctx):
+    """
+    View current tournament status
+    Usage: !tstatus
+    """
+    tournament = get_active_tournament()
+    if not tournament:
+        return await ctx.send("❌ No active tournament!")
+    
+    embed = discord.Embed(
+        title=f"📊 {tournament['name']} — Status",
+        color=0x8B0000
+    )
+    
+    embed.add_field(name="Status", value=tournament["status"].title(), inline=True)
+    embed.add_field(name="Participants", value=f"{len(tournament['participants'])}/{tournament['max_participants']}", inline=True)
+    embed.add_field(name="Best Of", value=str(tournament.get("best_of", 1)), inline=True)
+    
+    if tournament.get("required_role_name"):
+        embed.add_field(name="Required Role", value=tournament["required_role_name"], inline=True)
+    
+    # Count matches
+    matches = tournament.get("matches", [])
+    completed = len([m for m in matches if m["status"] == "completed"])
+    total = len([m for m in matches if m.get("player1") and m.get("player2") and m["player1"]["id"] != "BYE" and m["player2"]["id"] != "BYE"])
+    
+    if matches:
+        embed.add_field(name="Matches", value=f"{completed}/{total} completed", inline=True)
+    
+    if tournament.get("winner"):
+        winner = next((p for p in tournament["participants"] if p["id"] == tournament["winner"]), None)
+        if winner:
+            embed.add_field(name="🏆 Winner", value=winner["name"], inline=True)
     
     embed.set_footer(text="✝ THE FALLEN ✝")
     await ctx.send(embed=embed)
