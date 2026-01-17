@@ -892,53 +892,65 @@ def create_leaderboard_embed(guild):
 
 
 # --- TOP 10 LEADERBOARD IMAGE GENERATION ---
+# New horizontal background: 1920x1080
+# Layout: Left column (1-5), Center (TOP PLAYER), Right column (6-10)
 LEADERBOARD_BG_FILE = "leaderboard_bg.png"
 
-# Avatar positions on the 1024x1536 background
-# Carefully mapped to match the placeholder circles
-# Format: (center_x, center_y, avatar_size)
-LEADERBOARD_AVATAR_POSITIONS = {
-    1: (242, 293, 80),    # Rank 1 - golden fire frame
-    2: (242, 418, 65),    # Rank 2 - decorated frame  
-    3: (242, 518, 58),    # Rank 3
-    4: (242, 618, 58),    # Rank 4
-    5: (242, 718, 58),    # Rank 5
-    6: (242, 818, 58),    # Rank 6
-    7: (242, 918, 58),    # Rank 7
-    8: (242, 1018, 58),   # Rank 8
-    9: (242, 1118, 58),   # Rank 9
-    10: (242, 1218, 58),  # Rank 10
+# CENTER - TOP PLAYER (Rank 1 featured prominently)
+TOP_PLAYER_POSITION = {
+    "avatar_center": (960, 232),  # Center of the large circle
+    "avatar_size": 140,           # Diameter to fit the circular frame
+    "name_y": 650                 # Below the kanji characters
 }
 
-# Name positions (x, y) - positioned to the right of avatars
+# LEFT COLUMN - Ranks 1-5
+# Format: (center_x, center_y, avatar_size)
+LEADERBOARD_AVATAR_POSITIONS = {
+    1: (175, 200, 70),    # Rank 1
+    2: (175, 312, 70),    # Rank 2
+    3: (175, 425, 70),    # Rank 3
+    4: (175, 538, 70),    # Rank 4
+    5: (175, 685, 70),    # Rank 5
+    # RIGHT COLUMN - Ranks 6-10
+    6: (1745, 200, 70),   # Rank 6
+    7: (1745, 312, 70),   # Rank 7
+    8: (1745, 425, 70),   # Rank 8
+    9: (1745, 538, 70),   # Rank 9
+    10: (1745, 685, 70),  # Rank 10
+}
+
+# Name positions - (x, y, alignment)
+# Left column: left-aligned, Right column: right-aligned
 LEADERBOARD_NAME_POSITIONS = {
-    1: (310, 293),
-    2: (305, 418),
-    3: (300, 518),
-    4: (300, 618),
-    5: (300, 718),
-    6: (300, 818),
-    7: (300, 918),
-    8: (300, 1018),
-    9: (300, 1118),
-    10: (300, 1218),
+    1: (230, 200, "left"),
+    2: (230, 312, "left"),
+    3: (230, 425, "left"),
+    4: (230, 538, "left"),
+    5: (230, 685, "left"),
+    6: (1710, 200, "right"),
+    7: (1710, 312, "right"),
+    8: (1710, 425, "right"),
+    9: (1710, 538, "right"),
+    10: (1710, 685, "right"),
 }
 
 
 async def create_top10_leaderboard_image(guild):
     """
     Create the visual Top 10 leaderboard image with player avatars
+    Uses 1920x1080 horizontal "The Fallen - Top 10" background
     Returns BytesIO buffer with PNG image
     """
     if not PIL_AVAILABLE:
         return None
     
-    # Load background
+    # Load background - check multiple paths
     bg_paths = [
         LEADERBOARD_BG_FILE,
+        "leaderboardbg.png",
         f"/home/container/{LEADERBOARD_BG_FILE}",
+        f"/home/container/leaderboardbg.png",
         f"assets/{LEADERBOARD_BG_FILE}",
-        "/mnt/user-data/uploads/ChatGPT_Image_Jan_17__2026__12_51_22_AM.png"
     ]
     
     bg_img = None
@@ -954,24 +966,82 @@ async def create_top10_leaderboard_image(guild):
         print("⚠️ Leaderboard background not found!")
         return None
     
-    # Create drawing context
+    # Ensure correct size for the new background
+    if bg_img.size != (1920, 1080):
+        bg_img = bg_img.resize((1920, 1080), Image.LANCZOS)
+    
     draw = ImageDraw.Draw(bg_img)
     
     # Load fonts
     try:
-        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
-        name_font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 30)
+        name_font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
     except:
-        name_font = name_font_small = ImageFont.load_default()
+        name_font_large = name_font = ImageFont.load_default()
+    
+    # Colors matching the red theme
+    color_gold = (255, 215, 0)       # Gold for rank 1
+    color_silver = (220, 220, 220)   # Silver for rank 2
+    color_bronze = (205, 127, 50)    # Bronze for rank 3
+    color_red = (255, 70, 70)        # Bright red for ranks 4-10
+    color_dark = (120, 40, 40)       # Dark red for vacant/left
     
     # Load roster data
     roster = load_leaderboard()
     
-    # Process each rank
+    # =========================================================================
+    # DRAW CENTER TOP PLAYER (RANK 1)
+    # =========================================================================
+    user_id = roster[0] if len(roster) > 0 else None
+    if user_id:
+        member = guild.get_member(int(user_id)) if isinstance(user_id, str) else guild.get_member(user_id)
+        if member:
+            # Draw avatar in center circle
+            try:
+                avatar_url = member.display_avatar.with_format('png').with_size(256).url
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(avatar_url) as resp:
+                        if resp.status == 200:
+                            avatar_data = await resp.read()
+                            avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
+                            
+                            # Resize avatar
+                            size = TOP_PLAYER_POSITION["avatar_size"]
+                            avatar_img = avatar_img.resize((size, size), Image.LANCZOS)
+                            
+                            # Create circular mask
+                            mask = Image.new("L", (size, size), 0)
+                            mask_draw = ImageDraw.Draw(mask)
+                            mask_draw.ellipse((0, 0, size - 1, size - 1), fill=255)
+                            
+                            # Apply mask
+                            output = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+                            output.paste(avatar_img, (0, 0))
+                            output.putalpha(mask)
+                            
+                            # Paste avatar
+                            center = TOP_PLAYER_POSITION["avatar_center"]
+                            paste_x = center[0] - size // 2
+                            paste_y = center[1] - size // 2
+                            bg_img.paste(output, (paste_x, paste_y), output)
+            except Exception as e:
+                print(f"Error loading top player avatar: {e}")
+            
+            # Draw name below center
+            name = member.display_name[:20]
+            bbox = draw.textbbox((0, 0), name, font=name_font_large)
+            text_w = bbox[2] - bbox[0]
+            name_x = 960 - text_w // 2
+            # Shadow
+            draw.text((name_x + 2, TOP_PLAYER_POSITION["name_y"] + 2), name, fill=(0, 0, 0), font=name_font_large)
+            draw.text((name_x, TOP_PLAYER_POSITION["name_y"]), name, fill=color_gold, font=name_font_large)
+    
+    # =========================================================================
+    # DRAW LEFT AND RIGHT COLUMNS (RANKS 1-10)
+    # =========================================================================
     for rank in range(1, 11):
         user_id = roster[rank - 1] if rank - 1 < len(roster) else None
         
-        # Get positions
         avatar_pos = LEADERBOARD_AVATAR_POSITIONS.get(rank)
         name_pos = LEADERBOARD_NAME_POSITIONS.get(rank)
         
@@ -979,20 +1049,25 @@ async def create_top10_leaderboard_image(guild):
             continue
         
         center_x, center_y, avatar_size = avatar_pos
-        name_x, name_y = name_pos
+        name_x, name_y, alignment = name_pos
         
-        # Use smaller font for ranks 3-10
-        current_font = name_font if rank <= 2 else name_font_small
+        # Determine name color based on rank
+        if rank == 1:
+            name_color = color_gold
+        elif rank == 2:
+            name_color = color_silver
+        elif rank == 3:
+            name_color = color_bronze
+        else:
+            name_color = color_red
         
         if user_id:
-            # Get member
             member = guild.get_member(int(user_id)) if isinstance(user_id, str) else guild.get_member(user_id)
             
             if member:
-                # Download avatar
+                # Download and draw avatar
                 try:
-                    avatar_url = member.display_avatar.with_format('png').with_size(256).url
-                    
+                    avatar_url = member.display_avatar.with_format('png').with_size(128).url
                     async with aiohttp.ClientSession() as session:
                         async with session.get(avatar_url) as resp:
                             if resp.status == 200:
@@ -1000,47 +1075,52 @@ async def create_top10_leaderboard_image(guild):
                                 avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
                                 avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.LANCZOS)
                                 
-                                # Create circular mask
+                                # Circular mask
                                 mask = Image.new("L", (avatar_size, avatar_size), 0)
                                 mask_draw = ImageDraw.Draw(mask)
                                 mask_draw.ellipse((0, 0, avatar_size - 1, avatar_size - 1), fill=255)
                                 
-                                # Apply mask to avatar
                                 output = Image.new("RGBA", (avatar_size, avatar_size), (0, 0, 0, 0))
                                 output.paste(avatar_img, (0, 0))
                                 output.putalpha(mask)
                                 
-                                # Paste avatar onto background
                                 paste_x = center_x - avatar_size // 2
                                 paste_y = center_y - avatar_size // 2
                                 bg_img.paste(output, (paste_x, paste_y), output)
-                                
                 except Exception as e:
-                    print(f"Failed to load avatar for rank {rank}: {e}")
+                    print(f"Error loading avatar for rank {rank}: {e}")
                 
                 # Draw name
-                display_name = member.display_name
-                if len(display_name) > 16:
-                    display_name = display_name[:15] + "..."
+                name = member.display_name[:15]
                 
-                # Name color based on rank
-                if rank == 1:
-                    name_color = (255, 215, 0)  # Gold
-                elif rank == 2:
-                    name_color = (220, 220, 220)  # Silver
-                elif rank == 3:
-                    name_color = (205, 127, 50)  # Bronze
+                if alignment == "right":
+                    # Right-aligned for right column
+                    bbox = draw.textbbox((0, 0), name, font=name_font)
+                    text_w = bbox[2] - bbox[0]
+                    draw.text((name_x - text_w + 2, name_y + 2), name, fill=(0, 0, 0), font=name_font, anchor="lm")
+                    draw.text((name_x - text_w, name_y), name, fill=name_color, font=name_font, anchor="lm")
                 else:
-                    name_color = (200, 170, 140)  # Tan
-                
-                # Draw text shadow for readability
-                shadow_color = (0, 0, 0)
-                draw.text((name_x + 2, name_y + 2), display_name, font=current_font, fill=shadow_color, anchor="lm")
-                draw.text((name_x, name_y), display_name, font=current_font, fill=name_color, anchor="lm")
-                
+                    # Left-aligned for left column
+                    draw.text((name_x + 2, name_y + 2), name, fill=(0, 0, 0), font=name_font, anchor="lm")
+                    draw.text((name_x, name_y), name, fill=name_color, font=name_font, anchor="lm")
             else:
                 # Member left server
-                draw.text((name_x, name_y), "Left Server", font=name_font_small, fill=(120, 80, 80), anchor="lm")
+                name = "LEFT"
+                if alignment == "right":
+                    bbox = draw.textbbox((0, 0), name, font=name_font)
+                    text_w = bbox[2] - bbox[0]
+                    draw.text((name_x - text_w, name_y), name, fill=color_dark, font=name_font, anchor="lm")
+                else:
+                    draw.text((name_x, name_y), name, fill=color_dark, font=name_font, anchor="lm")
+        else:
+            # Vacant slot
+            name = "VACANT"
+            if alignment == "right":
+                bbox = draw.textbbox((0, 0), name, font=name_font)
+                text_w = bbox[2] - bbox[0]
+                draw.text((name_x - text_w, name_y), name, fill=color_dark, font=name_font, anchor="lm")
+            else:
+                draw.text((name_x, name_y), name, fill=color_dark, font=name_font, anchor="lm")
     
     # Save to buffer
     buffer = BytesIO()
