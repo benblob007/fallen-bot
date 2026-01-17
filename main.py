@@ -895,32 +895,33 @@ def create_leaderboard_embed(guild):
 LEADERBOARD_BG_FILE = "leaderboard_bg.png"
 
 # Avatar positions on the 1024x1536 background
+# Carefully mapped to match the placeholder circles
 # Format: (center_x, center_y, avatar_size)
 LEADERBOARD_AVATAR_POSITIONS = {
-    1: (152, 280, 90),    # Rank 1 - larger, special position with crown
-    2: (152, 405, 70),    # Rank 2 - slightly decorated
-    3: (152, 505, 55),    # Rank 3-10 - standard size
-    4: (152, 600, 55),
-    5: (152, 700, 55),
-    6: (152, 798, 55),
-    7: (152, 895, 55),
-    8: (152, 993, 55),
-    9: (152, 1090, 55),
-    10: (152, 1188, 55),
+    1: (242, 293, 80),    # Rank 1 - golden fire frame
+    2: (242, 418, 65),    # Rank 2 - decorated frame  
+    3: (242, 518, 58),    # Rank 3
+    4: (242, 618, 58),    # Rank 4
+    5: (242, 718, 58),    # Rank 5
+    6: (242, 818, 58),    # Rank 6
+    7: (242, 918, 58),    # Rank 7
+    8: (242, 1018, 58),   # Rank 8
+    9: (242, 1118, 58),   # Rank 9
+    10: (242, 1218, 58),  # Rank 10
 }
 
-# Name positions (x position for left-aligned text, y is same as avatar center)
+# Name positions (x, y) - positioned to the right of avatars
 LEADERBOARD_NAME_POSITIONS = {
-    1: (220, 280),
-    2: (210, 405),
-    3: (200, 505),
-    4: (200, 600),
-    5: (200, 700),
-    6: (200, 798),
-    7: (200, 895),
-    8: (200, 993),
-    9: (200, 1090),
-    10: (200, 1188),
+    1: (310, 293),
+    2: (305, 418),
+    3: (300, 518),
+    4: (300, 618),
+    5: (300, 718),
+    6: (300, 818),
+    7: (300, 918),
+    8: (300, 1018),
+    9: (300, 1118),
+    10: (300, 1218),
 }
 
 
@@ -958,10 +959,10 @@ async def create_top10_leaderboard_image(guild):
     
     # Load fonts
     try:
-        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+        name_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        name_font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 30)
     except:
-        name_font = small_font = ImageFont.load_default()
+        name_font = name_font_small = ImageFont.load_default()
     
     # Load roster data
     roster = load_leaderboard()
@@ -980,6 +981,9 @@ async def create_top10_leaderboard_image(guild):
         center_x, center_y, avatar_size = avatar_pos
         name_x, name_y = name_pos
         
+        # Use smaller font for ranks 3-10
+        current_font = name_font if rank <= 2 else name_font_small
+        
         if user_id:
             # Get member
             member = guild.get_member(int(user_id)) if isinstance(user_id, str) else guild.get_member(user_id)
@@ -987,7 +991,7 @@ async def create_top10_leaderboard_image(guild):
             if member:
                 # Download avatar
                 try:
-                    avatar_url = member.display_avatar.with_format('png').with_size(128).url
+                    avatar_url = member.display_avatar.with_format('png').with_size(256).url
                     
                     async with aiohttp.ClientSession() as session:
                         async with session.get(avatar_url) as resp:
@@ -999,44 +1003,48 @@ async def create_top10_leaderboard_image(guild):
                                 # Create circular mask
                                 mask = Image.new("L", (avatar_size, avatar_size), 0)
                                 mask_draw = ImageDraw.Draw(mask)
-                                mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+                                mask_draw.ellipse((0, 0, avatar_size - 1, avatar_size - 1), fill=255)
                                 
-                                # Apply mask
-                                avatar_img.putalpha(mask)
+                                # Apply mask to avatar
+                                output = Image.new("RGBA", (avatar_size, avatar_size), (0, 0, 0, 0))
+                                output.paste(avatar_img, (0, 0))
+                                output.putalpha(mask)
                                 
-                                # Paste avatar
+                                # Paste avatar onto background
                                 paste_x = center_x - avatar_size // 2
                                 paste_y = center_y - avatar_size // 2
-                                bg_img.paste(avatar_img, (paste_x, paste_y), avatar_img)
+                                bg_img.paste(output, (paste_x, paste_y), output)
+                                
                 except Exception as e:
                     print(f"Failed to load avatar for rank {rank}: {e}")
                 
                 # Draw name
-                display_name = member.display_name[:20]  # Truncate long names
+                display_name = member.display_name
+                if len(display_name) > 16:
+                    display_name = display_name[:15] + "..."
                 
                 # Name color based on rank
                 if rank == 1:
                     name_color = (255, 215, 0)  # Gold
                 elif rank == 2:
-                    name_color = (192, 192, 192)  # Silver
+                    name_color = (220, 220, 220)  # Silver
                 elif rank == 3:
                     name_color = (205, 127, 50)  # Bronze
                 else:
-                    name_color = (220, 180, 150)  # Copper/tan
+                    name_color = (200, 170, 140)  # Tan
                 
-                # Draw name with shadow for readability
-                draw.text((name_x + 2, name_y + 2), display_name, font=name_font, fill=(0, 0, 0, 128), anchor="lm")
-                draw.text((name_x, name_y), display_name, font=name_font, fill=name_color, anchor="lm")
+                # Draw text shadow for readability
+                shadow_color = (0, 0, 0)
+                draw.text((name_x + 2, name_y + 2), display_name, font=current_font, fill=shadow_color, anchor="lm")
+                draw.text((name_x, name_y), display_name, font=current_font, fill=name_color, anchor="lm")
+                
             else:
-                # Member not found in guild
-                draw.text((name_x, name_y), "LEFT SERVER", font=small_font, fill=(150, 100, 100), anchor="lm")
-        else:
-            # Vacant slot - already has placeholder in background
-            pass
+                # Member left server
+                draw.text((name_x, name_y), "Left Server", font=name_font_small, fill=(120, 80, 80), anchor="lm")
     
     # Save to buffer
     buffer = BytesIO()
-    bg_img.save(buffer, format="PNG")
+    bg_img.save(buffer, format="PNG", quality=95)
     buffer.seek(0)
     return buffer
 
