@@ -906,33 +906,33 @@ TOP_PLAYER_POSITION = {
 }
 
 # LEFT COLUMN - Ranks 1-5
-# Avatars need to move significantly RIGHT (X+50) and DOWN (Y+25)
+# Need even more RIGHT movement - cogs are further right than expected
 LEADERBOARD_AVATAR_POSITIONS = {
-    1: (228, 200, 70),    # Rank 1 - in first cog
-    2: (228, 315, 70),    # Rank 2
-    3: (228, 430, 70),    # Rank 3
-    4: (228, 545, 70),    # Rank 4
-    5: (228, 660, 70),    # Rank 5
-    # RIGHT COLUMN - Ranks 6-10 (mirrored position)
-    6: (1228, 200, 70),   # Rank 6
-    7: (1228, 315, 70),   # Rank 7
-    8: (1228, 430, 70),   # Rank 8
-    9: (1228, 545, 70),   # Rank 9
-    10: (1228, 660, 70),  # Rank 10
+    1: (178, 228, 65),    # Rank 1 - center of first cog
+    2: (178, 343, 65),    # Rank 2 - Y +115
+    3: (178, 458, 65),    # Rank 3
+    4: (178, 573, 65),    # Rank 4
+    5: (178, 688, 65),    # Rank 5
+    # RIGHT COLUMN - Ranks 6-10 (1920 - 178 = 1742)
+    6: (1742, 228, 65),   # Rank 6
+    7: (1742, 343, 65),   # Rank 7
+    8: (1742, 458, 65),   # Rank 8
+    9: (1742, 573, 65),   # Rank 9
+    10: (1742, 688, 65),  # Rank 10
 }
 
 # Name positions - in the red pill bars
 LEADERBOARD_NAME_POSITIONS = {
-    1: (295, 180, "left"),
-    2: (295, 295, "left"),
-    3: (295, 410, "left"),
-    4: (295, 525, "left"),
-    5: (295, 640, "left"),
-    6: (1160, 180, "right"),
-    7: (1160, 295, "right"),
-    8: (1160, 410, "right"),
-    9: (1160, 525, "right"),
-    10: (1160, 640, "right"),
+    1: (245, 205, "left"),
+    2: (245, 320, "left"),
+    3: (245, 435, "left"),
+    4: (245, 550, "left"),
+    5: (245, 665, "left"),
+    6: (1675, 205, "right"),
+    7: (1675, 320, "right"),
+    8: (1675, 435, "right"),
+    9: (1675, 550, "right"),
+    10: (1675, 665, "right"),
 }
 
 
