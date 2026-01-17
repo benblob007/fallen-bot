@@ -19943,12 +19943,12 @@ async def bracket_prefix_cmd(ctx):
     View the current tournament bracket
     Usage: !bracket
     """
-    tournament = get_active_tourney()
+    tournament = get_active_tournament()
     if not tournament:
         return await ctx.send("❌ No active tournament!")
     
     async with ctx.typing():
-        bracket_img = await create_tourney_bracket_image(tournament)
+        bracket_img = await create_bracket_image(tournament)
         if bracket_img:
             file = discord.File(bracket_img, filename="bracket.png")
             embed = discord.Embed(
@@ -19968,7 +19968,7 @@ async def tournament_participants_cmd(ctx):
     View tournament participants
     Usage: !tparticipants
     """
-    tournament = get_active_tourney()
+    tournament = get_active_tournament()
     if not tournament:
         return await ctx.send("❌ No active tournament!")
     
@@ -19996,13 +19996,15 @@ async def tournament_participants_cmd(ctx):
 # ==========================================
 
 @bot.command(name="tournament")
-@commands.has_any_role("Staff", "Admin", "Owner", "Co-Owner", "Head Staff")
 async def tournament_prefix_cmd(ctx):
     """
     Create a new tournament (opens modal via button)
     Usage: !tournament
     """
-    tournament = get_active_tourney()
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    tournament = get_active_tournament()
     if tournament and tournament["status"] not in ["completed"]:
         return await ctx.send(
             f"❌ Active tournament exists: **{tournament['name']}**\n"
