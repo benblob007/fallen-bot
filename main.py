@@ -897,44 +897,45 @@ def create_leaderboard_embed(guild):
 LEADERBOARD_BG_FILE = "leaderboard_bg.png"
 
 # CENTER - TOP PLAYER (Rank 1 featured prominently in the large dashed circle)
-# From Photoshop Image 4: center X ~960 (half of 1920), Y ~265
+# From Photoshop Image 3: selection box center was around (728, 280)
+# Name should go BELOW the "TOP PLAYER" text and kanji characters
 TOP_PLAYER_POSITION = {
-    "avatar_center": (960, 265),  # Center of the large dashed circle
-    "avatar_size": 155,           # To fill the dashed circle nicely
-    "name_y": 410                 # Below "TOP PLAYER" text
+    "avatar_center": (728, 280),  # Center of the large dashed circle
+    "avatar_size": 140,           # To fill the dashed circle
+    "name_y": 540                 # Below kanji - much lower
 }
 
 # LEFT COLUMN - Ranks 1-5
-# Based on Photoshop: Left avatar center X ~200
-# Row Y positions: ~222, ~347, ~472, ~597, ~722 (spacing ~125px)
+# From Photoshop Image 2: X: 236, Y: 225 for rank 1 corner
+# Avatar center would be around (195, 190) for a ~70px avatar
+# Row spacing looks like ~115px based on the cog positions
 LEADERBOARD_AVATAR_POSITIONS = {
-    1: (200, 222, 72),    # Rank 1
-    2: (200, 347, 72),    # Rank 2
-    3: (200, 472, 72),    # Rank 3
-    4: (200, 597, 72),    # Rank 4
-    5: (200, 722, 72),    # Rank 5
-    # RIGHT COLUMN - Ranks 6-10 (mirrored: 1920 - 200 = 1720)
-    6: (1720, 222, 72),   # Rank 6
-    7: (1720, 347, 72),   # Rank 7
-    8: (1720, 472, 72),   # Rank 8
-    9: (1720, 597, 72),   # Rank 9
-    10: (1720, 722, 72),  # Rank 10
+    1: (195, 195, 68),    # Rank 1
+    2: (195, 310, 68),    # Rank 2
+    3: (195, 425, 68),    # Rank 3
+    4: (195, 540, 68),    # Rank 4
+    5: (195, 655, 68),    # Rank 5
+    # RIGHT COLUMN - Ranks 6-10 (1920 - 195 = 1725)
+    6: (1725, 195, 68),   # Rank 6
+    7: (1725, 310, 68),   # Rank 7
+    8: (1725, 425, 68),   # Rank 8
+    9: (1725, 540, 68),   # Rank 9
+    10: (1725, 655, 68),  # Rank 10
 }
 
 # Name positions - in the red pill-shaped bars
-# Left bars: text starts around X:280 (after avatar gap)
-# Right bars: text ends around X:1640 (before avatar gap)
+# From Photoshop Image 1: text box started around X: 275
 LEADERBOARD_NAME_POSITIONS = {
-    1: (280, 200, "left"),
-    2: (280, 325, "left"),
-    3: (280, 450, "left"),
-    4: (280, 575, "left"),
-    5: (280, 700, "left"),
-    6: (1640, 200, "right"),
-    7: (1640, 325, "right"),
-    8: (1640, 450, "right"),
-    9: (1640, 575, "right"),
-    10: (1640, 700, "right"),
+    1: (275, 175, "left"),
+    2: (275, 290, "left"),
+    3: (275, 405, "left"),
+    4: (275, 520, "left"),
+    5: (275, 635, "left"),
+    6: (1645, 175, "right"),
+    7: (1645, 290, "right"),
+    8: (1645, 405, "right"),
+    9: (1645, 520, "right"),
+    10: (1645, 635, "right"),
 }
 
 
