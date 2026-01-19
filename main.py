@@ -5168,20 +5168,45 @@ def load_warnings_data():
         with open(WARNINGS_FILE, "r") as f:
             return json.load(f)
     except:
-        return {"users": {}}
+        return {"users": {}, "recent_warnings": [], "kicked_users": []}
 
 def save_warnings_data(data):
     """Save warnings data to file"""
     with open(WARNINGS_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-def get_user_warnings(user_id):
-    """Get all warnings for a user"""
+def get_user_warnings(user_id, check_expiry=True):
+    """Get all warnings for a user, optionally checking for expired warnings"""
     data = load_warnings_data()
     uid = str(user_id)
-    return data["users"].get(uid, {"warnings": [], "total_points": 0})
+    user_data = data["users"].get(uid, {"warnings": [], "total_points": 0})
+    
+    # Check for expired warnings (30 days)
+    if check_expiry and user_data.get("warnings"):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        updated = False
+        for w in user_data["warnings"]:
+            if not w.get("expired", False):
+                try:
+                    warn_time = datetime.datetime.fromisoformat(w["timestamp"].replace('Z', '+00:00'))
+                    days_old = (now - warn_time).days
+                    if days_old >= 30:
+                        w["expired"] = True
+                        updated = True
+                except:
+                    pass
+        
+        if updated:
+            # Recalculate active points
+            user_data["total_points"] = sum(
+                w["points"] for w in user_data["warnings"] if not w.get("expired", False)
+            )
+            data["users"][uid] = user_data
+            save_warnings_data(data)
+    
+    return user_data
 
-def add_warning(user_id, category, reason, staff_id, points=None):
+def add_warning(user_id, category, reason, staff_id, points=None, guild_id=None):
     """Add a warning to a user"""
     data = load_warnings_data()
     uid = str(user_id)
@@ -5200,6 +5225,7 @@ def add_warning(user_id, category, reason, staff_id, points=None):
         "reason": reason,
         "points": points,
         "staff_id": str(staff_id),
+        "user_id": str(user_id),
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "expired": False
     }
@@ -5209,8 +5235,39 @@ def add_warning(user_id, category, reason, staff_id, points=None):
         w["points"] for w in data["users"][uid]["warnings"] if not w.get("expired", False)
     )
     
+    # Add to recent warnings log (keep last 100)
+    if "recent_warnings" not in data:
+        data["recent_warnings"] = []
+    data["recent_warnings"].insert(0, warning)
+    data["recent_warnings"] = data["recent_warnings"][:100]
+    
     save_warnings_data(data)
     return warning, data["users"][uid]["total_points"]
+
+def get_recent_warnings(limit=20):
+    """Get recent warnings across all users"""
+    data = load_warnings_data()
+    return data.get("recent_warnings", [])[:limit]
+
+def add_kicked_user(user_id, reason, staff_id):
+    """Track users who were kicked"""
+    data = load_warnings_data()
+    if "kicked_users" not in data:
+        data["kicked_users"] = []
+    
+    data["kicked_users"].append({
+        "user_id": str(user_id),
+        "reason": reason,
+        "staff_id": str(staff_id),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    })
+    save_warnings_data(data)
+
+def was_previously_kicked(user_id):
+    """Check if a user was previously kicked"""
+    data = load_warnings_data()
+    kicked = data.get("kicked_users", [])
+    return any(k["user_id"] == str(user_id) for k in kicked)
 
 def clear_user_warnings(user_id):
     """Clear all warnings for a user"""
@@ -7319,28 +7376,32 @@ class HelpSelect(discord.ui.Select):
         elif self.values[0] == "Staff": 
             e.title="🛡️ Staff Commands"
             e.description=(
-                "**🏆 Tournaments**\n"
-                "`!setup_tournament` - Setup panel with modal\n"
-                "`!tournament_panel` `!tournament_end confirm`\n\n"
-                "**📢 Activity Checks**\n"
-                "`!activitycheck [duration] [msg]`\n"
-                "View Results shows visual image!\n"
-                "`!activitystats` `!checkparticipation @user`\n\n"
-                "**🎉 Giveaways**\n"
-                "`!giveaway <duration> <winners> <prize>`\n"
-                "`!giveaway_req <dur> <win> <lvl> <prize>`\n\n"
-                "**🎭 Mass Roles**\n"
-                "`!massrole add/remove @Role target`\n"
-                "`!giverole @Role` `!takerole @Role`\n"
-                "`!inrole @Role` `!roleinfo @Role`\n\n"
-                "**📊 Levels & Economy**\n"
-                "`!addxp` `!removexp` `!setlevel`\n"
-                "`!addfcoins` `!removefcoins`\n\n"
-                "**🛡️ Inactivity (Mainer only)**\n"
-                "`!inactivity_check` - Check all Mainers\n"
-                "`!inactivity_strikes @user` - View strikes\n\n"
-                "**🔨 Moderation**\n"
-                "`/warn` `/warnings` `!promote` `!demote`"
+                "**⚠️ Warning System**\n"
+                "`!warn @user <category> [reason]` - Issue warning\n"
+                "`!strike @user <points> <reason>` - Custom strike\n"
+                "`!warnings @user` - View warnings (shows IDs)\n"
+                "`!removewarn @user <id>` - Remove warning\n"
+                "`!clearwarns @user` - Clear all (High Staff)\n"
+                "`!warnlog` - Recent server warnings\n"
+                "`!warnlist` - All categories\n"
+                "`!staffstats [days]` - Staff warning stats\n\n"
+                "**🔇 Moderation**\n"
+                "`!mute @user <time> [reason]` - Mute user\n"
+                "`!unmute @user` - Unmute user\n"
+                "`!softban @user [reason]` - Clear messages\n"
+                "`!purge <1-100>` - Delete messages\n"
+                "`!lock [reason]` - Lock channel\n"
+                "`!unlock` - Unlock channel\n"
+                "`!slowmode <seconds>` - Set slowmode\n\n"
+                "**👤 User Management**\n"
+                "`!userinfo @user` - Full user info\n"
+                "`!checklevel @user` - Check stats\n"
+                "`!addxp / !removexp` - Manage XP\n"
+                "`!addfcoins / !removefcoins` - Manage coins\n\n"
+                "**🏆 Other**\n"
+                "`!tournament` - Tournament commands\n"
+                "`!activitycheck` - Activity check\n"
+                "`!giveaway` - Start giveaway"
             )
             
         elif self.values[0] == "Admin":
@@ -9456,11 +9517,19 @@ async def check_warnings(ctx, member: discord.Member = None):
     warnings = user_data.get("warnings", [])
     total_points = user_data.get("total_points", 0)
     
+    # Count active vs expired
+    active_warnings = [w for w in warnings if not w.get("expired", False)]
+    expired_warnings = [w for w in warnings if w.get("expired", False)]
+    
     embed = discord.Embed(title=f"⚠️ Warnings - {target.display_name}", color=0xFF6600 if total_points > 0 else 0x2ecc71)
     max_display = 10
     filled = min(total_points, max_display)
     bar = "🔴" * filled + "⚫" * (max_display - filled)
     embed.add_field(name="Total Points", value=f"{bar}\n**{total_points}/10** points", inline=False)
+    
+    # Show active/expired count
+    if expired_warnings:
+        embed.add_field(name="📊 Summary", value=f"Active: {len(active_warnings)} | Expired: {len(expired_warnings)}", inline=False)
     
     next_punishment = None
     for t in PUNISHMENT_THRESHOLDS:
@@ -9479,10 +9548,22 @@ async def check_warnings(ctx, member: discord.Member = None):
             cat_info = WARNING_CATEGORIES.get(w["category"], {"name": w["category"]})
             timestamp = datetime.datetime.fromisoformat(w["timestamp"].replace('Z', '+00:00'))
             time_str = f"<t:{int(timestamp.timestamp())}:R>"
-            history_text += f"• **{cat_info.get('name', w['category'])}** (+{w['points']}) - {time_str}\n"
+            expired_mark = " ~~(expired)~~" if w.get("expired", False) else ""
+            # Show ID for staff
+            if is_staff(ctx.author):
+                history_text += f"`{w.get('id', 'N/A')}` **{cat_info.get('name', w['category'])}** (+{w['points']}) {time_str}{expired_mark}\n"
+            else:
+                history_text += f"• **{cat_info.get('name', w['category'])}** (+{w['points']}) {time_str}{expired_mark}\n"
         embed.add_field(name=f"Warning History ({len(warnings)} total)", value=history_text or "None", inline=False)
+        
+        # Staff note about removing
+        if is_staff(ctx.author) and warnings:
+            embed.add_field(name="💡 Staff Tip", value="Use `!removewarn @user <id>` to remove a specific warning", inline=False)
     else:
         embed.add_field(name="Warning History", value="✅ No warnings! Keep it up!", inline=False)
+    
+    # Note about expiry
+    embed.add_field(name="ℹ️ Note", value="Warnings expire after 30 days of good behavior", inline=False)
     
     embed.set_thumbnail(url=target.display_avatar.url)
     embed.set_footer(text="✝ The Fallen ✝")
@@ -9688,8 +9769,278 @@ async def strike_announcement(ctx):
 
 
 # ==========================================
-# SUBCOMMAND GROUPS (Saves command slots)
+# NEW MODERATION COMMANDS
 # ==========================================
+
+@bot.command(name="warnlog")
+async def warn_log(ctx, limit: int = 20):
+    """View recent warnings across the server (Staff only)"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    recent = get_recent_warnings(min(limit, 50))
+    
+    if not recent:
+        return await ctx.send("📋 No recent warnings found.")
+    
+    embed = discord.Embed(
+        title="📋 Recent Warning Log",
+        description=f"Last {len(recent)} warnings across the server",
+        color=0xFF6600
+    )
+    
+    log_text = ""
+    for w in recent[:15]:  # Show max 15 in embed
+        try:
+            user = ctx.guild.get_member(int(w.get("user_id", 0)))
+            staff = ctx.guild.get_member(int(w.get("staff_id", 0)))
+            user_name = user.display_name if user else f"User {w.get('user_id', '?')[:8]}"
+            staff_name = staff.display_name if staff else "Unknown"
+            
+            cat_info = WARNING_CATEGORIES.get(w["category"], {"name": w["category"]})
+            timestamp = datetime.datetime.fromisoformat(w["timestamp"].replace('Z', '+00:00'))
+            time_str = f"<t:{int(timestamp.timestamp())}:R>"
+            
+            log_text += f"`{w['id']}` **{user_name}** - {cat_info.get('name', w['category'])} (+{w['points']}) by {staff_name} {time_str}\n"
+        except:
+            continue
+    
+    embed.add_field(name="Warnings", value=log_text or "None", inline=False)
+    embed.set_footer(text="✝ The Fallen ✝ • Use !warnings @user for details")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="softban")
+async def soft_ban(ctx, member: discord.Member = None, *, reason: str = "No reason provided"):
+    """Ban and immediately unban to clear messages (Staff only)"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if not member:
+        return await ctx.send("❌ Usage: `!softban @user [reason]`")
+    
+    if member.top_role >= ctx.author.top_role:
+        return await ctx.send("❌ You cannot softban someone with equal or higher role.")
+    
+    try:
+        await member.ban(reason=f"Softban by {ctx.author}: {reason}", delete_message_days=1)
+        await asyncio.sleep(0.5)
+        await ctx.guild.unban(member, reason="Softban complete")
+        
+        embed = discord.Embed(
+            title="🔨 User Softbanned",
+            description=f"{member.mention} has been softbanned (messages cleared)",
+            color=0xE74C3C
+        )
+        embed.add_field(name="Reason", value=reason, inline=False)
+        embed.add_field(name="By", value=ctx.author.mention, inline=True)
+        embed.set_footer(text="✝ The Fallen ✝")
+        await ctx.send(embed=embed)
+        
+        await log_action(ctx.guild, "🔨 Softban", f"{member} softbanned by {ctx.author.mention}\nReason: {reason}", 0xE74C3C)
+    except Exception as e:
+        await ctx.send(f"❌ Failed to softban: {e}")
+
+
+@bot.command(name="slowmode")
+async def set_slowmode(ctx, seconds: int = None):
+    """Set slowmode in current channel (Staff only)"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if seconds is None:
+        return await ctx.send(f"ℹ️ Current slowmode: **{ctx.channel.slowmode_delay}s**\nUsage: `!slowmode <seconds>` (0 to disable)")
+    
+    if seconds < 0 or seconds > 21600:
+        return await ctx.send("❌ Slowmode must be between 0 and 21600 seconds (6 hours)")
+    
+    try:
+        await ctx.channel.edit(slowmode_delay=seconds)
+        if seconds == 0:
+            await ctx.send("✅ Slowmode disabled!")
+        else:
+            await ctx.send(f"✅ Slowmode set to **{seconds} seconds**")
+        
+        await log_action(ctx.guild, "🐌 Slowmode", f"{ctx.channel.mention} set to {seconds}s by {ctx.author.mention}", 0x3498DB)
+    except Exception as e:
+        await ctx.send(f"❌ Failed to set slowmode: {e}")
+
+
+@bot.command(name="lock")
+async def lock_channel(ctx, *, reason: str = "No reason provided"):
+    """Lock current channel (Staff only)"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    try:
+        # Get the default role (@everyone)
+        overwrite = ctx.channel.overwrites_for(ctx.guild.default_role)
+        overwrite.send_messages = False
+        await ctx.channel.set_permissions(ctx.guild.default_role, overwrite=overwrite)
+        
+        embed = discord.Embed(
+            title="🔒 Channel Locked",
+            description=f"This channel has been locked by staff.",
+            color=0xE74C3C
+        )
+        embed.add_field(name="Reason", value=reason, inline=False)
+        embed.add_field(name="Locked By", value=ctx.author.mention, inline=True)
+        embed.set_footer(text="✝ The Fallen ✝")
+        await ctx.send(embed=embed)
+        
+        await log_action(ctx.guild, "🔒 Channel Locked", f"{ctx.channel.mention} locked by {ctx.author.mention}\nReason: {reason}", 0xE74C3C)
+    except Exception as e:
+        await ctx.send(f"❌ Failed to lock channel: {e}")
+
+
+@bot.command(name="unlock")
+async def unlock_channel(ctx):
+    """Unlock current channel (Staff only)"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    try:
+        overwrite = ctx.channel.overwrites_for(ctx.guild.default_role)
+        overwrite.send_messages = None  # Reset to default
+        await ctx.channel.set_permissions(ctx.guild.default_role, overwrite=overwrite)
+        
+        embed = discord.Embed(
+            title="🔓 Channel Unlocked",
+            description=f"This channel has been unlocked.",
+            color=0x2ecc71
+        )
+        embed.add_field(name="Unlocked By", value=ctx.author.mention, inline=True)
+        embed.set_footer(text="✝ The Fallen ✝")
+        await ctx.send(embed=embed)
+        
+        await log_action(ctx.guild, "🔓 Channel Unlocked", f"{ctx.channel.mention} unlocked by {ctx.author.mention}", 0x2ecc71)
+    except Exception as e:
+        await ctx.send(f"❌ Failed to unlock channel: {e}")
+
+
+@bot.command(name="purge", aliases=["clear"])
+async def purge_messages(ctx, amount: int = None):
+    """Delete messages in bulk (Staff only)"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if amount is None or amount < 1 or amount > 100:
+        return await ctx.send("❌ Usage: `!purge <1-100>`")
+    
+    try:
+        deleted = await ctx.channel.purge(limit=amount + 1)  # +1 to include command message
+        msg = await ctx.send(f"✅ Deleted **{len(deleted) - 1}** messages!")
+        await asyncio.sleep(3)
+        await msg.delete()
+        
+        await log_action(ctx.guild, "🗑️ Purge", f"{len(deleted) - 1} messages deleted in {ctx.channel.mention} by {ctx.author.mention}", 0x95A5A6)
+    except Exception as e:
+        await ctx.send(f"❌ Failed to purge: {e}")
+
+
+@bot.command(name="userinfo", aliases=["ui", "whois"])
+async def user_info(ctx, member: discord.Member = None):
+    """Show comprehensive user info"""
+    target = member or ctx.author
+    
+    # Get various data
+    user_data = get_user_data(target.id)
+    warn_data = get_user_warnings(target.id)
+    
+    embed = discord.Embed(
+        title=f"👤 {target.display_name}",
+        color=target.color if target.color != discord.Color.default() else 0x8B0000
+    )
+    
+    # Basic info
+    embed.set_thumbnail(url=target.display_avatar.url)
+    embed.add_field(name="🏷️ Username", value=f"{target.name}", inline=True)
+    embed.add_field(name="🆔 ID", value=f"`{target.id}`", inline=True)
+    embed.add_field(name="🤖 Bot", value="Yes" if target.bot else "No", inline=True)
+    
+    # Dates
+    created = f"<t:{int(target.created_at.timestamp())}:R>"
+    joined = f"<t:{int(target.joined_at.timestamp())}:R>" if target.joined_at else "Unknown"
+    embed.add_field(name="📅 Account Created", value=created, inline=True)
+    embed.add_field(name="📥 Joined Server", value=joined, inline=True)
+    
+    # Level & Economy
+    embed.add_field(name="📊 Level", value=f"{user_data.get('level', 0)}", inline=True)
+    embed.add_field(name="✨ XP", value=f"{user_data.get('xp', 0):,}", inline=True)
+    embed.add_field(name="💰 Coins", value=f"{user_data.get('coins', 0):,}", inline=True)
+    
+    # Warnings
+    total_warns = len(warn_data.get("warnings", []))
+    active_warns = len([w for w in warn_data.get("warnings", []) if not w.get("expired", False)])
+    warn_points = warn_data.get("total_points", 0)
+    embed.add_field(name="⚠️ Warnings", value=f"{active_warns} active ({total_warns} total)", inline=True)
+    embed.add_field(name="📊 Warning Points", value=f"{warn_points}/10", inline=True)
+    
+    # Top role
+    top_role = target.top_role
+    if top_role != ctx.guild.default_role:
+        embed.add_field(name="🎭 Top Role", value=top_role.mention, inline=True)
+    
+    # Roles (up to 10)
+    roles = [r.mention for r in target.roles if r != ctx.guild.default_role][:10]
+    if roles:
+        embed.add_field(name=f"📜 Roles ({len(target.roles) - 1})", value=" ".join(roles), inline=False)
+    
+    embed.set_footer(text="✝ The Fallen ✝")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="staffstats")
+async def staff_stats(ctx, days: int = 7):
+    """Show staff warning statistics (Staff only)"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", delete_after=5)
+    
+    if days < 1 or days > 30:
+        days = 7
+    
+    # Get all warnings
+    data = load_warnings_data()
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
+    
+    # Count warnings per staff member
+    staff_counts = {}
+    for uid, user_data in data.get("users", {}).items():
+        for w in user_data.get("warnings", []):
+            try:
+                warn_time = datetime.datetime.fromisoformat(w["timestamp"].replace('Z', '+00:00'))
+                if warn_time >= cutoff:
+                    staff_id = w.get("staff_id", "unknown")
+                    if staff_id not in staff_counts:
+                        staff_counts[staff_id] = {"total": 0, "points": 0}
+                    staff_counts[staff_id]["total"] += 1
+                    staff_counts[staff_id]["points"] += w.get("points", 0)
+            except:
+                continue
+    
+    embed = discord.Embed(
+        title=f"📊 Staff Warning Stats (Last {days} days)",
+        color=0x3498DB
+    )
+    
+    if not staff_counts:
+        embed.description = "No warnings issued in this period."
+    else:
+        # Sort by total warnings
+        sorted_staff = sorted(staff_counts.items(), key=lambda x: x[1]["total"], reverse=True)
+        
+        stats_text = ""
+        for staff_id, counts in sorted_staff[:15]:
+            staff_member = ctx.guild.get_member(int(staff_id)) if staff_id.isdigit() else None
+            name = staff_member.display_name if staff_member else f"Unknown ({staff_id[:8]})"
+            stats_text += f"**{name}** - {counts['total']} warnings ({counts['points']} pts total)\n"
+        
+        embed.add_field(name="Staff Members", value=stats_text or "None", inline=False)
+        embed.add_field(name="Total Warnings", value=str(sum(c["total"] for c in staff_counts.values())), inline=True)
+        embed.add_field(name="Total Points", value=str(sum(c["points"] for c in staff_counts.values())), inline=True)
+    
+    embed.set_footer(text="✝ The Fallen ✝")
+    await ctx.send(embed=embed)
 
 class EloCommands(commands.GroupCog, name="elo"):
     """ELO and Duel commands"""
@@ -10773,6 +11124,91 @@ async def on_member_join(member):
                 await log_channel.send(embed=embed)
     except Exception as e:
         print(f"Alt check error: {e}")
+    
+    # Check if user was previously kicked (flag for staff)
+    try:
+        if was_previously_kicked(member.id):
+            log_channel = discord.utils.get(member.guild.text_channels, name=LOG_CHANNEL_NAME)
+            if not log_channel:
+                log_channel = discord.utils.get(member.guild.text_channels, name="fallen-logs")
+            
+            if log_channel:
+                # Get their warning history
+                warn_data = get_user_warnings(member.id, check_expiry=False)
+                
+                embed = discord.Embed(
+                    title="⚠️ Previously Kicked User Rejoined",
+                    description=f"{member.mention} has rejoined the server.\n**This user was previously kicked.**",
+                    color=0xE74C3C
+                )
+                embed.add_field(name="👤 User", value=f"{member} ({member.id})", inline=True)
+                embed.add_field(name="⚠️ Warning Points", value=str(warn_data.get("total_points", 0)), inline=True)
+                embed.add_field(name="📋 Total Warnings", value=str(len(warn_data.get("warnings", []))), inline=True)
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(text="✝ The Fallen ✝ • Review user before granting access")
+                
+                # Ping staff role
+                staff_role = discord.utils.get(member.guild.roles, name=STAFF_ROLE_NAME)
+                ping_text = staff_role.mention if staff_role else ""
+                
+                await log_channel.send(content=ping_text, embed=embed)
+    except Exception as e:
+        print(f"Kicked user check error: {e}")
+
+
+@bot.event
+async def on_member_remove(member):
+    """Log when members leave, especially those with warnings"""
+    try:
+        # Check if they had warnings
+        warn_data = get_user_warnings(member.id, check_expiry=False)
+        total_points = warn_data.get("total_points", 0)
+        total_warnings = len(warn_data.get("warnings", []))
+        
+        log_channel = discord.utils.get(member.guild.text_channels, name=LOG_CHANNEL_NAME)
+        if not log_channel:
+            log_channel = discord.utils.get(member.guild.text_channels, name="fallen-logs")
+        
+        if log_channel:
+            # Determine if this is noteworthy
+            if total_points > 0 or total_warnings > 0:
+                embed = discord.Embed(
+                    title="🚪 Warned User Left",
+                    description=f"**{member}** left the server with active warnings.",
+                    color=0xE74C3C
+                )
+                embed.add_field(name="👤 User", value=f"{member} ({member.id})", inline=True)
+                embed.add_field(name="⚠️ Warning Points", value=str(total_points), inline=True)
+                embed.add_field(name="📋 Total Warnings", value=str(total_warnings), inline=True)
+                
+                # Get recent warnings
+                recent_warns = []
+                for w in warn_data.get("warnings", [])[-3:]:
+                    cat_info = WARNING_CATEGORIES.get(w.get("category", ""), {"name": w.get("category", "Unknown")})
+                    recent_warns.append(f"• {cat_info.get('name', 'Unknown')} (+{w.get('points', 0)})")
+                
+                if recent_warns:
+                    embed.add_field(name="Recent Warnings", value="\n".join(recent_warns), inline=False)
+                
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(text="✝ The Fallen ✝ • User may be avoiding punishment")
+                
+                await log_channel.send(embed=embed)
+            else:
+                # Standard leave log
+                embed = discord.Embed(
+                    title="👋 Member Left",
+                    description=f"**{member}** has left the server.",
+                    color=0x95A5A6
+                )
+                embed.add_field(name="👤 User", value=f"{member} ({member.id})", inline=True)
+                embed.add_field(name="📅 Joined", value=f"<t:{int(member.joined_at.timestamp())}:R>" if member.joined_at else "Unknown", inline=True)
+                embed.set_thumbnail(url=member.display_avatar.url)
+                embed.set_footer(text="✝ The Fallen ✝")
+                
+                await log_channel.send(embed=embed)
+    except Exception as e:
+        print(f"Member remove log error: {e}")
 
 @bot.event
 async def on_message(message):
