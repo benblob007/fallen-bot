@@ -1329,6 +1329,7 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
                 try:
                     background = Image.open(path).convert("RGBA")
                     background = background.resize((width, height), Image.Resampling.LANCZOS)
+                    print(f"Loaded level card template from: {path}")
                     break
                 except Exception as e:
                     print(f"Failed to load {path}: {e}")
@@ -1355,19 +1356,18 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
     
     # Load fonts
     try:
-        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
-        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
-        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 10)
+        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
         font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
     except:
         font_username = font_handle = font_badge = font_label = font_value = font_percent = ImageFont.load_default()
     
     # ========== AVATAR ==========
-    # Centered in the circular area on the left
-    avatar_size = 155
-    avatar_x, avatar_y = 30, 38
+    avatar_size = 148
+    avatar_x, avatar_y = 35, 42
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -1377,7 +1377,6 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
                     avatar = Image.open(BytesIO(avatar_data)).convert("RGBA")
                     avatar = avatar.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
                     
-                    # Circular mask
                     mask = Image.new("L", (avatar_size, avatar_size), 0)
                     mask_draw = ImageDraw.Draw(mask)
                     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
@@ -1387,19 +1386,20 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
     except:
         pass
     
-    # ========== TEXT POSITIONS (centered in template's pre-made pills) ==========
+    # ========== PILL POSITIONS (measured from template) ==========
+    # These are the CENTER positions of each black pill
     
-    # Username - in the top username pill
+    # Username pill - the larger top pill (approx 195-370, 50-85)
     username = member.display_name[:12]
-    draw.text((290, 65), username, font=font_username, fill=(255, 255, 255), anchor="mm")
+    draw.text((283, 67), username, font=font_username, fill=(255, 255, 255), anchor="mm")
     
-    # Handle - in the smaller handle pill below
-    handle = f"@{member.name}"[:15]
-    draw.text((270, 102), handle, font=font_handle, fill=(200, 200, 200), anchor="mm")
+    # Handle pill - smaller pill below username (approx 200-330, 88-112)
+    handle = f"@{member.name}"[:14]
+    draw.text((265, 100), handle, font=font_handle, fill=(180, 180, 180), anchor="mm")
     
-    # Badge (ELITE/CHAMPION/BOOSTER) - in the right badge pill
+    # Badge pill - right side pill (approx 385-485, 50-80)
     if is_booster_user:
-        badge_text = "💎 BOOSTER"
+        badge_text = "BOOSTER"
         badge_color = (0, 255, 255)
     elif rank == 1:
         badge_text = "CHAMPION"
@@ -1410,34 +1410,31 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
     elif rank <= 10:
         badge_text = "TOP 10"
         badge_color = (255, 100, 100)
-    elif rank <= 25:
-        badge_text = "RISING"
-        badge_color = (200, 200, 255)
     else:
         badge_text = "MEMBER"
-        badge_color = (200, 200, 200)
+        badge_color = (180, 180, 180)
     
-    draw.text((440, 65), badge_text, font=font_badge, fill=badge_color, anchor="mm")
+    draw.text((435, 67), badge_text, font=font_badge, fill=badge_color, anchor="mm")
     
-    # LEVEL - label and value in the LEVEL pill
-    draw.text((260, 143), "LEVEL", font=font_label, fill=(180, 180, 180), anchor="mm")
-    draw.text((260, 165), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+    # LEVEL pill - leftmost of the 3 stat pills (approx 218-290, 130-158)
+    draw.text((254, 140), "LEVEL", font=font_label, fill=(150, 150, 150), anchor="mm")
+    draw.text((254, 158), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
     
-    # RANK - label and value in the RANK pill  
-    draw.text((380, 143), "RANK", font=font_label, fill=(180, 180, 180), anchor="mm")
-    draw.text((380, 165), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
+    # RANK pill - middle stat pill (approx 330-410, 130-158)
+    draw.text((370, 140), "RANK", font=font_label, fill=(150, 150, 150), anchor="mm")
+    draw.text((370, 158), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
     
-    # XP - label and value in the XP pill
-    draw.text((510, 143), "XP", font=font_label, fill=(180, 180, 180), anchor="mm")
-    draw.text((510, 165), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
+    # XP pill - rightmost stat pill (approx 455-530, 130-158)
+    draw.text((493, 140), "XP", font=font_label, fill=(150, 150, 150), anchor="mm")
+    draw.text((493, 158), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
     
-    # ========== PROGRESS BAR FILL ==========
-    # Fill inside the template's progress bar track
-    bar_x = 205
-    bar_y = 230
-    bar_width = 668
-    bar_height = 20
-    bar_radius = 10
+    # ========== PROGRESS BAR ==========
+    # Bar track in template (approx 218-870, 228-252)
+    bar_x = 220
+    bar_y = 232
+    bar_width = 648
+    bar_height = 18
+    bar_radius = 9
     
     fill_width = int(bar_width * progress)
     if fill_width > bar_radius * 2:
@@ -1448,16 +1445,14 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
             fill=bar_color
         )
     
-    # Percentage - to the right of the bar
+    # Percentage - right of bar
     percent_text = f"{int(progress * 100)}%"
-    draw.text((bar_x + bar_width + 35, bar_y + bar_height // 2), percent_text, 
+    draw.text((bar_x + bar_width + 40, bar_y + bar_height // 2), percent_text, 
               font=font_percent, fill=(255, 255, 255), anchor="mm")
     
-    # Save to bytes
     output = BytesIO()
     card.save(output, format="PNG")
     output.seek(0)
-    
     return output
 
 
@@ -1489,18 +1484,18 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
     
     # Load fonts
     try:
-        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
-        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
-        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 10)
+        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
         font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
     except:
         font_username = font_handle = font_badge = font_label = font_value = font_percent = ImageFont.load_default()
     
     # Download avatar once
     avatar_img = None
-    avatar_size = 155
+    avatar_size = 148
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(str(member.display_avatar.url)) as resp:
@@ -1513,7 +1508,7 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
     
     # Setup badge info
     if is_booster_user:
-        badge_text = "💎 BOOSTER"
+        badge_text = "BOOSTER"
         base_color = (0, 220, 220)
     elif rank == 1:
         badge_text = "CHAMPION"
@@ -1526,7 +1521,7 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
         base_color = (255, 100, 100)
     else:
         badge_text = "MEMBER"
-        base_color = (200, 200, 200)
+        base_color = (180, 180, 180)
     
     frames = []
     frame_count = 12
@@ -1543,47 +1538,47 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
         if avatar_img:
             mask = Image.new("L", (avatar_size, avatar_size), 0)
             ImageDraw.Draw(mask).ellipse((0, 0, avatar_size, avatar_size), fill=255)
-            card.paste(avatar_img, (30, 38), mask)
+            card.paste(avatar_img, (35, 42), mask)
             draw = ImageDraw.Draw(card)
         
-        # Username
+        # Username in pill
         username = member.display_name[:12]
-        draw.text((290, 65), username, font=font_username, fill=(255, 255, 255), anchor="mm")
+        draw.text((283, 67), username, font=font_username, fill=(255, 255, 255), anchor="mm")
         
-        # Handle
-        handle = f"@{member.name}"[:15]
-        draw.text((270, 102), handle, font=font_handle, fill=(200, 200, 200), anchor="mm")
+        # Handle in pill
+        handle = f"@{member.name}"[:14]
+        draw.text((265, 100), handle, font=font_handle, fill=(180, 180, 180), anchor="mm")
         
-        # Animated badge
-        draw.text((440, 65), badge_text, font=font_badge, fill=anim_color, anchor="mm")
+        # Animated badge in pill
+        draw.text((435, 67), badge_text, font=font_badge, fill=anim_color, anchor="mm")
         
-        # Stats with labels
-        draw.text((260, 143), "LEVEL", font=font_label, fill=(180, 180, 180), anchor="mm")
-        draw.text((260, 165), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+        # Stats in pills
+        draw.text((254, 140), "LEVEL", font=font_label, fill=(150, 150, 150), anchor="mm")
+        draw.text((254, 158), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
         
-        draw.text((380, 143), "RANK", font=font_label, fill=(180, 180, 180), anchor="mm")
-        draw.text((380, 165), f"#{rank}", font=font_value, fill=anim_color, anchor="mm")
+        draw.text((370, 140), "RANK", font=font_label, fill=(150, 150, 150), anchor="mm")
+        draw.text((370, 158), f"#{rank}", font=font_value, fill=anim_color, anchor="mm")
         
-        draw.text((510, 143), "XP", font=font_label, fill=(180, 180, 180), anchor="mm")
-        draw.text((510, 165), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
+        draw.text((493, 140), "XP", font=font_label, fill=(150, 150, 150), anchor="mm")
+        draw.text((493, 158), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
         
-        # Animated progress bar fill
-        bar_x, bar_y = 205, 230
-        bar_width, bar_height = 668, 20
-        bar_radius = 10
+        # Animated progress bar
+        bar_x, bar_y = 220, 232
+        bar_width, bar_height = 648, 18
+        bar_radius = 9
         
         fill_width = int(bar_width * progress)
         if fill_width > bar_radius * 2:
             bar_color = anim_color if is_booster_user else (min(255, 139 + glow // 2), 0, 0)
             draw.rounded_rectangle([(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)], radius=bar_radius, fill=bar_color)
             
-            # Moving shine effect
+            # Moving shine
             shine_pos = int((frame_num / frame_count) * fill_width)
             if 10 < shine_pos < fill_width - 10:
-                draw.line([(bar_x + shine_pos, bar_y + 3), (bar_x + shine_pos + 4, bar_y + bar_height - 3)], fill=(255, 255, 255, 180), width=3)
+                draw.line([(bar_x + shine_pos, bar_y + 3), (bar_x + shine_pos + 4, bar_y + bar_height - 3)], fill=(255, 255, 255), width=3)
         
         # Percentage
-        draw.text((bar_x + bar_width + 35, bar_y + bar_height // 2), f"{int(progress * 100)}%", font=font_percent, fill=(255, 255, 255), anchor="mm")
+        draw.text((bar_x + bar_width + 40, bar_y + bar_height // 2), f"{int(progress * 100)}%", font=font_percent, fill=(255, 255, 255), anchor="mm")
         
         frames.append(card.convert("RGB"))
     
@@ -1843,43 +1838,26 @@ async def create_leaderboard_image(guild, users_data, sort_key="xp", title_suffi
     
     # Calculate height based on number of users
     num_users = len(sorted_users)
-    row_height = 60  # Increased for avatars
+    row_height = 60
     header_height = 140
     footer_height = 50
     height = header_height + (num_users * row_height) + footer_height
-    width = 950  # Slightly wider for avatars
+    width = 950
     
-    # Try to load background
-    background = None
+    # Create dark gradient background (NOT using level card template)
+    card = Image.new("RGBA", (width, height), (25, 22, 30, 255))
+    draw = ImageDraw.Draw(card)
     
-    for path in LEVEL_CARD_PATHS:
-        if os.path.exists(path):
-            try:
-                background = Image.open(path).convert("RGBA")
-                break
-            except:
-                pass
+    # Draw subtle gradient from top to bottom
+    for y in range(height):
+        # Darker at top and bottom, slightly lighter in middle
+        darkness = int(25 + 10 * (1 - abs(y - height/2) / (height/2)))
+        draw.line([(0, y), (width, y)], fill=(darkness, darkness - 3, darkness + 5, 255))
     
-    if background is None and LEVEL_CARD_BACKGROUND:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(LEVEL_CARD_BACKGROUND) as resp:
-                    if resp.status == 200:
-                        img_data = await resp.read()
-                        background = Image.open(BytesIO(img_data)).convert("RGBA")
-        except:
-            pass
-    
-    if background is None:
-        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
-    else:
-        background = background.resize((width, height), Image.Resampling.LANCZOS)
-    
-    card = background.copy()
-    
-    # Dark overlay
-    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 200))
-    card = Image.alpha_composite(card, overlay)
+    # Add subtle red accent at top
+    for y in range(8):
+        alpha = int(100 * (1 - y / 8))
+        draw.line([(0, y), (width, y)], fill=(139, 0, 0, alpha))
     
     draw = ImageDraw.Draw(card)
     
