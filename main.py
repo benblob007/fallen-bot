@@ -1366,8 +1366,10 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
         font_username = font_handle = font_badge = font_label = font_value = font_percent = ImageFont.load_default()
     
     # ========== AVATAR ==========
+    # Center at (139, 140) from Photoshop - so top-left = center - radius
     avatar_size = 148
-    avatar_x, avatar_y = 35, 42
+    avatar_x = 139 - (avatar_size // 2)  # 65
+    avatar_y = 140 - (avatar_size // 2)  # 66
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -1386,18 +1388,9 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
     except:
         pass
     
-    # ========== PILL POSITIONS (measured from template) ==========
-    # These are the CENTER positions of each black pill
+    # ========== EXACT POSITIONS FROM PHOTOSHOP ==========
     
-    # Username pill - the larger top pill (approx 195-370, 50-85)
-    username = member.display_name[:12]
-    draw.text((283, 67), username, font=font_username, fill=(255, 255, 255), anchor="mm")
-    
-    # Handle pill - smaller pill below username (approx 200-330, 88-112)
-    handle = f"@{member.name}"[:14]
-    draw.text((265, 100), handle, font=font_handle, fill=(180, 180, 180), anchor="mm")
-    
-    # Badge pill - right side pill (approx 385-485, 50-80)
+    # Badge color setup
     if is_booster_user:
         badge_text = "BOOSTER"
         badge_color = (0, 255, 255)
@@ -1414,19 +1407,28 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
         badge_text = "MEMBER"
         badge_color = (180, 180, 180)
     
-    draw.text((435, 67), badge_text, font=font_badge, fill=badge_color, anchor="mm")
+    # Username pill - Photoshop center: (313, 80)
+    username = member.display_name[:14]
+    draw.text((313, 80), username, font=font_username, fill=(255, 255, 255), anchor="mm")
     
-    # LEVEL pill - leftmost of the 3 stat pills (approx 218-290, 130-158)
-    draw.text((254, 140), "LEVEL", font=font_label, fill=(150, 150, 150), anchor="mm")
-    draw.text((254, 158), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+    # Handle pill - Photoshop center: (317, 109)
+    handle = f"@{member.name}"[:16]
+    draw.text((317, 109), handle, font=font_handle, fill=(180, 180, 180), anchor="mm")
     
-    # RANK pill - middle stat pill (approx 330-410, 130-158)
-    draw.text((370, 140), "RANK", font=font_label, fill=(150, 150, 150), anchor="mm")
-    draw.text((370, 158), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
+    # Badge pill (ELITE) - Photoshop center: (490, 123)
+    draw.text((490, 123), badge_text, font=font_badge, fill=badge_color, anchor="mm")
     
-    # XP pill - rightmost stat pill (approx 455-530, 130-158)
-    draw.text((493, 140), "XP", font=font_label, fill=(150, 150, 150), anchor="mm")
-    draw.text((493, 158), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
+    # LEVEL pill - Photoshop center: (292, 173)
+    draw.text((292, 166), "LEVEL", font=font_label, fill=(150, 150, 150), anchor="mm")
+    draw.text((292, 183), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+    
+    # RANK pill - Photoshop center: (429, 171)
+    draw.text((429, 164), "RANK", font=font_label, fill=(150, 150, 150), anchor="mm")
+    draw.text((429, 181), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
+    
+    # XP pill - Photoshop center: (562, 171)
+    draw.text((562, 164), "XP", font=font_label, fill=(150, 150, 150), anchor="mm")
+    draw.text((562, 181), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
     
     # ========== PROGRESS BAR ==========
     # Bar track in template (approx 218-870, 228-252)
@@ -1534,33 +1536,37 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
         glow = int(40 * (1 + 0.5 * math.sin(frame_num * 2 * math.pi / frame_count)))
         anim_color = (min(255, base_color[0] + glow), min(255, base_color[1] + glow), min(255, base_color[2] + glow))
         
-        # Avatar
+        # Avatar - center at (139, 140)
         if avatar_img:
             mask = Image.new("L", (avatar_size, avatar_size), 0)
             ImageDraw.Draw(mask).ellipse((0, 0, avatar_size, avatar_size), fill=255)
-            card.paste(avatar_img, (35, 42), mask)
+            avatar_x = 139 - (avatar_size // 2)
+            avatar_y = 140 - (avatar_size // 2)
+            card.paste(avatar_img, (avatar_x, avatar_y), mask)
             draw = ImageDraw.Draw(card)
         
-        # Username in pill
-        username = member.display_name[:12]
-        draw.text((283, 67), username, font=font_username, fill=(255, 255, 255), anchor="mm")
+        # Username - Photoshop center: (313, 80)
+        username = member.display_name[:14]
+        draw.text((313, 80), username, font=font_username, fill=(255, 255, 255), anchor="mm")
         
-        # Handle in pill
-        handle = f"@{member.name}"[:14]
-        draw.text((265, 100), handle, font=font_handle, fill=(180, 180, 180), anchor="mm")
+        # Handle - Photoshop center: (317, 109)
+        handle = f"@{member.name}"[:16]
+        draw.text((317, 109), handle, font=font_handle, fill=(180, 180, 180), anchor="mm")
         
-        # Animated badge in pill
-        draw.text((435, 67), badge_text, font=font_badge, fill=anim_color, anchor="mm")
+        # Badge - Photoshop center: (490, 123)
+        draw.text((490, 123), badge_text, font=font_badge, fill=anim_color, anchor="mm")
         
-        # Stats in pills
-        draw.text((254, 140), "LEVEL", font=font_label, fill=(150, 150, 150), anchor="mm")
-        draw.text((254, 158), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+        # LEVEL - Photoshop center: (292, 173)
+        draw.text((292, 166), "LEVEL", font=font_label, fill=(150, 150, 150), anchor="mm")
+        draw.text((292, 183), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
         
-        draw.text((370, 140), "RANK", font=font_label, fill=(150, 150, 150), anchor="mm")
-        draw.text((370, 158), f"#{rank}", font=font_value, fill=anim_color, anchor="mm")
+        # RANK - Photoshop center: (429, 171)
+        draw.text((429, 164), "RANK", font=font_label, fill=(150, 150, 150), anchor="mm")
+        draw.text((429, 181), f"#{rank}", font=font_value, fill=anim_color, anchor="mm")
         
-        draw.text((493, 140), "XP", font=font_label, fill=(150, 150, 150), anchor="mm")
-        draw.text((493, 158), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
+        # XP - Photoshop center: (562, 171)
+        draw.text((562, 164), "XP", font=font_label, fill=(150, 150, 150), anchor="mm")
+        draw.text((562, 181), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
         
         # Animated progress bar
         bar_x, bar_y = 220, 232
