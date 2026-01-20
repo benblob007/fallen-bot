@@ -295,6 +295,33 @@ def check_xp_cooldown(user_id, cooldown_type):
     return True  # Can earn XP 
 COOLDOWN_SECONDS = 60 
 
+# --- BOOSTER PERKS CONFIG ---
+BOOSTER_ROLE_NAME = "Fallen Ascendant"  # Server booster role
+BOOSTER_XP_MULTIPLIER = 1.25  # 25% bonus XP
+BOOSTER_DAILY_MULTIPLIER = 2  # 2x daily rewards
+BOOSTER_WEEKLY_COINS = 500  # Weekly bonus coins
+BOOSTER_WEEKLY_XP = 250  # Weekly bonus XP
+
+def is_booster(member):
+    """Check if member is a server booster"""
+    if member is None:
+        return False
+    # Check Discord's built-in booster status
+    if member.premium_since is not None:
+        return True
+    # Check for booster role
+    booster_roles = [BOOSTER_ROLE_NAME, "Server Booster", "Nitro Booster", "Booster"]
+    return any(role.name in booster_roles for role in member.roles)
+
+def get_booster_border():
+    """Get the exclusive diamond booster border style"""
+    return {
+        "color": (0, 255, 255),  # Cyan/Diamond color
+        "style": "booster",
+        "title": "💎 Booster",
+        "glow": True
+    }
+
 # --- SHOP CONFIG ---
 SHOP_ITEMS = [
     # Original Items
@@ -1263,7 +1290,7 @@ def create_arcane_level_embed(member, user_data, rank):
     
     return embed
 
-async def create_level_card_image(member, user_data, rank):
+async def create_level_card_image(member, user_data, rank, is_booster_user=False):
     """Create a custom image-based level card with background and rank borders"""
     if not PIL_AVAILABLE:
         print("PIL not available for level card")
@@ -1275,8 +1302,11 @@ async def create_level_card_image(member, user_data, rank):
     xp_needed = calculate_next_level_xp(lvl)
     progress = min(1.0, xp_into_level / xp_needed) if xp_needed > 0 else 0
     
-    # Get rank border style
-    border_style = get_rank_border(rank)
+    # Get rank border style - Boosters get exclusive diamond border!
+    if is_booster_user:
+        border_style = get_booster_border()
+    else:
+        border_style = get_rank_border(rank)
     
     # Card dimensions
     width, height = 934, 282
@@ -1427,7 +1457,7 @@ async def create_level_card_image(member, user_data, rank):
     return output
 
 
-async def create_animated_level_card(member, user_data, rank):
+async def create_animated_level_card(member, user_data, rank, is_booster_user=False):
     """Create an animated GIF level card with glowing progress bar"""
     if not PIL_AVAILABLE:
         return None
@@ -1437,7 +1467,11 @@ async def create_animated_level_card(member, user_data, rank):
     xp_needed = calculate_next_level_xp(lvl)
     progress = min(1.0, xp_into_level / xp_needed) if xp_needed > 0 else 0
     
-    border_style = get_rank_border(rank)
+    # Boosters get exclusive diamond border!
+    if is_booster_user:
+        border_style = get_booster_border()
+    else:
+        border_style = get_rank_border(rank)
     width, height = 934, 282
     
     # Load background
@@ -2122,7 +2156,7 @@ async def create_welcome_card(member):
 # PROFILE CARD IMAGE GENERATOR
 # ==========================================
 
-async def create_profile_card(member, user_data, rank, achievements):
+async def create_profile_card(member, user_data, rank, achievements, is_booster_user=False):
     """Create a detailed profile card image"""
     if not PIL_AVAILABLE:
         return None
@@ -2183,8 +2217,10 @@ async def create_profile_card(member, user_data, rank, achievements):
     req = calculate_next_level_xp(lvl)
     progress = min(1.0, xp / req) if req > 0 else 0
     
-    # Rank border color
-    if rank == 1:
+    # Rank border color - Boosters get cyan diamond!
+    if is_booster_user:
+        border_color = (0, 255, 255)  # Cyan for boosters
+    elif rank == 1:
         border_color = (255, 215, 0)  # Gold
     elif rank == 2:
         border_color = (192, 192, 192)  # Silver
@@ -2321,10 +2357,120 @@ async def create_profile_card(member, user_data, rank, achievements):
     draw.rectangle([(0, height - 8), (width, height)], fill=border_color)
     draw.text((30, height - 30), "The Fallen", font=font_small, fill=(150, 150, 150))
     
+    # Add booster badge
+    if is_booster_user:
+        draw.text((width - 150, height - 30), "💎 BOOSTER", font=font_stats, fill=(0, 255, 255))
+    
     output = BytesIO()
     card.save(output, format="PNG")
     output.seek(0)
     return output
+
+
+async def create_animated_profile_card(member, user_data, rank, achievements, is_booster_user=False):
+    """Create an animated profile card for boosters"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    width, height = 900, 500
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                background = background.resize((width, height), Image.Resampling.LANCZOS)
+                break
+            except:
+                pass
+    if background is None:
+        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
+    
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_stats = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+    except:
+        font_title = font_name = font_stats = font_label = font_small = ImageFont.load_default()
+    
+    lvl = user_data.get('level', 0)
+    xp = user_data.get('xp', 0)
+    coins = user_data.get('coins', 0)
+    wins = user_data.get('wins', 0)
+    losses = user_data.get('losses', 0)
+    daily_streak = user_data.get('daily_streak', 0)
+    req = calculate_next_level_xp(lvl)
+    progress = min(1.0, xp / req) if req > 0 else 0
+    border_color = (0, 255, 255) if is_booster_user else (139, 0, 0)
+    
+    avatar_img = None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(str(member.display_avatar.url)) as resp:
+                if resp.status == 200:
+                    avatar_data = await resp.read()
+                    avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
+                    avatar_img = avatar_img.resize((150, 150), Image.Resampling.LANCZOS)
+    except:
+        pass
+    
+    frames = []
+    for frame_num in range(12):
+        card = background.copy()
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 200))
+        card = Image.alpha_composite(card, overlay)
+        draw = ImageDraw.Draw(card)
+        
+        glow = int(30 * (1 + 0.5 * math.sin(frame_num * 2 * math.pi / 12)))
+        anim_border = (min(255, border_color[0] + glow), min(255, border_color[1] + glow), min(255, border_color[2] + glow))
+        
+        draw.rectangle([(0, 0), (width, 8)], fill=anim_border)
+        draw.text((30, 20), "PLAYER PROFILE", font=font_title, fill=(200, 200, 200))
+        if is_booster_user:
+            draw.text((width - 180, 20), "💎 BOOSTER", font=font_title, fill=anim_border)
+        
+        avatar_x, avatar_y, avatar_size = 40, 70, 150
+        for i in range(3, 0, -1):
+            draw.ellipse([avatar_x - 5 - i*3, avatar_y - 5 - i*3, avatar_x + avatar_size + 5 + i*3, avatar_y + avatar_size + 5 + i*3], outline=anim_border, width=2)
+        draw.ellipse([avatar_x - 5, avatar_y - 5, avatar_x + avatar_size + 5, avatar_y + avatar_size + 5], fill=anim_border)
+        
+        if avatar_img:
+            mask = Image.new("L", (avatar_size, avatar_size), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, avatar_size, avatar_size), fill=255)
+            card.paste(avatar_img, (avatar_x, avatar_y), mask)
+            draw = ImageDraw.Draw(card)
+        
+        draw.text((avatar_x, avatar_y + avatar_size + 15), member.display_name[:15], font=font_name, fill=(255, 255, 255))
+        draw.text((avatar_x, avatar_y + avatar_size + 45), f"Rank #{rank}", font=font_stats, fill=anim_border)
+        
+        stats_x, stats_y, box_w, box_h = 250, 70, 190, 70
+        for i, (lbl, val, col) in enumerate([("LEVEL", str(lvl), (100, 200, 255)), ("XP", format_number(xp), (255, 200, 100)), ("COINS", format_number(coins), (255, 215, 0)), ("WINS", str(wins), (100, 255, 100)), ("LOSSES", str(losses), (255, 100, 100)), ("STREAK", f"{daily_streak}d", (255, 150, 50))]):
+            x, y = stats_x + (i % 3) * (box_w + 15), stats_y + (i // 3) * (box_h + 15)
+            draw.rounded_rectangle([(x, y), (x + box_w, y + box_h)], radius=5, fill=(40, 40, 50))
+            draw.rectangle([(x, y), (x + box_w, y + 4)], fill=col)
+            draw.text((x + 10, y + 15), lbl, font=font_label, fill=(150, 150, 150))
+            draw.text((x + 10, y + 35), val, font=font_stats, fill=col)
+        
+        bar_y, bar_x, bar_w, bar_h = 250, stats_x, 600, 25
+        draw.text((bar_x, bar_y), f"Level {lvl + 1}", font=font_label, fill=(150, 150, 150))
+        draw.rounded_rectangle([(bar_x, bar_y + 25), (bar_x + bar_w, bar_y + 50)], radius=12, fill=(40, 40, 50))
+        if progress > 0:
+            fw = int(bar_w * progress)
+            if fw > 24:
+                draw.rounded_rectangle([(bar_x, bar_y + 25), (bar_x + fw, bar_y + 50)], radius=12, fill=anim_border)
+                sp = int((frame_num / 12) * fw)
+                if 10 < sp < fw - 10:
+                    draw.line([(bar_x + sp, bar_y + 28), (bar_x + sp + 3, bar_y + 47)], fill=(255, 255, 255), width=2)
+        
+        draw.rectangle([(0, height - 8), (width, height)], fill=anim_border)
+        frames.append(card.convert("RGB"))
+    
+    output = BytesIO()
+    frames[0].save(output, format="GIF", save_all=True, append_images=frames[1:], duration=100, loop=0)
+    output.seek(0)
+    return output
+
 
 # ==========================================
 # ACHIEVEMENT SYSTEM
@@ -2754,7 +2900,25 @@ def draw_rank_border(draw, card, x, y, size, border_style):
     style = border_style["style"]
     glow = border_style.get("glow", False)
     
-    if style == "legendary":
+    if style == "booster":
+        # Exclusive diamond/cyan booster border with animated-look glow
+        # Triple glow effect in cyan
+        for i in range(4, 0, -1):
+            draw.ellipse(
+                [x - 8 - i*3, y - 8 - i*3, x + size + 8 + i*3, y + size + 8 + i*3],
+                outline=(0, 255, 255), width=2
+            )
+        # Diamond shape accents at corners
+        diamond_size = 8
+        # Top
+        draw.polygon([(x + size//2, y - 15), (x + size//2 - diamond_size, y - 15 + diamond_size), 
+                      (x + size//2, y - 15 + diamond_size*2), (x + size//2 + diamond_size, y - 15 + diamond_size)], 
+                     fill=(0, 255, 255))
+        # Main borders - cyan with white inner
+        draw.ellipse([x - 8, y - 8, x + size + 8, y + size + 8], outline=(0, 255, 255), width=4)
+        draw.ellipse([x - 3, y - 3, x + size + 3, y + size + 3], outline=(255, 255, 255), width=2)
+        
+    elif style == "legendary":
         # Double border with glow effect
         if glow and PIL_AVAILABLE:
             # Outer glow
@@ -11631,6 +11795,9 @@ async def on_message(message):
         # Check cooldown before giving XP
         if check_xp_cooldown(message.author.id, "message"):
             xp = random.randint(*XP_TEXT_RANGE)
+            # Booster bonus: +25% XP
+            if is_booster(message.author):
+                xp = int(xp * BOOSTER_XP_MULTIPLIER)
             add_xp_to_user(message.author.id, xp)
             await check_level_up(message.author.id, message.guild)
         
@@ -11645,6 +11812,9 @@ async def on_reaction_add(reaction, user):
         # Check cooldown before giving XP
         if check_xp_cooldown(user.id, "reaction"):
             xp = random.randint(*XP_REACTION_RANGE)
+            # Booster bonus: +25% XP
+            if is_booster(user):
+                xp = int(xp * BOOSTER_XP_MULTIPLIER)
             add_xp_to_user(user.id, xp)
             await check_level_up(user.id, reaction.message.guild)
         
@@ -12133,32 +12303,27 @@ async def level(ctx, member: discord.Member = None):
         embed = create_arcane_level_embed(target, user_data, rank)
         return await ctx.send(embed=embed)
     
-    # Check if target qualifies for animated card
-    # Boosters, High Staff, or has Server Booster role
-    is_booster = target.premium_since is not None  # Discord Nitro Booster
+    # Check if target qualifies for booster perks
+    target_is_booster = is_booster(target)
     is_high_staff = any(role.name in HIGH_STAFF_ROLES for role in target.roles)
-    is_staff = any(role.name == STAFF_ROLE_NAME or role.name in HIGH_STAFF_ROLES for role in target.roles)
     
-    # Also check for "Fallen Ascendant" role (server booster role)
-    booster_role_names = ["Fallen Ascendant", "Server Booster", "Nitro Booster", "Booster"]
-    has_booster_role = any(role.name in booster_role_names for role in target.roles)
-    
-    qualifies_for_animated = is_booster or has_booster_role or is_high_staff
+    qualifies_for_animated = target_is_booster or is_high_staff
     
     try:
         if qualifies_for_animated:
             # Show loading message for animated card
             status = await ctx.send("✨ Generating animated card...")
             
-            card_image = await create_animated_level_card(target, user_data, rank)
+            # Pass booster status for diamond border
+            card_image = await create_animated_level_card(target, user_data, rank, target_is_booster)
             if card_image:
                 file = discord.File(card_image, filename="level_card.gif")
                 await status.delete()
                 
                 # Add a small indicator that they have premium card
-                embed = discord.Embed(color=0x8B0000)
-                if is_booster or has_booster_role:
-                    embed.set_footer(text="💎 Booster Exclusive Animated Card")
+                embed = discord.Embed(color=0x00FFFF if target_is_booster else 0x8B0000)
+                if target_is_booster:
+                    embed.set_footer(text="💎 Booster Exclusive • Animated Card • Diamond Border • +25% XP")
                 else:
                     embed.set_footer(text="⚔️ Staff Exclusive Animated Card")
                 
@@ -12169,7 +12334,7 @@ async def level(ctx, member: discord.Member = None):
                 # Fall through to static card
         
         # Static card for regular members (or fallback)
-        card_image = await create_level_card_image(target, user_data, rank)
+        card_image = await create_level_card_image(target, user_data, rank, target_is_booster)
         if card_image:
             file = discord.File(card_image, filename="level_card.png")
             await ctx.send(file=file)
@@ -13424,7 +13589,7 @@ async def stats(ctx, member: discord.Member = None):
 
 @bot.hybrid_command(name="daily", description="Claim your daily reward")
 async def daily(ctx):
-    """Claim daily coins and XP"""
+    """Claim daily coins and XP - 2x for Boosters!"""
     user_data = get_user_data(ctx.author.id)
     now = datetime.datetime.now(datetime.timezone.utc)
     last = user_data.get('last_daily')
@@ -13449,18 +13614,81 @@ async def daily(ctx):
     coins = base_coins + (25 * bonus)
     xp = base_xp + (10 * bonus)
     
+    # Booster perk: 2x daily rewards!
+    booster_bonus = is_booster(ctx.author)
+    if booster_bonus:
+        coins = coins * BOOSTER_DAILY_MULTIPLIER
+        xp = xp * BOOSTER_DAILY_MULTIPLIER
+    
     add_user_stat(ctx.author.id, "coins", coins)
     add_xp_to_user(ctx.author.id, xp)
     update_user_data(ctx.author.id, "last_daily", now.isoformat())
     update_user_data(ctx.author.id, "daily_streak", streak)
     
-    embed = discord.Embed(title="🎁 Daily Reward Claimed!", description=f"**+{coins}** 💰 Fallen Coins\n**+{xp}** ✨ XP", color=0x2ecc71)
+    embed = discord.Embed(title="🎁 Daily Reward Claimed!", color=0x2ecc71)
+    
+    if booster_bonus:
+        embed.description = f"**+{coins}** 💰 Fallen Coins\n**+{xp}** ✨ XP\n\n💎 **2x Booster Bonus Applied!**"
+        embed.color = 0x00FFFF  # Cyan for boosters
+    else:
+        embed.description = f"**+{coins}** 💰 Fallen Coins\n**+{xp}** ✨ XP"
+    
     embed.add_field(name="🔥 Streak", value=f"{streak} days", inline=True)
+    
     if streak > 1:
-        embed.set_footer(text=f"Streak bonus: +{25 * bonus} coins, +{10 * bonus} XP")
+        embed.set_footer(text=f"Streak bonus: +{25 * bonus} coins, +{10 * bonus} XP" + (" (doubled!)" if booster_bonus else ""))
+    elif not booster_bonus:
+        embed.set_footer(text="💎 Boosters get 2x daily rewards!")
     
     await ctx.send(embed=embed)
     await check_level_up(ctx.author.id, ctx.guild)
+
+
+@bot.command(name="boosterreward", aliases=["weeklyboost", "boosterbonus"])
+async def booster_reward(ctx):
+    """Claim your weekly booster bonus (Boosters only!)"""
+    if not is_booster(ctx.author):
+        embed = discord.Embed(
+            title="💎 Booster Exclusive",
+            description="This reward is only for **Server Boosters**!\n\nBoost the server to unlock:\n• 💎 Weekly bonus coins & XP\n• ✨ 2x daily rewards\n• 📈 +25% XP from all activities\n• 🎨 Animated level card\n• 💠 Exclusive diamond border",
+            color=0x00FFFF
+        )
+        embed.set_footer(text="Boost The Fallen to unlock these perks!")
+        return await ctx.send(embed=embed)
+    
+    user_data = get_user_data(ctx.author.id)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    last = user_data.get('last_booster_reward')
+    
+    if last:
+        try:
+            last_dt = datetime.datetime.fromisoformat(last)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=datetime.timezone.utc)
+            diff = (now - last_dt).total_seconds()
+            if diff < 604800:  # 7 days
+                days_left = int((604800 - diff) // 86400)
+                hours_left = int(((604800 - diff) % 86400) // 3600)
+                return await ctx.send(f"⏰ You can claim your booster reward in **{days_left}d {hours_left}h**", ephemeral=True)
+        except:
+            pass
+    
+    add_user_stat(ctx.author.id, "coins", BOOSTER_WEEKLY_COINS)
+    add_xp_to_user(ctx.author.id, BOOSTER_WEEKLY_XP)
+    update_user_data(ctx.author.id, "last_booster_reward", now.isoformat())
+    
+    embed = discord.Embed(
+        title="💎 Weekly Booster Reward!",
+        description=f"Thank you for boosting **The Fallen**!\n\n**+{BOOSTER_WEEKLY_COINS}** 💰 Fallen Coins\n**+{BOOSTER_WEEKLY_XP}** ✨ XP",
+        color=0x00FFFF
+    )
+    embed.add_field(name="Your Booster Perks", value="• 💎 Weekly bonus (claimed!)\n• ✨ 2x daily rewards\n• 📈 +25% XP always\n• 🎨 Animated cards\n• 💠 Diamond border", inline=False)
+    embed.set_footer(text="Come back next week for more rewards!")
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    
+    await ctx.send(embed=embed)
+    await check_level_up(ctx.author.id, ctx.guild)
+
 
 @bot.hybrid_command(name="schedule", description="View upcoming events")
 async def schedule(ctx):
@@ -14320,17 +14548,39 @@ async def mystats(ctx, member: discord.Member = None):
 # ==========================================
 
 @bot.hybrid_command(name="profile", description="View your detailed profile card")
-@commands.cooldown(1, 15, commands.BucketType.user)  # 1 use per 15 seconds per user
+@commands.cooldown(1, 15, commands.BucketType.user)
 async def profile(ctx, member: discord.Member = None):
-    """Display a beautiful profile card with all stats"""
+    """Display a beautiful profile card with all stats - Animated for Boosters!"""
     target = member or ctx.author
     user_data = get_user_data(target.id)
     rank = get_level_rank(target.id)
     achievements = check_achievements(user_data)
     
+    target_is_booster = is_booster(target)
+    is_high_staff = any(role.name in HIGH_STAFF_ROLES for role in target.roles)
+    qualifies_for_animated = target_is_booster or is_high_staff
+    
     if PIL_AVAILABLE:
         try:
-            profile_card = await create_profile_card(target, user_data, rank, achievements)
+            if qualifies_for_animated:
+                status = await ctx.send("✨ Generating animated profile...")
+                profile_card = await create_animated_profile_card(target, user_data, rank, achievements, target_is_booster)
+                if profile_card:
+                    file = discord.File(profile_card, filename="profile.gif")
+                    await status.delete()
+                    
+                    embed = discord.Embed(color=0x00FFFF if target_is_booster else 0x8B0000)
+                    if target_is_booster:
+                        embed.set_footer(text="💎 Booster Exclusive Animated Profile")
+                    else:
+                        embed.set_footer(text="⚔️ Staff Exclusive Animated Profile")
+                    
+                    await ctx.send(file=file, embed=embed)
+                    return
+                await status.delete()
+            
+            # Static profile for regular members
+            profile_card = await create_profile_card(target, user_data, rank, achievements, target_is_booster)
             if profile_card:
                 file = discord.File(profile_card, filename="profile.png")
                 await ctx.send(file=file)
@@ -14350,16 +14600,17 @@ async def profile(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 @bot.hybrid_command(name="rank", description="View your rank card")
-@commands.cooldown(1, 10, commands.BucketType.user)  # Once per 10 seconds per user
+@commands.cooldown(1, 10, commands.BucketType.user)
 async def rank_cmd(ctx, member: discord.Member = None):
     """Display your rank card (same as level command)"""
     target = member or ctx.author
     user_data = get_user_data(target.id)
     rank = get_level_rank(target.id)
+    target_is_booster = is_booster(target)
     
     if PIL_AVAILABLE:
         try:
-            card_image = await create_level_card_image(target, user_data, rank)
+            card_image = await create_level_card_image(target, user_data, rank, target_is_booster)
             if card_image:
                 file = discord.File(card_image, filename="rank_card.png")
                 await ctx.send(file=file)
