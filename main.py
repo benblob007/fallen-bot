@@ -12122,57 +12122,65 @@ async def verify(ctx):
         await ctx.send(embed=embed, view=view, ephemeral=True)
 
 @bot.hybrid_command(name="level", description="Check your level and XP")
-@commands.cooldown(1, 10, commands.BucketType.user)  # 1 use per 10 seconds per user
+@commands.cooldown(1, 10, commands.BucketType.user)
 async def level(ctx, member: discord.Member = None):
-    """Display your Fallen level card"""
-    target = member or ctx.author
-    user_data = get_user_data(target.id)
-    rank = get_level_rank(target.id)
-    
-    # Try to create image card if PIL is available
-    if PIL_AVAILABLE:
-        try:
-            card_image = await create_level_card_image(target, user_data, rank)
-            if card_image:
-                file = discord.File(card_image, filename="level_card.png")
-                await ctx.send(file=file)
-                return
-        except Exception as e:
-            print(f"Level card image error: {e}")
-    
-    # Fallback to embed if PIL fails
-    embed = create_arcane_level_embed(target, user_data, rank)
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="animatedlevel", aliases=["alevel", "glevel"])
-@commands.cooldown(1, 30, commands.BucketType.user)  # Longer cooldown for GIF
-async def animated_level(ctx, member: discord.Member = None):
-    """Display animated level card with glowing progress bar"""
+    """Display your Fallen level card - Animated for Boosters & High Staff!"""
     target = member or ctx.author
     user_data = get_user_data(target.id)
     rank = get_level_rank(target.id)
     
     if not PIL_AVAILABLE:
-        return await ctx.send("❌ Image generation not available.")
+        embed = create_arcane_level_embed(target, user_data, rank)
+        return await ctx.send(embed=embed)
     
-    status = await ctx.send("✨ Generating animated card...")
+    # Check if target qualifies for animated card
+    # Boosters, High Staff, or has Server Booster role
+    is_booster = target.premium_since is not None  # Discord Nitro Booster
+    is_high_staff = any(role.name in HIGH_STAFF_ROLES for role in target.roles)
+    is_staff = any(role.name == STAFF_ROLE_NAME or role.name in HIGH_STAFF_ROLES for role in target.roles)
+    
+    # Also check for "Fallen Ascendant" role (server booster role)
+    booster_role_names = ["Fallen Ascendant", "Server Booster", "Nitro Booster", "Booster"]
+    has_booster_role = any(role.name in booster_role_names for role in target.roles)
+    
+    qualifies_for_animated = is_booster or has_booster_role or is_high_staff
     
     try:
-        card_image = await create_animated_level_card(target, user_data, rank)
+        if qualifies_for_animated:
+            # Show loading message for animated card
+            status = await ctx.send("✨ Generating animated card...")
+            
+            card_image = await create_animated_level_card(target, user_data, rank)
+            if card_image:
+                file = discord.File(card_image, filename="level_card.gif")
+                await status.delete()
+                
+                # Add a small indicator that they have premium card
+                embed = discord.Embed(color=0x8B0000)
+                if is_booster or has_booster_role:
+                    embed.set_footer(text="💎 Booster Exclusive Animated Card")
+                else:
+                    embed.set_footer(text="⚔️ Staff Exclusive Animated Card")
+                
+                await ctx.send(file=file, embed=embed)
+                return
+            else:
+                await status.delete()
+                # Fall through to static card
+        
+        # Static card for regular members (or fallback)
+        card_image = await create_level_card_image(target, user_data, rank)
         if card_image:
-            file = discord.File(card_image, filename="level_card.gif")
-            await status.delete()
+            file = discord.File(card_image, filename="level_card.png")
             await ctx.send(file=file)
         else:
-            await status.edit(content="❌ Could not generate animated card. Using static version...")
-            card_image = await create_level_card_image(target, user_data, rank)
-            if card_image:
-                file = discord.File(card_image, filename="level_card.png")
-                await ctx.send(file=file)
+            embed = create_arcane_level_embed(target, user_data, rank)
+            await ctx.send(embed=embed)
+            
     except Exception as e:
-        print(f"Animated level card error: {e}")
-        await status.edit(content="❌ Error generating animated card.")
+        print(f"Level card error: {e}")
+        embed = create_arcane_level_embed(target, user_data, rank)
+        await ctx.send(embed=embed)
 
 
 @bot.command(name="setlevelbackground", description="Admin: Set the level card banner image")
