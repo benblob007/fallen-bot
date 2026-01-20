@@ -1291,30 +1291,30 @@ def create_arcane_level_embed(member, user_data, rank):
     return embed
 
 async def create_level_card_image(member, user_data, rank, is_booster_user=False):
-    """Create a custom image-based level card with background and rank borders"""
+    """Create a custom image-based level card matching The Fallen template"""
     if not PIL_AVAILABLE:
         print("PIL not available for level card")
         return None
     
     total_xp = user_data['xp']
-    # Calculate level from total XP (continuous leveling)
     lvl, xp_into_level = get_level_from_xp(total_xp)
     xp_needed = calculate_next_level_xp(lvl)
     progress = min(1.0, xp_into_level / xp_needed) if xp_needed > 0 else 0
     
-    # Get rank border style - Boosters get exclusive diamond border!
+    # Get rank title for badge
     if is_booster_user:
         border_style = get_booster_border()
     else:
         border_style = get_rank_border(rank)
+    rank_title = border_style.get("title", "Member")
     
-    # Card dimensions
+    # Card dimensions - match the template
     width, height = 934, 282
     
-    # Try to load custom background
+    # Try to load the template background
     background = None
     
-    # PRIORITY 1: Check for user's custom background (from shop purchase)
+    # Check for user's custom background first
     user_custom_bg = user_data.get("custom_level_bg")
     if user_custom_bg:
         try:
@@ -1324,23 +1324,21 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
                         img_data = await resp.read()
                         background = Image.open(BytesIO(img_data)).convert("RGBA")
                         background = background.resize((width, height), Image.Resampling.LANCZOS)
-                        print(f"Loaded user custom background from URL")
         except Exception as e:
             print(f"Failed to load user custom background: {e}")
     
-    # PRIORITY 2: Check for local file in multiple locations (Discloud compatibility)
+    # Check for local template file
     if background is None:
         for path in LEVEL_CARD_PATHS:
             if os.path.exists(path):
                 try:
                     background = Image.open(path).convert("RGBA")
                     background = background.resize((width, height), Image.Resampling.LANCZOS)
-                    print(f"Loaded level background from: {path}")
                     break
                 except Exception as e:
                     print(f"Failed to load {path}: {e}")
     
-    # PRIORITY 3: Check for global URL if no local file found
+    # Check for URL background
     if background is None and LEVEL_CARD_BACKGROUND:
         try:
             async with aiohttp.ClientSession() as session:
@@ -1349,43 +1347,32 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
                         img_data = await resp.read()
                         background = Image.open(BytesIO(img_data)).convert("RGBA")
                         background = background.resize((width, height), Image.Resampling.LANCZOS)
-                        print(f"Loaded level background from URL")
         except Exception as e:
             print(f"Failed to load background URL: {e}")
     
-    # If still no background, return None to use embed fallback
     if background is None:
         print("No level background found, using embed fallback")
         return None
     
-    # Create base card with background
+    # Use the template as base (no overlay - template already has the design)
     card = background.copy()
-    # Add dark overlay for text readability
-    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 100))
-    card = Image.alpha_composite(card, overlay)
-    
     draw = ImageDraw.Draw(card)
     
-    # Try to load fonts (fallback to default if not available)
+    # Load fonts
     try:
-        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
-        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
+        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
     except:
-        font_large = ImageFont.load_default()
-        font_medium = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-        font_title = ImageFont.load_default()
+        font_username = font_handle = font_badge = font_label = font_value = ImageFont.load_default()
     
-    # Avatar position
-    avatar_size = 180
-    avatar_x, avatar_y = 50, 51
+    # ========== AVATAR ==========
+    # Position based on template - circular area on the left
+    avatar_size = 140
+    avatar_x, avatar_y = 47, 48  # Centered in the circle area
     
-    # Draw custom rank border
-    draw_rank_border(draw, card, avatar_x, avatar_y, avatar_size, border_style)
-    
-    # Download and add avatar
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(str(member.display_avatar.url)) as resp:
@@ -1394,60 +1381,121 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
                     avatar = Image.open(BytesIO(avatar_data)).convert("RGBA")
                     avatar = avatar.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
                     
-                    # Create circular mask
+                    # Circular mask
                     mask = Image.new("L", (avatar_size, avatar_size), 0)
                     mask_draw = ImageDraw.Draw(mask)
                     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
                     
-                    # Paste avatar
                     card.paste(avatar, (avatar_x, avatar_y), mask)
                     draw = ImageDraw.Draw(card)
     except:
         pass
     
-    # Rank title badge (below avatar)
-    rank_title = border_style.get("title", "Member")
-    title_color = border_style["color"]
-    draw.text((avatar_x + 40, avatar_y + avatar_size + 5), rank_title, font=font_title, fill=title_color)
+    # ========== USERNAME PILL ==========
+    # Black rounded pill with username - positioned to the right of avatar
+    username = member.display_name[:12]  # Limit length
+    pill_x, pill_y = 200, 55
+    pill_width, pill_height = 180, 35
     
-    # Username
-    draw.text((260, 60), member.display_name, font=font_large, fill=(255, 255, 255))
-    draw.text((260, 110), f"@{member.name}", font=font_small, fill=(180, 180, 180))
-    
-    # Stats with rank color
-    draw.text((260, 160), f"LEVEL", font=font_small, fill=(150, 150, 150))
-    draw.text((260, 185), str(lvl), font=font_large, fill=(255, 255, 255))
-    
-    draw.text((400, 160), f"RANK", font=font_small, fill=(150, 150, 150))
-    draw.text((400, 185), f"#{rank}", font=font_large, fill=title_color)  # Rank colored
-    
-    draw.text((550, 160), f"XP", font=font_small, fill=(150, 150, 150))
-    draw.text((550, 185), f"{format_number(xp_into_level)} / {format_number(xp_needed)}", font=font_medium, fill=(255, 255, 255))
-    
-    # Progress bar
-    bar_x, bar_y = 260, 240
-    bar_width, bar_height = 620, 25
-    bar_radius = 12
-    
-    # Background bar
+    # Draw pill background
     draw.rounded_rectangle(
-        [(bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height)],
-        radius=bar_radius,
-        fill=(60, 60, 65)
+        [(pill_x, pill_y), (pill_x + pill_width, pill_y + pill_height)],
+        radius=17,
+        fill=(0, 0, 0, 200)
     )
+    # Username text centered in pill
+    draw.text((pill_x + pill_width // 2, pill_y + pill_height // 2), username, 
+              font=font_username, fill=(255, 255, 255), anchor="mm")
     
-    # Progress fill
+    # ========== HANDLE PILL ==========
+    handle = f"@{member.name}"[:16]
+    handle_y = pill_y + pill_height + 5
+    handle_width = 140
+    handle_height = 25
+    
+    draw.rounded_rectangle(
+        [(pill_x + 20, handle_y), (pill_x + 20 + handle_width, handle_y + handle_height)],
+        radius=12,
+        fill=(0, 0, 0, 180)
+    )
+    draw.text((pill_x + 20 + handle_width // 2, handle_y + handle_height // 2), handle,
+              font=font_handle, fill=(200, 200, 200), anchor="mm")
+    
+    # ========== RANK BADGE (ELITE etc) ==========
+    badge_x, badge_y = 480, 55
+    badge_width, badge_height = 100, 30
+    
+    # Badge color based on rank
+    if is_booster_user:
+        badge_color = (0, 255, 255)  # Cyan for boosters
+        rank_title = "💎 BOOSTER"
+    elif rank == 1:
+        badge_color = (255, 215, 0)
+        rank_title = "CHAMPION"
+    elif rank <= 3:
+        badge_color = (192, 192, 192)
+        rank_title = "ELITE"
+    elif rank <= 10:
+        badge_color = (139, 0, 0)
+        rank_title = "TOP 10"
+    elif rank <= 25:
+        badge_color = (100, 100, 200)
+        rank_title = "RISING"
+    else:
+        badge_color = (100, 100, 100)
+        rank_title = "MEMBER"
+    
+    draw.rounded_rectangle(
+        [(badge_x, badge_y), (badge_x + badge_width, badge_y + badge_height)],
+        radius=15,
+        fill=(0, 0, 0, 200)
+    )
+    draw.text((badge_x + badge_width // 2, badge_y + badge_height // 2), rank_title,
+              font=font_badge, fill=badge_color, anchor="mm")
+    
+    # ========== STATS (LEVEL / RANK / XP) ==========
+    stats_y = 140
+    
+    # LEVEL
+    level_x = 240
+    draw.rounded_rectangle([(level_x, stats_y), (level_x + 80, stats_y + 28)], radius=14, fill=(0, 0, 0, 180))
+    draw.text((level_x + 40, stats_y + 14), "LEVEL", font=font_label, fill=(200, 200, 200), anchor="mm")
+    draw.text((level_x + 40, stats_y + 45), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+    
+    # RANK
+    rank_x = 370
+    draw.rounded_rectangle([(rank_x, stats_y), (rank_x + 80, stats_y + 28)], radius=14, fill=(0, 0, 0, 180))
+    draw.text((rank_x + 40, stats_y + 14), "RANK", font=font_label, fill=(200, 200, 200), anchor="mm")
+    draw.text((rank_x + 40, stats_y + 45), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
+    
+    # XP
+    xp_x = 500
+    draw.rounded_rectangle([(xp_x, stats_y), (xp_x + 60, stats_y + 28)], radius=14, fill=(0, 0, 0, 180))
+    draw.text((xp_x + 30, stats_y + 14), "XP", font=font_label, fill=(200, 200, 200), anchor="mm")
+    xp_text = f"{format_number(xp_into_level)}/{format_number(xp_needed)}"
+    draw.text((xp_x + 30, stats_y + 45), xp_text, font=font_handle, fill=(255, 255, 255), anchor="mm")
+    
+    # ========== PROGRESS BAR ==========
+    # Match the bar position in the template
+    bar_x, bar_y = 200, 225
+    bar_width, bar_height = 680, 28
+    bar_radius = 14
+    
+    # Progress fill (the template already has the bar background)
     fill_width = int(bar_width * progress)
-    if fill_width > 0:
+    if fill_width > bar_radius * 2:
+        # Use red/dark red for Fallen theme, cyan for boosters
+        bar_color = (0, 200, 200) if is_booster_user else (139, 0, 0)
         draw.rounded_rectangle(
             [(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)],
             radius=bar_radius,
-            fill=(114, 137, 218)  # Discord blurple
+            fill=bar_color
         )
     
-    # Progress percentage
+    # Progress percentage on the bar
     percent_text = f"{int(progress * 100)}%"
-    draw.text((bar_x + bar_width - 60, bar_y + 2), percent_text, font=font_small, fill=(255, 255, 255))
+    draw.text((bar_x + bar_width - 50, bar_y + bar_height // 2), percent_text, 
+              font=font_label, fill=(255, 255, 255), anchor="mm")
     
     # Save to bytes
     output = BytesIO()
@@ -1458,7 +1506,7 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
 
 
 async def create_animated_level_card(member, user_data, rank, is_booster_user=False):
-    """Create an animated GIF level card with glowing progress bar"""
+    """Create an animated GIF level card matching The Fallen template"""
     if not PIL_AVAILABLE:
         return None
     
@@ -1467,14 +1515,9 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
     xp_needed = calculate_next_level_xp(lvl)
     progress = min(1.0, xp_into_level / xp_needed) if xp_needed > 0 else 0
     
-    # Boosters get exclusive diamond border!
-    if is_booster_user:
-        border_style = get_booster_border()
-    else:
-        border_style = get_rank_border(rank)
     width, height = 934, 282
     
-    # Load background
+    # Load background template
     background = None
     for path in LEVEL_CARD_PATHS:
         if os.path.exists(path):
@@ -1490,81 +1533,112 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
     
     # Load fonts
     try:
-        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
-        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
+        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
     except:
-        font_large = font_medium = font_small = font_title = ImageFont.load_default()
+        font_username = font_handle = font_badge = font_label = font_value = ImageFont.load_default()
     
     # Download avatar once
     avatar_img = None
+    avatar_size = 140
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(str(member.display_avatar.url)) as resp:
                 if resp.status == 200:
                     avatar_data = await resp.read()
                     avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
-                    avatar_img = avatar_img.resize((180, 180), Image.Resampling.LANCZOS)
+                    avatar_img = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
     except:
         pass
     
+    # Rank badge setup
+    if is_booster_user:
+        badge_color = (0, 255, 255)
+        rank_title = "💎 BOOSTER"
+        bar_base_color = (0, 180, 180)
+    elif rank == 1:
+        badge_color = (255, 215, 0)
+        rank_title = "CHAMPION"
+        bar_base_color = (200, 170, 0)
+    elif rank <= 3:
+        badge_color = (192, 192, 192)
+        rank_title = "ELITE"
+        bar_base_color = (150, 150, 150)
+    elif rank <= 10:
+        badge_color = (139, 0, 0)
+        rank_title = "TOP 10"
+        bar_base_color = (139, 0, 0)
+    else:
+        badge_color = (100, 100, 100)
+        rank_title = "MEMBER"
+        bar_base_color = (139, 0, 0)
+    
     frames = []
-    frame_count = 15
+    frame_count = 12
     
     for frame_num in range(frame_count):
         card = background.copy()
-        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 100))
-        card = Image.alpha_composite(card, overlay)
         draw = ImageDraw.Draw(card)
         
-        avatar_size = 180
-        avatar_x, avatar_y = 50, 51
+        # Glow animation
+        glow = int(40 * (1 + 0.5 * math.sin(frame_num * 2 * math.pi / frame_count)))
         
-        draw_rank_border(draw, card, avatar_x, avatar_y, avatar_size, border_style)
-        
+        # Avatar
+        avatar_x, avatar_y = 47, 48
         if avatar_img:
             mask = Image.new("L", (avatar_size, avatar_size), 0)
-            mask_draw = ImageDraw.Draw(mask)
-            mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+            ImageDraw.Draw(mask).ellipse((0, 0, avatar_size, avatar_size), fill=255)
             card.paste(avatar_img, (avatar_x, avatar_y), mask)
             draw = ImageDraw.Draw(card)
         
-        rank_title = border_style.get("title", "Member")
-        title_color = border_style["color"]
-        draw.text((avatar_x + 40, avatar_y + avatar_size + 5), rank_title, font=font_title, fill=title_color)
+        # Username pill
+        username = member.display_name[:12]
+        pill_x, pill_y = 200, 55
+        pill_width, pill_height = 180, 35
+        draw.rounded_rectangle([(pill_x, pill_y), (pill_x + pill_width, pill_y + pill_height)], radius=17, fill=(0, 0, 0, 200))
+        draw.text((pill_x + pill_width // 2, pill_y + pill_height // 2), username, font=font_username, fill=(255, 255, 255), anchor="mm")
         
-        draw.text((260, 60), member.display_name, font=font_large, fill=(255, 255, 255))
-        draw.text((260, 110), f"@{member.name}", font=font_small, fill=(180, 180, 180))
+        # Handle pill
+        handle = f"@{member.name}"[:16]
+        handle_y = pill_y + pill_height + 5
+        draw.rounded_rectangle([(pill_x + 20, handle_y), (pill_x + 160, handle_y + 25)], radius=12, fill=(0, 0, 0, 180))
+        draw.text((pill_x + 90, handle_y + 12), handle, font=font_handle, fill=(200, 200, 200), anchor="mm")
         
-        draw.text((260, 160), f"LEVEL", font=font_small, fill=(150, 150, 150))
-        draw.text((260, 185), str(lvl), font=font_large, fill=(255, 255, 255))
-        draw.text((400, 160), f"RANK", font=font_small, fill=(150, 150, 150))
-        draw.text((400, 185), f"#{rank}", font=font_large, fill=title_color)
-        draw.text((550, 160), f"XP", font=font_small, fill=(150, 150, 150))
-        draw.text((550, 185), f"{format_number(xp_into_level)} / {format_number(xp_needed)}", font=font_medium, fill=(255, 255, 255))
+        # Animated rank badge with glow
+        badge_x, badge_y = 480, 55
+        anim_badge = (min(255, badge_color[0] + glow), min(255, badge_color[1] + glow), min(255, badge_color[2] + glow))
+        draw.rounded_rectangle([(badge_x, badge_y), (badge_x + 100, badge_y + 30)], radius=15, fill=(0, 0, 0, 200))
+        draw.text((badge_x + 50, badge_y + 15), rank_title, font=font_badge, fill=anim_badge, anchor="mm")
         
-        bar_x, bar_y = 260, 240
-        bar_width, bar_height = 620, 25
-        bar_radius = 12
+        # Stats
+        stats_y = 140
+        for i, (lbl, val, x) in enumerate([("LEVEL", str(lvl), 240), ("RANK", f"#{rank}", 370), ("XP", f"{format_number(xp_into_level)}", 500)]):
+            draw.rounded_rectangle([(x, stats_y), (x + 80, stats_y + 28)], radius=14, fill=(0, 0, 0, 180))
+            draw.text((x + 40, stats_y + 14), lbl, font=font_label, fill=(200, 200, 200), anchor="mm")
+            color = anim_badge if lbl == "RANK" else (255, 255, 255)
+            draw.text((x + 40, stats_y + 45), val, font=font_value, fill=color, anchor="mm")
         
-        draw.rounded_rectangle([(bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height)], radius=bar_radius, fill=(60, 60, 65))
+        # Animated progress bar
+        bar_x, bar_y = 200, 225
+        bar_width, bar_height = 680, 28
+        bar_radius = 14
         
-        glow = int(30 * (1 + 0.5 * math.sin(frame_num * 2 * math.pi / frame_count)))
         fill_width = int(bar_width * progress)
-        
-        if fill_width > 0:
-            r, g, b = min(255, 114 + glow), min(255, 137 + glow), min(255, 218 + glow)
-            draw.rounded_rectangle([(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)], radius=bar_radius, fill=(r, g, b))
+        if fill_width > bar_radius * 2:
+            anim_bar = (min(255, bar_base_color[0] + glow), min(255, bar_base_color[1] + glow), min(255, bar_base_color[2] + glow))
+            draw.rounded_rectangle([(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)], radius=bar_radius, fill=anim_bar)
             
+            # Moving shine effect
             shine_pos = int((frame_num / frame_count) * fill_width)
             if 10 < shine_pos < fill_width - 10:
-                draw.line([(bar_x + shine_pos, bar_y + 3), (bar_x + shine_pos + 3, bar_y + bar_height - 3)], fill=(255, 255, 255), width=2)
+                draw.line([(bar_x + shine_pos, bar_y + 4), (bar_x + shine_pos + 4, bar_y + bar_height - 4)], fill=(255, 255, 255), width=3)
         
-        draw.text((bar_x + bar_width - 60, bar_y + 2), f"{int(progress * 100)}%", font=font_small, fill=(255, 255, 255))
+        draw.text((bar_x + bar_width - 50, bar_y + bar_height // 2), f"{int(progress * 100)}%", font=font_label, fill=(255, 255, 255), anchor="mm")
         
-        rgb_card = card.convert("RGB")
-        frames.append(rgb_card)
+        frames.append(card.convert("RGB"))
     
     output = BytesIO()
     frames[0].save(output, format="GIF", save_all=True, append_images=frames[1:], duration=80, loop=0)
@@ -22709,36 +22783,20 @@ if __name__ == "__main__":
     import asyncio
     import time
     
-    async def run_bot():
-        """Run bot with automatic reconnection"""
-        retry_count = 0
-        max_retries = 5
-        
-        while retry_count < max_retries:
-            try:
-                print(f"Starting bot... (attempt {retry_count + 1})")
-                await bot.start(TOKEN)
-            except discord.errors.HTTPException as e:
-                if e.status == 429:
-                    retry_after = getattr(e, 'retry_after', 60)
-                    print(f"Rate limited! Waiting {retry_after} seconds...")
-                    await asyncio.sleep(retry_after)
-                    retry_count += 1
-                else:
-                    print(f"HTTP error: {e}")
-                    await asyncio.sleep(30)
-                    retry_count += 1
-            except Exception as e:
-                print(f"Bot error: {e}")
-                await asyncio.sleep(30)
-                retry_count += 1
-            finally:
-                if not bot.is_closed():
-                    await bot.close()
-        
-        print("Max retries reached. Exiting.")
-    
+    # Simple startup - let Render handle restarts
+    print("Starting The Fallen Bot...")
     try:
-        asyncio.run(run_bot())
-    except KeyboardInterrupt:
-        print("Bot stopped by user.")
+        bot.run(TOKEN)
+    except discord.errors.HTTPException as e:
+        if e.status == 429:
+            print(f"Rate limited! Waiting before restart...")
+            import time
+            time.sleep(60)
+        else:
+            print(f"HTTP error: {e}")
+    except discord.errors.LoginFailure as e:
+        print(f"Login failed - check your token: {e}")
+    except Exception as e:
+        print(f"Bot error: {e}")
+    finally:
+        print("Bot stopped.")
