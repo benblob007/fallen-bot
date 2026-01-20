@@ -1291,7 +1291,7 @@ def create_arcane_level_embed(member, user_data, rank):
     return embed
 
 async def create_level_card_image(member, user_data, rank, is_booster_user=False):
-    """Create a custom image-based level card matching The Fallen template"""
+    """Create a level card by overlaying content on The Fallen template"""
     if not PIL_AVAILABLE:
         print("PIL not available for level card")
         return None
@@ -1301,17 +1301,10 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
     xp_needed = calculate_next_level_xp(lvl)
     progress = min(1.0, xp_into_level / xp_needed) if xp_needed > 0 else 0
     
-    # Get rank title for badge
-    if is_booster_user:
-        border_style = get_booster_border()
-    else:
-        border_style = get_rank_border(rank)
-    rank_title = border_style.get("title", "Member")
-    
-    # Card dimensions - match the template
+    # Card dimensions - match the template exactly
     width, height = 934, 282
     
-    # Try to load the template background
+    # Load the template background
     background = None
     
     # Check for user's custom background first
@@ -1354,24 +1347,26 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
         print("No level background found, using embed fallback")
         return None
     
-    # Use the template as base (no overlay - template already has the design)
+    # Use the template as base - DON'T add overlay, template is pre-designed
     card = background.copy()
     draw = ImageDraw.Draw(card)
     
     # Load fonts
     try:
-        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
-        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
+        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
         font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
     except:
-        font_username = font_handle = font_badge = font_label = font_value = ImageFont.load_default()
+        font_username = font_handle = font_badge = font_label = font_value = font_percent = ImageFont.load_default()
     
     # ========== AVATAR ==========
-    # Position based on template - circular area on the left
-    avatar_size = 140
-    avatar_x, avatar_y = 47, 48  # Centered in the circle area
+    # Position: centered in the pre-made circle on the left
+    # The circle in template appears to be around x=27-187, y=27-187 (160px diameter)
+    avatar_size = 152
+    avatar_x, avatar_y = 32, 40
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -1391,111 +1386,75 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
     except:
         pass
     
-    # ========== USERNAME PILL ==========
-    # Black rounded pill with username - positioned to the right of avatar
-    username = member.display_name[:12]  # Limit length
-    pill_x, pill_y = 200, 55
-    pill_width, pill_height = 180, 35
+    # ========== TEXT ONLY - No boxes, template has them ==========
     
-    # Draw pill background
-    draw.rounded_rectangle(
-        [(pill_x, pill_y), (pill_x + pill_width, pill_y + pill_height)],
-        radius=17,
-        fill=(0, 0, 0, 200)
-    )
-    # Username text centered in pill
-    draw.text((pill_x + pill_width // 2, pill_y + pill_height // 2), username, 
-              font=font_username, fill=(255, 255, 255), anchor="mm")
+    # Username - centered in the username pill (approx x=270, y=60)
+    username = member.display_name[:14]
+    draw.text((295, 58), username, font=font_username, fill=(255, 255, 255), anchor="mm")
     
-    # ========== HANDLE PILL ==========
-    handle = f"@{member.name}"[:16]
-    handle_y = pill_y + pill_height + 5
-    handle_width = 140
-    handle_height = 25
+    # Handle - centered in the handle pill (approx x=265, y=95)
+    handle = f"@{member.name}"[:18]
+    draw.text((275, 93), handle, font=font_handle, fill=(255, 255, 255), anchor="mm")
     
-    draw.rounded_rectangle(
-        [(pill_x + 20, handle_y), (pill_x + 20 + handle_width, handle_y + handle_height)],
-        radius=12,
-        fill=(0, 0, 0, 180)
-    )
-    draw.text((pill_x + 20 + handle_width // 2, handle_y + handle_height // 2), handle,
-              font=font_handle, fill=(200, 200, 200), anchor="mm")
-    
-    # ========== RANK BADGE (ELITE etc) ==========
-    badge_x, badge_y = 480, 55
-    badge_width, badge_height = 100, 30
-    
-    # Badge color based on rank
+    # Rank badge text (ELITE, CHAMPION, etc) - position approx x=490, y=60
     if is_booster_user:
-        badge_color = (0, 255, 255)  # Cyan for boosters
-        rank_title = "💎 BOOSTER"
+        badge_text = "💎 BOOSTER"
+        badge_color = (0, 255, 255)
     elif rank == 1:
+        badge_text = "CHAMPION"
         badge_color = (255, 215, 0)
-        rank_title = "CHAMPION"
     elif rank <= 3:
-        badge_color = (192, 192, 192)
-        rank_title = "ELITE"
+        badge_text = "ELITE"
+        badge_color = (255, 255, 255)
     elif rank <= 10:
-        badge_color = (139, 0, 0)
-        rank_title = "TOP 10"
+        badge_text = "TOP 10"
+        badge_color = (255, 100, 100)
     elif rank <= 25:
-        badge_color = (100, 100, 200)
-        rank_title = "RISING"
+        badge_text = "RISING"
+        badge_color = (200, 200, 255)
     else:
-        badge_color = (100, 100, 100)
-        rank_title = "MEMBER"
+        badge_text = "MEMBER"
+        badge_color = (200, 200, 200)
     
-    draw.rounded_rectangle(
-        [(badge_x, badge_y), (badge_x + badge_width, badge_y + badge_height)],
-        radius=15,
-        fill=(0, 0, 0, 200)
-    )
-    draw.text((badge_x + badge_width // 2, badge_y + badge_height // 2), rank_title,
-              font=font_badge, fill=badge_color, anchor="mm")
+    draw.text((500, 60), badge_text, font=font_badge, fill=badge_color, anchor="mm")
     
-    # ========== STATS (LEVEL / RANK / XP) ==========
-    stats_y = 140
+    # LEVEL value - below the "LEVEL" label in template (approx x=265, y=165)
+    draw.text((273, 168), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
     
-    # LEVEL
-    level_x = 240
-    draw.rounded_rectangle([(level_x, stats_y), (level_x + 80, stats_y + 28)], radius=14, fill=(0, 0, 0, 180))
-    draw.text((level_x + 40, stats_y + 14), "LEVEL", font=font_label, fill=(200, 200, 200), anchor="mm")
-    draw.text((level_x + 40, stats_y + 45), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+    # RANK value - below the "RANK" label (approx x=400, y=165)
+    draw.text((408, 168), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
     
-    # RANK
-    rank_x = 370
-    draw.rounded_rectangle([(rank_x, stats_y), (rank_x + 80, stats_y + 28)], radius=14, fill=(0, 0, 0, 180))
-    draw.text((rank_x + 40, stats_y + 14), "RANK", font=font_label, fill=(200, 200, 200), anchor="mm")
-    draw.text((rank_x + 40, stats_y + 45), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
+    # XP value - below the "XP" label (approx x=540, y=165)
+    xp_display = format_number(xp_into_level)
+    draw.text((545, 168), xp_display, font=font_value, fill=(255, 255, 255), anchor="mm")
     
-    # XP
-    xp_x = 500
-    draw.rounded_rectangle([(xp_x, stats_y), (xp_x + 60, stats_y + 28)], radius=14, fill=(0, 0, 0, 180))
-    draw.text((xp_x + 30, stats_y + 14), "XP", font=font_label, fill=(200, 200, 200), anchor="mm")
-    xp_text = f"{format_number(xp_into_level)}/{format_number(xp_needed)}"
-    draw.text((xp_x + 30, stats_y + 45), xp_text, font=font_handle, fill=(255, 255, 255), anchor="mm")
+    # ========== PROGRESS BAR FILL ==========
+    # The bar track is already in template, just fill it
+    # Bar position based on template: approx x=200 to x=880, y=235 to y=260
+    bar_x = 203
+    bar_y = 238
+    bar_width = 673
+    bar_height = 22
+    bar_radius = 11
     
-    # ========== PROGRESS BAR ==========
-    # Match the bar position in the template
-    bar_x, bar_y = 200, 225
-    bar_width, bar_height = 680, 28
-    bar_radius = 14
-    
-    # Progress fill (the template already has the bar background)
     fill_width = int(bar_width * progress)
     if fill_width > bar_radius * 2:
-        # Use red/dark red for Fallen theme, cyan for boosters
-        bar_color = (0, 200, 200) if is_booster_user else (139, 0, 0)
+        # Use cyan for boosters, dark red for normal
+        if is_booster_user:
+            bar_color = (0, 220, 220)
+        else:
+            bar_color = (139, 0, 0)
+        
         draw.rounded_rectangle(
             [(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)],
             radius=bar_radius,
             fill=bar_color
         )
     
-    # Progress percentage on the bar
+    # Progress percentage - right side of bar
     percent_text = f"{int(progress * 100)}%"
-    draw.text((bar_x + bar_width - 50, bar_y + bar_height // 2), percent_text, 
-              font=font_label, fill=(255, 255, 255), anchor="mm")
+    draw.text((bar_x + bar_width + 30, bar_y + bar_height // 2), percent_text, 
+              font=font_percent, fill=(255, 255, 255), anchor="mm")
     
     # Save to bytes
     output = BytesIO()
@@ -1506,7 +1465,7 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
 
 
 async def create_animated_level_card(member, user_data, rank, is_booster_user=False):
-    """Create an animated GIF level card matching The Fallen template"""
+    """Create an animated GIF level card overlaying content on The Fallen template"""
     if not PIL_AVAILABLE:
         return None
     
@@ -1533,17 +1492,17 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
     
     # Load fonts
     try:
-        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
-        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
-        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
     except:
-        font_username = font_handle = font_badge = font_label = font_value = ImageFont.load_default()
+        font_username = font_handle = font_badge = font_value = font_percent = ImageFont.load_default()
     
     # Download avatar once
     avatar_img = None
-    avatar_size = 140
+    avatar_size = 152
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(str(member.display_avatar.url)) as resp:
@@ -1554,27 +1513,22 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
     except:
         pass
     
-    # Rank badge setup
+    # Setup badge info
     if is_booster_user:
-        badge_color = (0, 255, 255)
-        rank_title = "💎 BOOSTER"
-        bar_base_color = (0, 180, 180)
+        badge_text = "💎 BOOSTER"
+        base_color = (0, 220, 220)
     elif rank == 1:
-        badge_color = (255, 215, 0)
-        rank_title = "CHAMPION"
-        bar_base_color = (200, 170, 0)
+        badge_text = "CHAMPION"
+        base_color = (255, 215, 0)
     elif rank <= 3:
-        badge_color = (192, 192, 192)
-        rank_title = "ELITE"
-        bar_base_color = (150, 150, 150)
+        badge_text = "ELITE"
+        base_color = (255, 255, 255)
     elif rank <= 10:
-        badge_color = (139, 0, 0)
-        rank_title = "TOP 10"
-        bar_base_color = (139, 0, 0)
+        badge_text = "TOP 10"
+        base_color = (255, 100, 100)
     else:
-        badge_color = (100, 100, 100)
-        rank_title = "MEMBER"
-        bar_base_color = (139, 0, 0)
+        badge_text = "MEMBER"
+        base_color = (200, 200, 200)
     
     frames = []
     frame_count = 12
@@ -1585,58 +1539,48 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
         
         # Glow animation
         glow = int(40 * (1 + 0.5 * math.sin(frame_num * 2 * math.pi / frame_count)))
+        anim_color = (min(255, base_color[0] + glow), min(255, base_color[1] + glow), min(255, base_color[2] + glow))
         
         # Avatar
-        avatar_x, avatar_y = 47, 48
         if avatar_img:
             mask = Image.new("L", (avatar_size, avatar_size), 0)
             ImageDraw.Draw(mask).ellipse((0, 0, avatar_size, avatar_size), fill=255)
-            card.paste(avatar_img, (avatar_x, avatar_y), mask)
+            card.paste(avatar_img, (32, 40), mask)
             draw = ImageDraw.Draw(card)
         
-        # Username pill
-        username = member.display_name[:12]
-        pill_x, pill_y = 200, 55
-        pill_width, pill_height = 180, 35
-        draw.rounded_rectangle([(pill_x, pill_y), (pill_x + pill_width, pill_y + pill_height)], radius=17, fill=(0, 0, 0, 200))
-        draw.text((pill_x + pill_width // 2, pill_y + pill_height // 2), username, font=font_username, fill=(255, 255, 255), anchor="mm")
+        # Username text
+        username = member.display_name[:14]
+        draw.text((295, 58), username, font=font_username, fill=(255, 255, 255), anchor="mm")
         
-        # Handle pill
-        handle = f"@{member.name}"[:16]
-        handle_y = pill_y + pill_height + 5
-        draw.rounded_rectangle([(pill_x + 20, handle_y), (pill_x + 160, handle_y + 25)], radius=12, fill=(0, 0, 0, 180))
-        draw.text((pill_x + 90, handle_y + 12), handle, font=font_handle, fill=(200, 200, 200), anchor="mm")
+        # Handle text
+        handle = f"@{member.name}"[:18]
+        draw.text((275, 93), handle, font=font_handle, fill=(255, 255, 255), anchor="mm")
         
-        # Animated rank badge with glow
-        badge_x, badge_y = 480, 55
-        anim_badge = (min(255, badge_color[0] + glow), min(255, badge_color[1] + glow), min(255, badge_color[2] + glow))
-        draw.rounded_rectangle([(badge_x, badge_y), (badge_x + 100, badge_y + 30)], radius=15, fill=(0, 0, 0, 200))
-        draw.text((badge_x + 50, badge_y + 15), rank_title, font=font_badge, fill=anim_badge, anchor="mm")
+        # Animated badge text
+        draw.text((500, 60), badge_text, font=font_badge, fill=anim_color, anchor="mm")
         
-        # Stats
-        stats_y = 140
-        for i, (lbl, val, x) in enumerate([("LEVEL", str(lvl), 240), ("RANK", f"#{rank}", 370), ("XP", f"{format_number(xp_into_level)}", 500)]):
-            draw.rounded_rectangle([(x, stats_y), (x + 80, stats_y + 28)], radius=14, fill=(0, 0, 0, 180))
-            draw.text((x + 40, stats_y + 14), lbl, font=font_label, fill=(200, 200, 200), anchor="mm")
-            color = anim_badge if lbl == "RANK" else (255, 255, 255)
-            draw.text((x + 40, stats_y + 45), val, font=font_value, fill=color, anchor="mm")
+        # Stats values
+        draw.text((273, 168), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+        draw.text((408, 168), f"#{rank}", font=font_value, fill=anim_color, anchor="mm")
+        draw.text((545, 168), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
         
-        # Animated progress bar
-        bar_x, bar_y = 200, 225
-        bar_width, bar_height = 680, 28
-        bar_radius = 14
+        # Animated progress bar fill
+        bar_x, bar_y = 203, 238
+        bar_width, bar_height = 673, 22
+        bar_radius = 11
         
         fill_width = int(bar_width * progress)
         if fill_width > bar_radius * 2:
-            anim_bar = (min(255, bar_base_color[0] + glow), min(255, bar_base_color[1] + glow), min(255, bar_base_color[2] + glow))
-            draw.rounded_rectangle([(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)], radius=bar_radius, fill=anim_bar)
+            bar_color = anim_color if is_booster_user else (min(255, 139 + glow // 2), 0, 0)
+            draw.rounded_rectangle([(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)], radius=bar_radius, fill=bar_color)
             
             # Moving shine effect
             shine_pos = int((frame_num / frame_count) * fill_width)
             if 10 < shine_pos < fill_width - 10:
-                draw.line([(bar_x + shine_pos, bar_y + 4), (bar_x + shine_pos + 4, bar_y + bar_height - 4)], fill=(255, 255, 255), width=3)
+                draw.line([(bar_x + shine_pos, bar_y + 3), (bar_x + shine_pos + 4, bar_y + bar_height - 3)], fill=(255, 255, 255, 180), width=3)
         
-        draw.text((bar_x + bar_width - 50, bar_y + bar_height // 2), f"{int(progress * 100)}%", font=font_label, fill=(255, 255, 255), anchor="mm")
+        # Percentage
+        draw.text((bar_x + bar_width + 30, bar_y + bar_height // 2), f"{int(progress * 100)}%", font=font_percent, fill=(255, 255, 255), anchor="mm")
         
         frames.append(card.convert("RGB"))
     
@@ -11535,13 +11479,20 @@ class LevelCommands(commands.GroupCog, name="lvl"):
 
 # Add cogs to bot
 async def setup_cogs():
-    await bot.add_cog(EloCommands(bot))
-    await bot.add_cog(InactivityCommands(bot))
-    await bot.add_cog(ImmunityCommands(bot))
-    await bot.add_cog(EventCommands(bot))
-    await bot.add_cog(RosterCommands(bot))
-    # TournamentCommands removed - using new V3 system
-    await bot.add_cog(LevelCommands(bot))
+    cogs_to_add = [
+        EloCommands(bot),
+        InactivityCommands(bot),
+        ImmunityCommands(bot),
+        EventCommands(bot),
+        RosterCommands(bot),
+        LevelCommands(bot),
+    ]
+    
+    for cog in cogs_to_add:
+        try:
+            await bot.add_cog(cog)
+        except Exception as e:
+            print(f"Cog already registered or error: {e}")
 
 @bot.event
 async def on_ready():
