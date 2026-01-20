@@ -76,20 +76,22 @@ LEGACY_FILE = "legacy_data.json"
 EMBEDS_FILE = "custom_embeds.json"      
 
 # --- LEVEL CARD SETTINGS ---
-# Option 1: Set URL to your background image (RECOMMENDED for Discloud)
-LEVEL_CARD_BACKGROUND = "https://blogger.googleusercontent.com/img/a/AVvXsEhrGLEr5QVeeFYmbJfJMATHt7C7Kgnoe_tPc3TVls9xqg8m-4slNuG4vHdnhB_yjrM0_X0jkp4dHetJEPCliukqbw3DLpsUcOluAHWsCty7Jc9616REfIkd1P6da_67MSyVB-qDDQ9plnT_ICRcY6HnFnRmTs3t4sv88Clu-RP0r7pEn1bskrlny8qH3teL"
+# LOCAL FILE ONLY - use your template with black pills
+LEVEL_CARD_BACKGROUND = None  # Disabled - use local file
 
-# Option 2: Local file - will check multiple locations for Discloud compatibility
-LEVEL_CARD_FILE = "level_background.png"
+# Local file name - upload LevelFcard.png to your bot folder
+LEVEL_CARD_FILE = "LevelFcard.png"
 
 # Possible file locations (for different hosts)
 LEVEL_CARD_PATHS = [
-    "level_background.png",
-    "./level_background.png",
-    "/opt/render/project/src/level_background.png",  # Render path
-    "/home/user_discloud/level_background.png",
-    "/app/level_background.png",
-    os.path.join(os.path.dirname(__file__), "level_background.png"),
+    "LevelFcard.png",
+    "./LevelFcard.png",
+    "levelcard.png",
+    "./levelcard.png",
+    "/opt/render/project/src/LevelFcard.png",
+    "/opt/render/project/src/levelcard.png",
+    os.path.join(os.path.dirname(__file__), "LevelFcard.png"),
+    os.path.join(os.path.dirname(__file__), "levelcard.png"),
 ]
 
 # --- ECONOMY SETTINGS ---
