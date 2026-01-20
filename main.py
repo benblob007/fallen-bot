@@ -1347,26 +1347,25 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
         print("No level background found, using embed fallback")
         return None
     
-    # Use the template as base - DON'T add overlay, template is pre-designed
+    # Use the template as base
     card = background.copy()
     draw = ImageDraw.Draw(card)
     
     # Load fonts
     try:
-        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
-        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
-        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-        font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
+        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
     except:
         font_username = font_handle = font_badge = font_label = font_value = font_percent = ImageFont.load_default()
     
     # ========== AVATAR ==========
-    # Position: centered in the pre-made circle on the left
-    # The circle in template appears to be around x=27-187, y=27-187 (160px diameter)
-    avatar_size = 152
-    avatar_x, avatar_y = 32, 40
+    # Centered in the circular area on the left
+    avatar_size = 155
+    avatar_x, avatar_y = 30, 38
     
     try:
         async with aiohttp.ClientSession() as session:
@@ -1386,17 +1385,17 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
     except:
         pass
     
-    # ========== TEXT ONLY - No boxes, template has them ==========
+    # ========== TEXT POSITIONS (centered in template's pre-made pills) ==========
     
-    # Username - centered in the username pill (approx x=270, y=60)
-    username = member.display_name[:14]
-    draw.text((295, 58), username, font=font_username, fill=(255, 255, 255), anchor="mm")
+    # Username - in the top username pill
+    username = member.display_name[:12]
+    draw.text((290, 65), username, font=font_username, fill=(255, 255, 255), anchor="mm")
     
-    # Handle - centered in the handle pill (approx x=265, y=95)
-    handle = f"@{member.name}"[:18]
-    draw.text((275, 93), handle, font=font_handle, fill=(255, 255, 255), anchor="mm")
+    # Handle - in the smaller handle pill below
+    handle = f"@{member.name}"[:15]
+    draw.text((270, 102), handle, font=font_handle, fill=(200, 200, 200), anchor="mm")
     
-    # Rank badge text (ELITE, CHAMPION, etc) - position approx x=490, y=60
+    # Badge (ELITE/CHAMPION/BOOSTER) - in the right badge pill
     if is_booster_user:
         badge_text = "💎 BOOSTER"
         badge_color = (0, 255, 255)
@@ -1416,44 +1415,40 @@ async def create_level_card_image(member, user_data, rank, is_booster_user=False
         badge_text = "MEMBER"
         badge_color = (200, 200, 200)
     
-    draw.text((500, 60), badge_text, font=font_badge, fill=badge_color, anchor="mm")
+    draw.text((440, 65), badge_text, font=font_badge, fill=badge_color, anchor="mm")
     
-    # LEVEL value - below the "LEVEL" label in template (approx x=265, y=165)
-    draw.text((273, 168), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+    # LEVEL - label and value in the LEVEL pill
+    draw.text((260, 143), "LEVEL", font=font_label, fill=(180, 180, 180), anchor="mm")
+    draw.text((260, 165), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
     
-    # RANK value - below the "RANK" label (approx x=400, y=165)
-    draw.text((408, 168), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
+    # RANK - label and value in the RANK pill  
+    draw.text((380, 143), "RANK", font=font_label, fill=(180, 180, 180), anchor="mm")
+    draw.text((380, 165), f"#{rank}", font=font_value, fill=badge_color, anchor="mm")
     
-    # XP value - below the "XP" label (approx x=540, y=165)
-    xp_display = format_number(xp_into_level)
-    draw.text((545, 168), xp_display, font=font_value, fill=(255, 255, 255), anchor="mm")
+    # XP - label and value in the XP pill
+    draw.text((510, 143), "XP", font=font_label, fill=(180, 180, 180), anchor="mm")
+    draw.text((510, 165), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
     
     # ========== PROGRESS BAR FILL ==========
-    # The bar track is already in template, just fill it
-    # Bar position based on template: approx x=200 to x=880, y=235 to y=260
-    bar_x = 203
-    bar_y = 238
-    bar_width = 673
-    bar_height = 22
-    bar_radius = 11
+    # Fill inside the template's progress bar track
+    bar_x = 205
+    bar_y = 230
+    bar_width = 668
+    bar_height = 20
+    bar_radius = 10
     
     fill_width = int(bar_width * progress)
     if fill_width > bar_radius * 2:
-        # Use cyan for boosters, dark red for normal
-        if is_booster_user:
-            bar_color = (0, 220, 220)
-        else:
-            bar_color = (139, 0, 0)
-        
+        bar_color = (0, 220, 220) if is_booster_user else (139, 0, 0)
         draw.rounded_rectangle(
             [(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)],
             radius=bar_radius,
             fill=bar_color
         )
     
-    # Progress percentage - right side of bar
+    # Percentage - to the right of the bar
     percent_text = f"{int(progress * 100)}%"
-    draw.text((bar_x + bar_width + 30, bar_y + bar_height // 2), percent_text, 
+    draw.text((bar_x + bar_width + 35, bar_y + bar_height // 2), percent_text, 
               font=font_percent, fill=(255, 255, 255), anchor="mm")
     
     # Save to bytes
@@ -1492,17 +1487,18 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
     
     # Load fonts
     try:
-        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
-        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
-        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-        font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        font_username = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+        font_handle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        font_badge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
+        font_value = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_percent = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
     except:
-        font_username = font_handle = font_badge = font_value = font_percent = ImageFont.load_default()
+        font_username = font_handle = font_badge = font_label = font_value = font_percent = ImageFont.load_default()
     
     # Download avatar once
     avatar_img = None
-    avatar_size = 152
+    avatar_size = 155
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(str(member.display_avatar.url)) as resp:
@@ -1545,29 +1541,34 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
         if avatar_img:
             mask = Image.new("L", (avatar_size, avatar_size), 0)
             ImageDraw.Draw(mask).ellipse((0, 0, avatar_size, avatar_size), fill=255)
-            card.paste(avatar_img, (32, 40), mask)
+            card.paste(avatar_img, (30, 38), mask)
             draw = ImageDraw.Draw(card)
         
-        # Username text
-        username = member.display_name[:14]
-        draw.text((295, 58), username, font=font_username, fill=(255, 255, 255), anchor="mm")
+        # Username
+        username = member.display_name[:12]
+        draw.text((290, 65), username, font=font_username, fill=(255, 255, 255), anchor="mm")
         
-        # Handle text
-        handle = f"@{member.name}"[:18]
-        draw.text((275, 93), handle, font=font_handle, fill=(255, 255, 255), anchor="mm")
+        # Handle
+        handle = f"@{member.name}"[:15]
+        draw.text((270, 102), handle, font=font_handle, fill=(200, 200, 200), anchor="mm")
         
-        # Animated badge text
-        draw.text((500, 60), badge_text, font=font_badge, fill=anim_color, anchor="mm")
+        # Animated badge
+        draw.text((440, 65), badge_text, font=font_badge, fill=anim_color, anchor="mm")
         
-        # Stats values
-        draw.text((273, 168), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
-        draw.text((408, 168), f"#{rank}", font=font_value, fill=anim_color, anchor="mm")
-        draw.text((545, 168), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
+        # Stats with labels
+        draw.text((260, 143), "LEVEL", font=font_label, fill=(180, 180, 180), anchor="mm")
+        draw.text((260, 165), str(lvl), font=font_value, fill=(255, 255, 255), anchor="mm")
+        
+        draw.text((380, 143), "RANK", font=font_label, fill=(180, 180, 180), anchor="mm")
+        draw.text((380, 165), f"#{rank}", font=font_value, fill=anim_color, anchor="mm")
+        
+        draw.text((510, 143), "XP", font=font_label, fill=(180, 180, 180), anchor="mm")
+        draw.text((510, 165), format_number(xp_into_level), font=font_value, fill=(255, 255, 255), anchor="mm")
         
         # Animated progress bar fill
-        bar_x, bar_y = 203, 238
-        bar_width, bar_height = 673, 22
-        bar_radius = 11
+        bar_x, bar_y = 205, 230
+        bar_width, bar_height = 668, 20
+        bar_radius = 10
         
         fill_width = int(bar_width * progress)
         if fill_width > bar_radius * 2:
@@ -1580,7 +1581,7 @@ async def create_animated_level_card(member, user_data, rank, is_booster_user=Fa
                 draw.line([(bar_x + shine_pos, bar_y + 3), (bar_x + shine_pos + 4, bar_y + bar_height - 3)], fill=(255, 255, 255, 180), width=3)
         
         # Percentage
-        draw.text((bar_x + bar_width + 30, bar_y + bar_height // 2), f"{int(progress * 100)}%", font=font_percent, fill=(255, 255, 255), anchor="mm")
+        draw.text((bar_x + bar_width + 35, bar_y + bar_height // 2), f"{int(progress * 100)}%", font=font_percent, fill=(255, 255, 255), anchor="mm")
         
         frames.append(card.convert("RGB"))
     
