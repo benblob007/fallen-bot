@@ -1426,6 +1426,187 @@ async def create_level_card_image(member, user_data, rank):
     
     return output
 
+
+async def create_animated_level_card(member, user_data, rank):
+    """Create an animated GIF level card with glowing progress bar"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    total_xp = user_data['xp']
+    lvl, xp_into_level = get_level_from_xp(total_xp)
+    xp_needed = calculate_next_level_xp(lvl)
+    progress = min(1.0, xp_into_level / xp_needed) if xp_needed > 0 else 0
+    
+    border_style = get_rank_border(rank)
+    width, height = 934, 282
+    
+    # Load background
+    background = None
+    for path in LEVEL_CARD_PATHS:
+        if os.path.exists(path):
+            try:
+                background = Image.open(path).convert("RGBA")
+                background = background.resize((width, height), Image.Resampling.LANCZOS)
+                break
+            except:
+                pass
+    
+    if background is None:
+        return None
+    
+    # Load fonts
+    try:
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+    except:
+        font_large = font_medium = font_small = font_title = ImageFont.load_default()
+    
+    # Download avatar once
+    avatar_img = None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(str(member.display_avatar.url)) as resp:
+                if resp.status == 200:
+                    avatar_data = await resp.read()
+                    avatar_img = Image.open(BytesIO(avatar_data)).convert("RGBA")
+                    avatar_img = avatar_img.resize((180, 180), Image.Resampling.LANCZOS)
+    except:
+        pass
+    
+    frames = []
+    frame_count = 15
+    
+    for frame_num in range(frame_count):
+        card = background.copy()
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 100))
+        card = Image.alpha_composite(card, overlay)
+        draw = ImageDraw.Draw(card)
+        
+        avatar_size = 180
+        avatar_x, avatar_y = 50, 51
+        
+        draw_rank_border(draw, card, avatar_x, avatar_y, avatar_size, border_style)
+        
+        if avatar_img:
+            mask = Image.new("L", (avatar_size, avatar_size), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
+            card.paste(avatar_img, (avatar_x, avatar_y), mask)
+            draw = ImageDraw.Draw(card)
+        
+        rank_title = border_style.get("title", "Member")
+        title_color = border_style["color"]
+        draw.text((avatar_x + 40, avatar_y + avatar_size + 5), rank_title, font=font_title, fill=title_color)
+        
+        draw.text((260, 60), member.display_name, font=font_large, fill=(255, 255, 255))
+        draw.text((260, 110), f"@{member.name}", font=font_small, fill=(180, 180, 180))
+        
+        draw.text((260, 160), f"LEVEL", font=font_small, fill=(150, 150, 150))
+        draw.text((260, 185), str(lvl), font=font_large, fill=(255, 255, 255))
+        draw.text((400, 160), f"RANK", font=font_small, fill=(150, 150, 150))
+        draw.text((400, 185), f"#{rank}", font=font_large, fill=title_color)
+        draw.text((550, 160), f"XP", font=font_small, fill=(150, 150, 150))
+        draw.text((550, 185), f"{format_number(xp_into_level)} / {format_number(xp_needed)}", font=font_medium, fill=(255, 255, 255))
+        
+        bar_x, bar_y = 260, 240
+        bar_width, bar_height = 620, 25
+        bar_radius = 12
+        
+        draw.rounded_rectangle([(bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height)], radius=bar_radius, fill=(60, 60, 65))
+        
+        glow = int(30 * (1 + 0.5 * math.sin(frame_num * 2 * math.pi / frame_count)))
+        fill_width = int(bar_width * progress)
+        
+        if fill_width > 0:
+            r, g, b = min(255, 114 + glow), min(255, 137 + glow), min(255, 218 + glow)
+            draw.rounded_rectangle([(bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height)], radius=bar_radius, fill=(r, g, b))
+            
+            shine_pos = int((frame_num / frame_count) * fill_width)
+            if 10 < shine_pos < fill_width - 10:
+                draw.line([(bar_x + shine_pos, bar_y + 3), (bar_x + shine_pos + 3, bar_y + bar_height - 3)], fill=(255, 255, 255), width=2)
+        
+        draw.text((bar_x + bar_width - 60, bar_y + 2), f"{int(progress * 100)}%", font=font_small, fill=(255, 255, 255))
+        
+        rgb_card = card.convert("RGB")
+        frames.append(rgb_card)
+    
+    output = BytesIO()
+    frames[0].save(output, format="GIF", save_all=True, append_images=frames[1:], duration=80, loop=0)
+    output.seek(0)
+    return output
+
+
+async def create_server_stats_image(guild):
+    """Create a visual server stats dashboard"""
+    if not PIL_AVAILABLE:
+        return None
+    
+    width, height = 800, 550
+    img = Image.new("RGBA", (width, height), (25, 25, 35, 255))
+    draw = ImageDraw.Draw(img)
+    
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        font_label = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+    except:
+        font_title = font_large = font_medium = font_small = font_label = ImageFont.load_default()
+    
+    draw.text((width // 2, 30), f"✝ {guild.name.upper()} ✝", font=font_title, fill=(139, 0, 0), anchor="mm")
+    draw.text((width // 2, 60), "SERVER STATISTICS", font=font_medium, fill=(150, 150, 150), anchor="mm")
+    draw.line([(50, 85), (width - 50, 85)], fill=(80, 80, 100), width=2)
+    
+    total = guild.member_count
+    online = sum(1 for m in guild.members if m.status != discord.Status.offline)
+    bots = sum(1 for m in guild.members if m.bot)
+    humans = total - bots
+    boosters = guild.premium_subscription_count or 0
+    
+    data = load_data()
+    users = data.get("users", {})
+    total_xp = sum(u.get("xp", 0) for u in users.values())
+    
+    stats = [
+        [("MEMBERS", str(total), (114, 137, 218)), ("ONLINE", str(online), (67, 181, 129)), ("HUMANS", str(humans), (255, 255, 255)), ("BOTS", str(bots), (153, 170, 181))],
+        [("TEXT CH", str(len(guild.text_channels)), (114, 137, 218)), ("VOICE CH", str(len(guild.voice_channels)), (67, 181, 129)), ("ROLES", str(len(guild.roles)), (255, 179, 71)), ("BOOSTS", str(boosters), (244, 127, 255))],
+        [("TOTAL XP", format_number(total_xp), (255, 215, 0)), ("BOOST LVL", str(guild.premium_tier), (244, 127, 255)), ("CATEGORIES", str(len(guild.categories)), (150, 150, 150)), ("CREATED", guild.created_at.strftime("%b %Y"), (100, 100, 100))],
+    ]
+    
+    box_w, box_h = 160, 90
+    spacing = 20
+    start_x = (width - (4 * box_w + 3 * spacing)) // 2
+    
+    for row_idx, row in enumerate(stats):
+        y = 110 + row_idx * (box_h + spacing)
+        for col_idx, (label, value, color) in enumerate(row):
+            x = start_x + col_idx * (box_w + spacing)
+            draw.rounded_rectangle([(x, y), (x + box_w, y + box_h)], radius=10, fill=(40, 40, 55), outline=(60, 60, 80))
+            draw.text((x + box_w // 2, y + 30), value, font=font_large, fill=color, anchor="mm")
+            draw.text((x + box_w // 2, y + 65), label, font=font_label, fill=(150, 150, 150), anchor="mm")
+    
+    bar_y, bar_x, bar_w, bar_h = 430, 100, width - 200, 25
+    draw.text((width // 2, bar_y - 15), "ONLINE RATIO", font=font_small, fill=(150, 150, 150), anchor="mm")
+    draw.rounded_rectangle([(bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h)], radius=12, fill=(50, 50, 60))
+    
+    ratio = online / max(total, 1)
+    fill_w = int(bar_w * ratio)
+    if fill_w > 0:
+        draw.rounded_rectangle([(bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h)], radius=12, fill=(67, 181, 129))
+    draw.text((bar_x + bar_w // 2, bar_y + bar_h // 2), f"{int(ratio * 100)}% Online", font=font_small, fill=(255, 255, 255), anchor="mm")
+    
+    draw.text((width // 2, height - 30), "✝ THE FALLEN ✝", font=font_medium, fill=(139, 0, 0), anchor="mm")
+    draw.text((width - 20, height - 15), datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), font=font_label, fill=(80, 80, 80), anchor="rm")
+    
+    output = BytesIO()
+    img.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+
 # --- ARCANE-STYLE XP LEADERBOARD ---
 def create_arcane_leaderboard_embed(guild, users_data, sort_key="xp", title_suffix="Overall XP"):
     """Create an Arcane-style leaderboard embed"""
@@ -7407,20 +7588,19 @@ class HelpSelect(discord.ui.Select):
         elif self.values[0] == "Admin":
             e.title="⚙️ Admin Commands"
             e.description=(
-                "**📋 Setup Panels** (prefix: `!`)\n"
+                "**🔐 Permission Setup**\n"
+                "`!setup_permissions confirm` - Fix all perms\n"
+                "`!fix_muted` - Fix Muted role everywhere\n"
+                "`!lockdown confirm` - Emergency lock\n"
+                "`!unlockdown confirm` - Remove lockdown\n\n"
+                "**📋 Setup Panels**\n"
                 "`!setup_verify` `!setup_tickets`\n"
                 "`!setup_shop` `!setup_transfer`\n"
                 "`!setup_practice` `!setup_attendance`\n"
                 "`!setup_staffpanel` `!setup_applications`\n"
                 "`!setup_tournament` `!setup_modlog`\n\n"
-                "**🏆 Tournament Setup Panel**\n"
-                "`!setup_tournament` creates a panel\n"
-                "Click 'Create Tournament' → Fill modal:\n"
-                "• Name, Channel ID, Role, Max, Top10\n\n"
-                "**🛡️ Inactivity Config**\n"
-                "Only tracks members with **Mainer** role\n"
-                "No stage required - just Mainer!\n\n"
                 "**📊 Management**\n"
+                "`!massrole add/remove @Role target`\n"
                 "`!archive_old_apps <days>`\n"
                 "`!db_status` - Database status\n\n"
                 "**⚙️ Sync**\n"
@@ -10042,6 +10222,240 @@ async def staff_stats(ctx, days: int = 7):
     embed.set_footer(text="✝ The Fallen ✝")
     await ctx.send(embed=embed)
 
+
+# ==========================================
+# PERMISSION SETUP SYSTEM
+# ==========================================
+
+PERMISSION_CONFIG = {
+    "lockout_roles": ["Unverified", "Muted", "quarantine", "blacklisted"],
+    "member_role": "Abyssbound",
+    "staff_roles": [
+        "Staff",
+        "The Abyss Trainee ‖ Trial Moderator",
+        "The Abyss Watcher ‖ Moderator", 
+        "The Nightblade Overseer ‖ Senior Moderator",
+        "The Abyss Sentinel ‖ Administrator",
+        "The Fallen Marshal ‖ Head of Staff",
+        "The Fallen King",
+        "The Fallen Right Hand ‖ Co-Owner",
+        "The Fallen Sovereign ‖ Owner",
+    ],
+    "categories": {
+        "RITE OF ENTRY": {"see": ["Unverified", "staff"], "write": ["Unverified", "staff"]},
+        "DESCENT BEGINS": {"see": ["everyone"], "write": ["staff"], "read_only_channels": ["rules", "welcome", "strike"]},
+        "IMPORTANT": {"see": ["Abyssbound"], "write": ["staff"], "member_write": ["shitpost", "polls"]},
+        "THE FALLEN HALL": {"see": ["Abyssbound"], "write": ["Abyssbound"]},
+        "PLAYER LEADERBOARD": {"see": ["Abyssbound"], "write": ["staff"]},
+        "SETS": {"see": ["Abyssbound"], "write": ["staff"], "member_write": ["active-sets"]},
+        "WARS": {"see": ["Abyssbound"], "write": ["staff"], "member_write": ["lounge"]},
+        "TRYOUTS": {"see": ["Abyssbound"], "write": ["staff"]},
+        "FUN": {"see": ["Abyssbound"], "write": ["Abyssbound"]},
+        "RAIDS": {"see": ["Abyssbound"], "write": ["staff"], "member_write": ["backup"]},
+        "TRAINING": {"see": ["Abyssbound"], "write": ["staff"]},
+        "TOURNAMENT": {"see": ["Abyssbound"], "write": ["staff"]},
+        "STAFF": {"see": ["staff"], "write": ["staff"]},
+        "LOGS": {"see": ["staff"], "write": ["Bots"]},
+        "DIPLOMACY": {"see": ["staff", "Ally", "Ally Clan Owner", "Ally Clan Co Owner"], "write": ["staff", "Ally Clan Owner"]},
+        "TICKETS": {"see": ["staff"], "write": ["staff"]},
+    }
+}
+
+
+@bot.command(name="setup_permissions")
+@commands.has_permissions(administrator=True)
+async def setup_permissions(ctx, confirm: str = None):
+    """Set up all channel permissions (Admin only). Use: !setup_permissions confirm"""
+    if confirm != "confirm":
+        embed = discord.Embed(
+            title="🔐 Permission Setup",
+            description="This will reconfigure permissions for ALL categories.\n\n**This will:**\n• Lock Unverified out of member channels\n• Set up Staff-only channels\n• Configure Muted role\n• Fix read/write permissions\n\n⚠️ **Major change!**",
+            color=0xFF6600
+        )
+        embed.add_field(name="To Confirm", value="`!setup_permissions confirm`", inline=False)
+        return await ctx.send(embed=embed)
+    
+    status_msg = await ctx.send("🔄 Setting up permissions... This may take a while.")
+    
+    guild = ctx.guild
+    errors = []
+    
+    everyone = guild.default_role
+    unverified = discord.utils.get(guild.roles, name="Unverified")
+    abyssbound = discord.utils.get(guild.roles, name="Abyssbound")
+    muted = discord.utils.get(guild.roles, name="Muted")
+    quarantine = discord.utils.get(guild.roles, name="quarantine")
+    blacklisted = discord.utils.get(guild.roles, name="blacklisted")
+    
+    staff_roles = []
+    for role_name in PERMISSION_CONFIG["staff_roles"]:
+        role = discord.utils.get(guild.roles, name=role_name)
+        if role:
+            staff_roles.append(role)
+    
+    if not abyssbound:
+        return await ctx.send("❌ Could not find 'Abyssbound' role!")
+    
+    processed = 0
+    
+    for category in guild.categories:
+        try:
+            cat_name = category.name.upper()
+            config = None
+            
+            for config_name, config_data in PERMISSION_CONFIG["categories"].items():
+                if config_name.upper() in cat_name or cat_name in config_name.upper():
+                    config = config_data
+                    break
+            
+            if not config:
+                continue
+            
+            overwrites = {everyone: discord.PermissionOverwrite(view_channel=False, send_messages=False)}
+            
+            for accessor in config.get("see", []):
+                if accessor == "everyone":
+                    overwrites[everyone] = discord.PermissionOverwrite(view_channel=True, send_messages=False, read_message_history=True)
+                elif accessor == "staff":
+                    for sr in staff_roles:
+                        overwrites[sr] = discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_messages=True)
+                elif accessor == "Abyssbound":
+                    overwrites[abyssbound] = discord.PermissionOverwrite(view_channel=True, send_messages=False, read_message_history=True)
+                elif accessor == "Unverified" and unverified:
+                    overwrites[unverified] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                else:
+                    role = discord.utils.get(guild.roles, name=accessor)
+                    if role:
+                        overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=False)
+            
+            for writer in config.get("write", []):
+                if writer == "staff":
+                    for sr in staff_roles:
+                        if sr in overwrites:
+                            overwrites[sr].send_messages = True
+                elif writer == "Abyssbound":
+                    if abyssbound in overwrites:
+                        overwrites[abyssbound].send_messages = True
+                elif writer == "Unverified" and unverified:
+                    if unverified in overwrites:
+                        overwrites[unverified].send_messages = True
+            
+            if muted:
+                overwrites[muted] = discord.PermissionOverwrite(send_messages=False, add_reactions=False, speak=False)
+            if quarantine:
+                overwrites[quarantine] = discord.PermissionOverwrite(view_channel=False)
+            if blacklisted:
+                overwrites[blacklisted] = discord.PermissionOverwrite(view_channel=False)
+            
+            if "RITE OF ENTRY" in cat_name:
+                overwrites[abyssbound] = discord.PermissionOverwrite(view_channel=False)
+            
+            await category.edit(overwrites=overwrites)
+            await asyncio.sleep(0.5)
+            
+            member_write = [ch.lower() for ch in config.get("member_write", [])]
+            
+            for channel in category.channels:
+                try:
+                    if any(mw in channel.name.lower() for mw in member_write):
+                        ch_ow = dict(overwrites)
+                        ch_ow[abyssbound] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+                        await channel.edit(overwrites=ch_ow)
+                    else:
+                        await channel.edit(sync_permissions=True)
+                    await asyncio.sleep(0.3)
+                except Exception as e:
+                    errors.append(f"{channel.name}: {str(e)[:30]}")
+            
+            processed += 1
+            if processed % 3 == 0:
+                await status_msg.edit(content=f"🔄 Processing... {processed} categories done")
+                
+        except Exception as e:
+            errors.append(f"{category.name}: {str(e)[:30]}")
+    
+    embed = discord.Embed(title="🔐 Permission Setup Complete", description=f"Processed **{processed}** categories", color=0x2ecc71)
+    if errors:
+        embed.add_field(name="⚠️ Errors", value="\n".join(errors[:10]), inline=False)
+    await status_msg.edit(content=None, embed=embed)
+    await log_action(ctx.guild, "🔐 Permissions Setup", f"Configured by {ctx.author.mention}", 0x3498DB)
+
+
+@bot.command(name="fix_muted")
+@commands.has_permissions(administrator=True)
+async def fix_muted_role(ctx):
+    """Fix Muted role permissions across all channels"""
+    muted = discord.utils.get(ctx.guild.roles, name="Muted") or discord.utils.get(ctx.guild.roles, name=MUTE_ROLE_NAME)
+    if not muted:
+        return await ctx.send("❌ Muted role not found!")
+    
+    status = await ctx.send("🔄 Fixing Muted role...")
+    count = 0
+    
+    for channel in ctx.guild.channels:
+        try:
+            await channel.set_permissions(muted, send_messages=False, add_reactions=False, speak=False, stream=False)
+            count += 1
+            await asyncio.sleep(0.3)
+        except:
+            pass
+    
+    await status.edit(content=f"✅ Fixed Muted role in **{count}** channels!")
+
+
+@bot.command(name="lockdown")
+@commands.has_permissions(administrator=True)
+async def server_lockdown(ctx, confirm: str = None):
+    """Lock entire server (emergency). Use: !lockdown confirm"""
+    if confirm != "confirm":
+        embed = discord.Embed(title="🚨 Server Lockdown", description="This prevents ALL non-staff from messaging.\n\n⚠️ **Emergency use only!**", color=0xFF0000)
+        embed.add_field(name="Confirm", value="`!lockdown confirm`", inline=True)
+        embed.add_field(name="Unlock", value="`!unlockdown confirm`", inline=True)
+        return await ctx.send(embed=embed)
+    
+    status = await ctx.send("🔒 Locking down...")
+    abyssbound = discord.utils.get(ctx.guild.roles, name="Abyssbound")
+    count = 0
+    
+    for channel in ctx.guild.text_channels:
+        try:
+            await channel.set_permissions(ctx.guild.default_role, send_messages=False)
+            if abyssbound:
+                await channel.set_permissions(abyssbound, send_messages=False)
+            count += 1
+            await asyncio.sleep(0.2)
+        except:
+            pass
+    
+    embed = discord.Embed(title="🔒 SERVER LOCKED", description=f"**{count}** channels locked.\nUse `!unlockdown confirm` to restore.", color=0xFF0000)
+    await status.edit(content=None, embed=embed)
+    await log_action(ctx.guild, "🚨 LOCKDOWN", f"By {ctx.author.mention}", 0xFF0000)
+
+
+@bot.command(name="unlockdown")
+@commands.has_permissions(administrator=True) 
+async def server_unlockdown(ctx, confirm: str = None):
+    """Remove server lockdown"""
+    if confirm != "confirm":
+        return await ctx.send("⚠️ Use `!unlockdown confirm`")
+    
+    status = await ctx.send("🔓 Unlocking...")
+    abyssbound = discord.utils.get(ctx.guild.roles, name="Abyssbound")
+    count = 0
+    
+    for channel in ctx.guild.text_channels:
+        try:
+            if abyssbound:
+                await channel.set_permissions(abyssbound, overwrite=None)
+            count += 1
+            await asyncio.sleep(0.2)
+        except:
+            pass
+    
+    await status.edit(content=f"🔓 Unlocked **{count}** channels!")
+    await log_action(ctx.guild, "🔓 Lockdown Removed", f"By {ctx.author.mention}", 0x2ecc71)
+
+
 class EloCommands(commands.GroupCog, name="elo"):
     """ELO and Duel commands"""
     
@@ -11729,6 +12143,37 @@ async def level(ctx, member: discord.Member = None):
     # Fallback to embed if PIL fails
     embed = create_arcane_level_embed(target, user_data, rank)
     await ctx.send(embed=embed)
+
+
+@bot.command(name="animatedlevel", aliases=["alevel", "glevel"])
+@commands.cooldown(1, 30, commands.BucketType.user)  # Longer cooldown for GIF
+async def animated_level(ctx, member: discord.Member = None):
+    """Display animated level card with glowing progress bar"""
+    target = member or ctx.author
+    user_data = get_user_data(target.id)
+    rank = get_level_rank(target.id)
+    
+    if not PIL_AVAILABLE:
+        return await ctx.send("❌ Image generation not available.")
+    
+    status = await ctx.send("✨ Generating animated card...")
+    
+    try:
+        card_image = await create_animated_level_card(target, user_data, rank)
+        if card_image:
+            file = discord.File(card_image, filename="level_card.gif")
+            await status.delete()
+            await ctx.send(file=file)
+        else:
+            await status.edit(content="❌ Could not generate animated card. Using static version...")
+            card_image = await create_level_card_image(target, user_data, rank)
+            if card_image:
+                file = discord.File(card_image, filename="level_card.png")
+                await ctx.send(file=file)
+    except Exception as e:
+        print(f"Animated level card error: {e}")
+        await status.edit(content="❌ Error generating animated card.")
+
 
 @bot.command(name="setlevelbackground", description="Admin: Set the level card banner image")
 @commands.has_permissions(administrator=True)
@@ -20165,7 +20610,7 @@ def advance_bracket(tournament):
 # ==========================================
 
 async def create_bracket_image(tournament):
-    """Create visual bracket image"""
+    """Create enhanced visual tournament bracket image"""
     if not PIL_AVAILABLE:
         return None
     
@@ -20173,7 +20618,6 @@ async def create_bracket_image(tournament):
     if not matches:
         return None
     
-    # Calculate dimensions
     total_rounds = max(m["round"] for m in matches)
     matches_per_round = {}
     for m in matches:
@@ -20182,131 +20626,172 @@ async def create_bracket_image(tournament):
     
     first_round_matches = matches_per_round.get(1, 1)
     
-    # Image dimensions
-    match_width = 200
-    match_height = 50
-    h_spacing = 80
-    v_spacing = 20
-    margin = 40
+    # Enhanced dimensions
+    match_width = 220
+    match_height = 55
+    h_spacing = 100
+    v_spacing = 25
+    margin = 60
+    header_height = 80
     
     width = margin * 2 + total_rounds * (match_width + h_spacing)
-    height = margin * 2 + first_round_matches * (match_height * 2 + v_spacing * 2)
+    height = header_height + margin * 2 + first_round_matches * (match_height * 2 + v_spacing * 2)
+    height = max(height, 500)
     
-    # Create image
-    img = Image.new("RGBA", (width, max(height, 400)), (30, 30, 40, 255))
+    # Create image with gradient background
+    img = Image.new("RGBA", (width, height), (20, 20, 30, 255))
     draw = ImageDraw.Draw(img)
     
-    # Load font
+    # Draw gradient background
+    for y in range(height):
+        r = int(20 + (y / height) * 15)
+        g = int(20 + (y / height) * 15)
+        b = int(30 + (y / height) * 20)
+        draw.line([(0, y), (width, y)], fill=(r, g, b))
+    
+    # Load fonts
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+        round_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
     except:
-        font = small_font = title_font = ImageFont.load_default()
+        font = small_font = title_font = round_font = ImageFont.load_default()
     
-    # Draw title
-    title = tournament.get("name", "Tournament")
-    draw.text((width // 2, 15), title, font=title_font, fill=(255, 255, 255), anchor="mm")
+    # Draw header background
+    draw.rectangle([(0, 0), (width, header_height)], fill=(30, 30, 45))
+    draw.line([(0, header_height), (width, header_height)], fill=(139, 0, 0), width=3)
     
-    # Draw matches by round
+    # Title with shadow
+    title = tournament.get("name", "Tournament").upper()
+    draw.text((width // 2 + 2, 27), f"✝ {title} ✝", font=title_font, fill=(0, 0, 0), anchor="mm")
+    draw.text((width // 2, 25), f"✝ {title} ✝", font=title_font, fill=(255, 255, 255), anchor="mm")
+    
+    # Participants count
+    participants = len([m for m in matches if m["round"] == 1]) * 2 - len([m for m in matches if m["round"] == 1 and m.get("player2", {}).get("id") == "BYE"])
+    draw.text((width // 2, 55), f"{participants} Participants", font=small_font, fill=(150, 150, 150), anchor="mm")
+    
     match_positions = {}
     
     for round_num in range(1, total_rounds + 1):
         round_matches = [m for m in matches if m["round"] == round_num]
         num_matches = len(round_matches)
         
-        # Calculate vertical spacing for this round
-        available_height = height - margin * 2 - 40
-        if num_matches > 0:
-            spacing = available_height / num_matches
-        else:
-            spacing = available_height
+        available_height = height - header_height - margin * 2 - 40
+        spacing = available_height / max(num_matches, 1)
         
         x = margin + (round_num - 1) * (match_width + h_spacing)
         
+        # Draw round header
+        round_label = f"ROUND {round_num}"
+        if round_num == total_rounds:
+            round_label = "🏆 FINALS"
+        elif round_num == total_rounds - 1 and total_rounds > 2:
+            round_label = "SEMI-FINALS"
+        elif round_num == total_rounds - 2 and total_rounds > 3:
+            round_label = "QUARTER-FINALS"
+        
+        draw.text((x + match_width // 2, header_height + 20), round_label, font=round_font, fill=(139, 0, 0), anchor="mm")
+        
         for i, match in enumerate(round_matches):
-            y = margin + 40 + i * spacing + spacing / 2 - match_height / 2
+            y = header_height + 45 + i * spacing + spacing / 2 - match_height / 2
             
-            match_positions[match["id"]] = (x + match_width, y + match_height / 2)
+            match_positions[match["id"]] = (x + match_width, y + match_height)
             
-            # Draw match box
-            box_color = (50, 50, 60)
+            # Match box colors
             if match["status"] == "completed":
-                box_color = (40, 80, 40)
+                box_fill = (35, 60, 35)
+                box_outline = (67, 181, 129)
             elif match["status"] == "in_progress":
-                box_color = (80, 80, 40)
+                box_fill = (60, 55, 30)
+                box_outline = (255, 193, 7)
+            else:
+                box_fill = (40, 40, 55)
+                box_outline = (70, 70, 90)
+            
+            # Draw match box with glow for active matches
+            if match["status"] == "in_progress":
+                for glow in range(3, 0, -1):
+                    draw.rounded_rectangle(
+                        [(x - glow, y - glow), (x + match_width + glow, y + match_height * 2 + glow)],
+                        radius=8 + glow,
+                        fill=None,
+                        outline=(255, 193, 7, 50)
+                    )
             
             draw.rounded_rectangle(
                 [(x, y), (x + match_width, y + match_height * 2)],
-                radius=5,
-                fill=box_color,
-                outline=(100, 100, 120)
+                radius=8,
+                fill=box_fill,
+                outline=box_outline,
+                width=2
             )
             
             # Player 1
-            p1_name = match["player1"]["name"][:18] if match["player1"] else "TBD"
-            p1_score = match["player1_score"] if match["player1"] else "-"
-            p1_color = (255, 255, 255)
-            if match["winner"] and match["player1"] and match["winner"] == match["player1"]["id"]:
-                p1_color = (100, 255, 100)
+            p1 = match.get("player1")
+            p1_name = p1["name"][:16] if p1 else "TBD"
+            p1_score = str(match.get("player1_score", "-")) if p1 else "-"
+            is_p1_winner = match.get("winner") and p1 and match["winner"] == p1["id"]
+            p1_color = (100, 255, 100) if is_p1_winner else (255, 255, 255) if p1 else (100, 100, 100)
             
-            # Player 1 seed
-            if match["player1"] and match["player1"].get("seed"):
-                seed = match["player1"]["seed"]
-                if seed != 999:
-                    draw.text((x + 5, y + match_height / 2), str(seed), font=small_font, fill=(255, 215, 0), anchor="lm")
+            # Seed badge
+            if p1 and p1.get("seed") and p1["seed"] != 999:
+                seed_x = x + 8
+                draw.rounded_rectangle([(seed_x, y + 10), (seed_x + 20, y + match_height - 10)], radius=3, fill=(255, 215, 0))
+                draw.text((seed_x + 10, y + match_height // 2), str(p1["seed"]), font=small_font, fill=(0, 0, 0), anchor="mm")
             
-            draw.text((x + 25, y + match_height / 2), p1_name, font=font, fill=p1_color, anchor="lm")
-            draw.text((x + match_width - 10, y + match_height / 2), str(p1_score), font=font, fill=p1_color, anchor="rm")
+            draw.text((x + 35, y + match_height // 2), p1_name, font=font, fill=p1_color, anchor="lm")
             
-            # Divider line
-            draw.line([(x + 5, y + match_height), (x + match_width - 5, y + match_height)], fill=(80, 80, 100), width=1)
+            # Score box
+            score_box_x = x + match_width - 35
+            draw.rounded_rectangle([(score_box_x, y + 8), (x + match_width - 8, y + match_height - 8)], radius=3, fill=(30, 30, 40))
+            draw.text((score_box_x + 13, y + match_height // 2), p1_score, font=font, fill=p1_color, anchor="mm")
+            
+            # Divider
+            draw.line([(x + 8, y + match_height), (x + match_width - 8, y + match_height)], fill=(60, 60, 80), width=1)
             
             # Player 2
-            p2_name = match["player2"]["name"][:18] if match["player2"] else "TBD"
-            p2_score = match["player2_score"] if match["player2"] else "-"
-            p2_color = (255, 255, 255)
-            if match["winner"] and match["player2"] and match["winner"] == match["player2"]["id"]:
-                p2_color = (100, 255, 100)
+            p2 = match.get("player2")
+            p2_name = p2["name"][:16] if p2 else "TBD"
+            if p2 and p2.get("id") == "BYE":
+                p2_name = "— BYE —"
+            p2_score = str(match.get("player2_score", "-")) if p2 and p2.get("id") != "BYE" else "-"
+            is_p2_winner = match.get("winner") and p2 and match["winner"] == p2["id"]
+            p2_color = (100, 255, 100) if is_p2_winner else (255, 255, 255) if p2 and p2.get("id") != "BYE" else (80, 80, 80)
             
-            # Player 2 seed
-            if match["player2"] and match["player2"].get("seed"):
-                seed = match["player2"]["seed"]
-                if seed != 999:
-                    draw.text((x + 5, y + match_height + match_height / 2), str(seed), font=small_font, fill=(255, 215, 0), anchor="lm")
+            if p2 and p2.get("seed") and p2["seed"] != 999:
+                seed_x = x + 8
+                draw.rounded_rectangle([(seed_x, y + match_height + 10), (seed_x + 20, y + match_height * 2 - 10)], radius=3, fill=(255, 215, 0))
+                draw.text((seed_x + 10, y + match_height + match_height // 2), str(p2["seed"]), font=small_font, fill=(0, 0, 0), anchor="mm")
             
-            draw.text((x + 25, y + match_height + match_height / 2), p2_name, font=font, fill=p2_color, anchor="lm")
-            draw.text((x + match_width - 10, y + match_height + match_height / 2), str(p2_score), font=font, fill=p2_color, anchor="rm")
+            draw.text((x + 35, y + match_height + match_height // 2), p2_name, font=font, fill=p2_color, anchor="lm")
             
-            # Draw round label
-            if i == 0:
-                round_label = f"Round {round_num}"
-                if round_num == total_rounds:
-                    round_label = "Finals"
-                elif round_num == total_rounds - 1:
-                    round_label = "Semi-Finals"
-                draw.text((x + match_width / 2, y - 15), round_label, font=small_font, fill=(150, 150, 150), anchor="mm")
+            draw.rounded_rectangle([(score_box_x, y + match_height + 8), (x + match_width - 8, y + match_height * 2 - 8)], radius=3, fill=(30, 30, 40))
+            draw.text((score_box_x + 13, y + match_height + match_height // 2), p2_score, font=font, fill=p2_color, anchor="mm")
+            
+            # Match ID badge
+            draw.text((x + match_width // 2, y + match_height * 2 + 8), match["id"], font=small_font, fill=(80, 80, 100), anchor="mm")
     
     # Draw connecting lines
     for match in matches:
         if "feeds_from" in match and match["id"] in match_positions:
             end_x, end_y = match_positions[match["id"]]
-            end_x -= match_width  # Adjust to left side of match box
+            end_x -= match_width
             
-            for feeder_id in match["feeds_from"]:
+            for feeder_id in match.get("feeds_from", []):
                 if feeder_id in match_positions:
                     start_x, start_y = match_positions[feeder_id]
-                    
-                    # Draw bracket line
                     mid_x = (start_x + end_x) / 2
-                    draw.line([(start_x, start_y), (mid_x, start_y)], fill=(100, 100, 120), width=2)
-                    draw.line([(mid_x, start_y), (mid_x, end_y)], fill=(100, 100, 120), width=2)
-                    draw.line([(mid_x, end_y), (end_x, end_y)], fill=(100, 100, 120), width=2)
+                    
+                    line_color = (80, 80, 100)
+                    draw.line([(start_x, start_y), (mid_x, start_y)], fill=line_color, width=2)
+                    draw.line([(mid_x, start_y), (mid_x, end_y)], fill=line_color, width=2)
+                    draw.line([(mid_x, end_y), (end_x, end_y)], fill=line_color, width=2)
     
     # Footer
-    draw.text((width // 2, height - 15), "✝ THE FALLEN ✝", font=small_font, fill=(139, 0, 0), anchor="mm")
+    draw.rectangle([(0, height - 35), (width, height)], fill=(25, 25, 35))
+    draw.text((width // 2, height - 18), "✝ THE FALLEN ✝", font=round_font, fill=(139, 0, 0), anchor="mm")
     
-    # Save to buffer
     buffer = BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
