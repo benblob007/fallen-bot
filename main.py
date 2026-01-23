@@ -20791,12 +20791,28 @@ class AllianceRequestView(discord.ui.View):
         if not any(role.name in HIGH_STAFF_ROLES for role in interaction.user.roles):
             return await interaction.response.send_message("❌ Only High Staff can approve alliances.", ephemeral=True)
         
-        # Save the ally
+        await interaction.response.defer(ephemeral=True)
+        
+        # Try to fetch server icon from invite
+        icon_url = None
+        actual_member_count = self.members
+        try:
+            invite_code = self.invite.split("/")[-1].split("?")[0]
+            invite_info = await bot.fetch_invite(invite_code, with_counts=True)
+            if invite_info.guild.icon:
+                icon_url = str(invite_info.guild.icon.url)
+            if invite_info.approximate_member_count:
+                actual_member_count = str(invite_info.approximate_member_count)
+        except Exception as e:
+            print(f"Could not fetch invite info: {e}")
+        
+        # Save the ally with icon
         ally_data = {
             "name": self.clan_name,
             "owner": self.owner,
-            "members": self.members,
+            "members": actual_member_count,
             "invite": self.invite,
+            "icon_url": icon_url,
             "added_by": interaction.user.id,
             "added_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "requester_id": self.requester_id
@@ -20808,6 +20824,8 @@ class AllianceRequestView(discord.ui.View):
         embed.color = 0x2ecc71
         embed.title = "✅ Alliance Approved"
         embed.add_field(name="✅ Status", value=f"Approved by {interaction.user.mention}", inline=False)
+        if icon_url:
+            embed.set_thumbnail(url=icon_url)
         
         # Disable buttons
         for child in self.children:
@@ -20826,7 +20844,7 @@ class AllianceRequestView(discord.ui.View):
         # Update allies channel
         await update_allies_embed(interaction.guild)
         
-        await interaction.response.send_message(f"✅ Alliance with **{self.clan_name}** approved!", ephemeral=True)
+        await interaction.followup.send(f"✅ Alliance with **{self.clan_name}** approved!" + (" (Server icon fetched!)" if icon_url else ""), ephemeral=True)
     
     @discord.ui.button(label="Deny", style=discord.ButtonStyle.danger, emoji="❌")
     async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -20875,15 +20893,46 @@ async def update_allies_embed(guild):
     
     allies = get_allies_data()
     
-    # Create the main embed
-    embed = discord.Embed(
+    # Delete old individual ally embeds first
+    try:
+        async for message in allies_channel.history(limit=50):
+            if message.author == guild.me and message.embeds:
+                title = message.embeds[0].title or ""
+                if title.startswith("⚔️") and "ALLIANCES" not in title:
+                    await message.delete()
+                    await asyncio.sleep(0.3)
+    except:
+        pass
+    
+    # Create the main header embed
+    header_embed = discord.Embed(
         title="🤝 THE FALLEN ALLIANCES 🤝",
-        description="Our trusted allies and partners in battle.\n\n*Want to ally with us? Click the button below!*",
+        description="**Our trusted allies and partners in battle.**\n\n*Want to ally with us? Click the button below!*\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         color=0x8B0000
     )
     
+    if guild.icon:
+        header_embed.set_thumbnail(url=guild.icon.url)
+    
+    if not allies:
+        header_embed.add_field(name="No Allies Yet", value="Be the first to ally with The Fallen!", inline=False)
+    
+    header_embed.set_footer(text=f"Total Allies: {len(allies)} • The Fallen", icon_url=guild.icon.url if guild.icon else None)
+    header_embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+    
+    # Find or update header message
+    header_msg = None
+    async for message in allies_channel.history(limit=20):
+        if message.author == guild.me and message.embeds and "ALLIANCES" in str(message.embeds[0].title or ""):
+            header_msg = message
+            await message.edit(embed=header_embed, view=AlliancePanelView())
+            break
+    
+    if not header_msg:
+        await allies_channel.send(embed=header_embed, view=AlliancePanelView())
+    
+    # Send individual embeds for each ally (so each can have their own icon)
     if allies:
-        # Sort allies by name
         sorted_allies = sorted(allies.values(), key=lambda x: x.get("name", "").lower())
         
         for ally in sorted_allies:
@@ -20891,28 +20940,110 @@ async def update_allies_embed(guild):
             owner = ally.get("owner", "Unknown")
             members = ally.get("members", "?")
             invite = ally.get("invite", "")
+            icon_url = ally.get("icon_url")
             
-            # Create field value
-            value = f"👑 **Owner:** {owner}\n👥 **Members:** {members}"
+            ally_embed = discord.Embed(
+                title=f"⚔️ {name}",
+                color=0x2f3136
+            )
+            
+            ally_embed.add_field(name="👑 Owner", value=owner, inline=True)
+            ally_embed.add_field(name="👥 Members", value=members, inline=True)
+            
             if invite:
-                value += f"\n🔗 [Join Server]({invite})"
+                ally_embed.add_field(name="🔗 Server", value=f"[Join]({invite})", inline=True)
             
-            embed.add_field(name=f"⚔️ {name}", value=value, inline=True)
-        
-        embed.set_footer(text=f"Total Allies: {len(allies)} • Last updated")
-    else:
-        embed.add_field(name="No Allies Yet", value="Be the first to ally with The Fallen!", inline=False)
+            if icon_url:
+                ally_embed.set_thumbnail(url=icon_url)
+            
+            await allies_channel.send(embed=ally_embed)
+            await asyncio.sleep(0.5)  # Avoid rate limits
+
+
+async def fetch_invite_info(invite_url):
+    """Fetch server info from a Discord invite"""
+    try:
+        # Extract invite code from URL
+        invite_code = invite_url.split("/")[-1].split("?")[0]
+        invite = await bot.fetch_invite(invite_code, with_counts=True)
+        return {
+            "name": invite.guild.name,
+            "icon_url": str(invite.guild.icon.url) if invite.guild.icon else None,
+            "member_count": invite.approximate_member_count,
+            "online_count": invite.approximate_presence_count
+        }
+    except Exception as e:
+        print(f"Failed to fetch invite info: {e}")
+        return None
+
+
+async def create_ally_embed(ally_data, guild):
+    """Create a detailed embed for a single ally"""
+    embed = discord.Embed(color=0x8B0000)
     
-    embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+    name = ally_data.get("name", "Unknown")
+    owner = ally_data.get("owner", "Unknown")
+    members = ally_data.get("members", "?")
+    invite = ally_data.get("invite", "")
+    icon_url = ally_data.get("icon_url")
     
-    # Try to find and edit existing message, or send new one
+    embed.title = f"⚔️ {name}"
+    embed.description = f"👑 **Owner:** {owner}\n👥 **Members:** {members}"
+    
+    if invite:
+        embed.description += f"\n\n🔗 **[Join Their Server]({invite})**"
+    
+    if icon_url:
+        embed.set_thumbnail(url=icon_url)
+    
+    return embed
+
+
+async def update_allies_showcase(guild):
+    """Create individual embeds for each ally with their server icons"""
+    allies_channel = discord.utils.get(guild.text_channels, name=ALLIES_CHANNEL)
+    if not allies_channel:
+        return
+    
+    allies = get_allies_data()
+    
+    # Delete old ally messages (keep the main panel)
+    async for message in allies_channel.history(limit=50):
+        if message.author == guild.me:
+            if message.embeds and message.embeds[0].title and "ALLIANCES" not in message.embeds[0].title:
+                if message.embeds[0].title.startswith("⚔️"):
+                    await message.delete()
+                    await asyncio.sleep(0.5)
+    
+    # Create header embed
+    header_embed = discord.Embed(
+        title="🤝 THE FALLEN ALLIANCES 🤝",
+        description="Our trusted allies and partners in battle.\n\n━━━━━━━━━━━━━━━━━━━━━━",
+        color=0x8B0000
+    )
+    if guild.icon:
+        header_embed.set_thumbnail(url=guild.icon.url)
+    header_embed.set_footer(text=f"Total Allies: {len(allies)} • Click below to request alliance", icon_url=guild.icon.url if guild.icon else None)
+    
+    # Find or create header message
+    header_found = False
     async for message in allies_channel.history(limit=20):
-        if message.author == guild.me and message.embeds and "ALLIANCES" in message.embeds[0].title:
-            await message.edit(embed=embed, view=AlliancePanelView())
-            return
+        if message.author == guild.me and message.embeds and "ALLIANCES" in str(message.embeds[0].title):
+            await message.edit(embed=header_embed, view=AlliancePanelView())
+            header_found = True
+            break
     
-    # Send new message if not found
-    await allies_channel.send(embed=embed, view=AlliancePanelView())
+    if not header_found:
+        await allies_channel.send(embed=header_embed, view=AlliancePanelView())
+    
+    # Send individual ally embeds
+    if allies:
+        sorted_allies = sorted(allies.values(), key=lambda x: x.get("name", "").lower())
+        
+        for ally in sorted_allies:
+            ally_embed = await create_ally_embed(ally, guild)
+            await allies_channel.send(embed=ally_embed)
+            await asyncio.sleep(0.5)  # Avoid rate limits
 
 
 @bot.command(name="setup_allies")
@@ -20933,13 +21064,16 @@ async def setup_allies(ctx):
     await ctx.send(f"✅ Alliance panel posted in {allies_channel.mention}")
 
 
+
+
+
 @bot.command(name="addally")
 @commands.has_any_role(*HIGH_STAFF_ROLES)
 async def add_ally(ctx, *, args: str = None):
     """Manually add an ally: !addally <name> | <owner> | <members> | <invite>"""
     if not args:
         embed = discord.Embed(
-            title="📝 Add Ally Usage",
+            title="Add Ally Usage",
             description="```!addally <name> | <owner> | <members> | <invite>```",
             color=0x3498db
         )
@@ -20948,24 +21082,43 @@ async def add_ally(ctx, *, args: str = None):
     
     parts = [p.strip() for p in args.split("|")]
     if len(parts) < 4:
-        return await ctx.send("❌ Please use format: `!addally <name> | <owner> | <members> | <invite>`")
+        return await ctx.send("Please use format: `!addally <name> | <owner> | <members> | <invite>`")
     
     name, owner, members, invite = parts[0], parts[1], parts[2], parts[3]
+    
+    msg = await ctx.send(f"Adding **{name}** and fetching server info...")
+    
+    # Try to fetch server icon from invite
+    icon_url = None
+    actual_member_count = members
+    try:
+        invite_code = invite.split("/")[-1].split("?")[0]
+        invite_info = await bot.fetch_invite(invite_code, with_counts=True)
+        if invite_info.guild.icon:
+            icon_url = str(invite_info.guild.icon.url)
+        if invite_info.approximate_member_count:
+            actual_member_count = str(invite_info.approximate_member_count)
+    except Exception as e:
+        print(f"Could not fetch invite info: {e}")
     
     ally_data = {
         "name": name,
         "owner": owner,
-        "members": members,
+        "members": actual_member_count,
         "invite": invite,
+        "icon_url": icon_url,
         "added_by": ctx.author.id,
         "added_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
     save_ally(ally_data)
     
     await update_allies_embed(ctx.guild)
-    await ctx.send(f"✅ Added **{name}** as an ally!")
-    await log_action(ctx.guild, "🤝 Ally Added", f"**{name}** added by {ctx.author.mention}", 0x2ecc71)
-
+    
+    result_msg = f"Added **{name}** as an ally!"
+    if icon_url:
+        result_msg += " (Server icon fetched!)"
+    await msg.edit(content=result_msg)
+    await log_action(ctx.guild, "Ally Added", f"**{name}** added by {ctx.author.mention}", 0x2ecc71)
 
 @bot.command(name="removeally", aliases=["deleteally"])
 @commands.has_any_role(*HIGH_STAFF_ROLES)
