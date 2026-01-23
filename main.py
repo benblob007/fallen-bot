@@ -23636,21 +23636,51 @@ class TournamentCreateButtonView(discord.ui.View):
 if __name__ == "__main__":
     import asyncio
     import time
+    import sys
     
-    # Simple startup - let Render handle restarts
+    print("=" * 50)
     print("Starting The Fallen Bot...")
+    print("=" * 50)
+    
+    # Check if we should wait (rate limit cooldown file)
+    cooldown_file = "/tmp/bot_cooldown"
+    if os.path.exists(cooldown_file):
+        try:
+            with open(cooldown_file, "r") as f:
+                last_crash = float(f.read().strip())
+            time_since_crash = time.time() - last_crash
+            if time_since_crash < 120:  # 2 minute cooldown
+                wait_time = int(120 - time_since_crash)
+                print(f"⏳ Rate limit cooldown active. Waiting {wait_time}s...")
+                time.sleep(wait_time)
+        except:
+            pass
+    
     try:
         bot.run(TOKEN)
     except discord.errors.HTTPException as e:
         if e.status == 429:
-            print(f"Rate limited! Waiting before restart...")
-            import time
-            time.sleep(60)
+            retry_after = getattr(e, 'retry_after', 60)
+            print(f"⚠️ Rate limited by Discord! Waiting {retry_after}s before Render restarts...")
+            # Write cooldown file so next restart knows to wait
+            with open(cooldown_file, "w") as f:
+                f.write(str(time.time()))
+            time.sleep(min(retry_after, 120))  # Wait up to 2 minutes
+            sys.exit(1)  # Exit with error so Render restarts
         else:
-            print(f"HTTP error: {e}")
+            print(f"❌ HTTP error: {e}")
+            sys.exit(1)
     except discord.errors.LoginFailure as e:
-        print(f"Login failed - check your token: {e}")
+        print(f"❌ Login failed - check your token: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("Bot stopped by user.")
     except Exception as e:
-        print(f"Bot error: {e}")
+        print(f"❌ Bot error: {e}")
+        # Write cooldown file for unexpected errors too
+        with open(cooldown_file, "w") as f:
+            f.write(str(time.time()))
+        sys.exit(1)
     finally:
+        # Clean exit
         print("Bot stopped.")
