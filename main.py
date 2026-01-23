@@ -974,21 +974,68 @@ def get_milestone_reward(level):
     """Get role and coin reward for milestone levels"""
     return LEVEL_CONFIG.get(level)
 
+def get_perks_for_level(level):
+    """Get perks based on user's level (regardless of roles)"""
+    # Map levels to their perks
+    level_to_perks = {
+        200: ("Eternal Shadow Sovereign", ROLE_PERKS.get("Eternal Shadow Sovereign", {})),
+        160: ("Ascended Dreadkeeper", ROLE_PERKS.get("Ascended Dreadkeeper", {})),
+        140: ("Harbinger of Dusk", ROLE_PERKS.get("Harbinger of Dusk", {})),
+        120: ("Eclipsed Oathbearer", ROLE_PERKS.get("Eclipsed Oathbearer", {})),
+        100: ("Abyssforged Warden", ROLE_PERKS.get("Abyssforged Warden", {})),
+        80: ("Shadowborn Ascendant", ROLE_PERKS.get("Shadowborn Ascendant", {})),
+        70: ("Veilmarked Veteran", ROLE_PERKS.get("Veilmarked Veteran", {})),
+        60: ("Nightwoven Adept", ROLE_PERKS.get("Nightwoven Adept", {})),
+        50: ("Bearer of Abyssal Echo", ROLE_PERKS.get("Bearer of Abyssal Echo", {})),
+        40: ("Duskforged Aspirant", ROLE_PERKS.get("Duskforged Aspirant", {})),
+        30: ("Twilight Disciple", ROLE_PERKS.get("Twilight Disciple", {})),
+        20: ("Abysswalk Student", ROLE_PERKS.get("Abysswalk Student", {})),
+        10: ("Initiate of Shadows", ROLE_PERKS.get("Initiate of Shadows", {})),
+        5: ("Faint Emberling", ROLE_PERKS.get("Faint Emberling", {})),
+    }
+    
+    # Find the highest level threshold they've reached
+    for lvl_threshold in sorted(level_to_perks.keys(), reverse=True):
+        if level >= lvl_threshold:
+            role_name, perks = level_to_perks[lvl_threshold]
+            result = perks.copy() if perks else {"xp_multiplier": 1.0, "daily_multiplier": 1.0, "weekly_bonus": 0, "shop_tier": 0}
+            result["role_name"] = role_name
+            return result
+    
+    return {"xp_multiplier": 1.0, "daily_multiplier": 1.0, "weekly_bonus": 0, "shop_tier": 0, "role_name": None}
+
 def get_member_perks(member):
-    """Get the highest role perks for a member"""
+    """Get the highest role perks for a member (checks both roles AND level)"""
     if member is None:
         return {"xp_multiplier": 1.0, "daily_multiplier": 1.0, "weekly_bonus": 0, "shop_tier": 0, "role_name": None}
     
+    # First check by roles
     member_role_names = [role.name for role in member.roles]
     
-    # Check from highest to lowest role
+    role_perks = None
     for role_name in ROLE_HIERARCHY:
         if role_name in member_role_names:
-            perks = ROLE_PERKS.get(role_name, {}).copy()
-            perks["role_name"] = role_name
-            return perks
+            role_perks = ROLE_PERKS.get(role_name, {}).copy()
+            role_perks["role_name"] = role_name
+            break
     
-    # No milestone role found
+    # Also check by level (in case roles aren't assigned yet)
+    user_data = get_user_data(member.id)
+    user_level = user_data.get("level", 0)
+    level_perks = get_perks_for_level(user_level)
+    
+    # Return whichever gives better perks (higher XP multiplier)
+    if role_perks and level_perks:
+        if role_perks.get("xp_multiplier", 1.0) >= level_perks.get("xp_multiplier", 1.0):
+            return role_perks
+        else:
+            return level_perks
+    elif role_perks:
+        return role_perks
+    elif level_perks and level_perks.get("role_name"):
+        return level_perks
+    
+    # No perks found
     return {"xp_multiplier": 1.0, "daily_multiplier": 1.0, "weekly_bonus": 0, "shop_tier": 0, "role_name": None}
 
 def get_available_shop_items(member):
@@ -7681,9 +7728,10 @@ class HelpSelect(discord.ui.Select):
         options = [
             discord.SelectOption(label="Member", emoji="👤", description="Basic member commands"),
             discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
+            discord.SelectOption(label="Perks & Rewards", emoji="🎭", description="Role perks, daily, weekly"),
             discord.SelectOption(label="Events", emoji="📅", description="Trainings & tryouts"),
             discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
-            discord.SelectOption(label="Spar Finder", emoji="⚔️", description="Tier-based spar matchmaking"),
+            discord.SelectOption(label="Spar Finder", emoji="🎯", description="Tier-based spar matchmaking"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
             discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
             discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
@@ -7707,9 +7755,10 @@ class HelpSelect(discord.ui.Select):
                 "`/profile` - Full profile with all stats\n"
                 "`/fcoins` - Check coin balance\n"
                 "`/inventory` - View purchased items\n\n"
-                "**🎁 Daily & Streaks**\n"
-                "`/daily` - Claim daily reward (streak bonus!)\n"
-                "`/attendance_streak` - View event streak\n\n"
+                "**🎁 Rewards**\n"
+                "`/daily` - Claim daily reward\n"
+                "`/weekly` - Claim weekly role reward\n"
+                "`/perks` - View your current perks\n\n"
                 "**📅 Events**\n"
                 "`/schedule` - View upcoming events\n"
                 "Click RSVP buttons on event posts!"
@@ -7721,7 +7770,7 @@ class HelpSelect(discord.ui.Select):
                 "**🖼️ Visual Cards**\n"
                 "`/profile` - Full profile card with avatar\n"
                 "`/rank` - Rank card with XP bar\n"
-                "`/level` - Level card\n\n"
+                "`/level` - Level card (animated for boosters!)\n\n"
                 "**📈 Statistics**\n"
                 "`/stats` - Combat stats (W/L)\n"
                 "`!mystats` - Detailed stats breakdown\n"
@@ -7733,6 +7782,29 @@ class HelpSelect(discord.ui.Select):
                 "`!topactive` - Most active this week\n"
                 "`!serverstats` - Server statistics\n"
                 "`!compare @user` - Compare with someone"
+            )
+        
+        elif self.values[0] == "Perks & Rewards":
+            e.title="🎭 Perks & Rewards System"
+            e.description=(
+                "**🎭 Role Perks**\n"
+                "`/perks` - View all your current perks\n"
+                "Each milestone role gives XP bonuses!\n\n"
+                "**📈 XP Multipliers (by Level)**\n"
+                "Lvl 10: +5% • Lvl 20: +10% • Lvl 30: +15%\n"
+                "Lvl 50: +20% • Lvl 70: +25% • Lvl 100: +30%\n"
+                "Lvl 140: +40% • Lvl 200: +50%\n\n"
+                "**🎁 Daily & Weekly**\n"
+                "`/daily` - Daily coins + XP (role multiplier!)\n"
+                "`/weekly` - Weekly bonus from your role\n"
+                "`/boosterreward` - Weekly booster bonus\n\n"
+                "**🛒 Exclusive Shop**\n"
+                "`!exclusiveshop` - Browse exclusive items\n"
+                "`!buyexclusive <item>` - Purchase items\n"
+                "Higher levels unlock more tiers!\n\n"
+                "**💎 Booster Perks**\n"
+                "+25% XP • 2x Daily • Animated card\n"
+                "Weekly bonus • Diamond border"
             )
         
         elif self.values[0] == "Duels & ELO":
@@ -7757,7 +7829,7 @@ class HelpSelect(discord.ui.Select):
             )
         
         elif self.values[0] == "Spar Finder":
-            e.title="⚔️ Spar Finder"
+            e.title="🎯 Spar Finder"
             e.description=(
                 "**⚔️ Tier-Based Matchmaking**\n"
                 "Your Stage + Rank + Strength = Your Tier\n"
@@ -7799,10 +7871,6 @@ class HelpSelect(discord.ui.Select):
                 "`!tsetwinner @user` — Set winner manually\n"
                 "`!tendtournament` — End tournament\n"
                 "`!tdeletetournament` — Delete tournament\n\n"
-                "**🎁 End of Tournament**\n"
-                "• 🏆 Update Top 10 with winner\n"
-                "• 🎁 Give rewards (coins + XP)\n"
-                "• 📢 Publish results\n\n"
                 "**💰 Reward Amounts**\n"
                 "🥇 1st: 5,000 coins + 500 XP\n"
                 "🥈 2nd: 2,500 coins + 250 XP\n"
@@ -7838,22 +7906,24 @@ class HelpSelect(discord.ui.Select):
                 "• Chat messages & reactions\n"
                 "• Voice channel time\n"
                 "• Attend trainings/tryouts\n"
-                "• `/daily` rewards & streaks\n"
+                "• `/daily` & `/weekly` rewards\n"
                 "• Win duels & raids\n\n"
                 "**📜 Commands**\n"
                 "`/fcoins` - Check balance\n"
                 "`/inventory` - View items\n"
                 "`/setbackground <url>` - Custom bg\n\n"
-                "**🛒 Shop Items**\n"
+                "**🛒 Regular Shop Items**\n"
                 "• Private Tryout (500)\n"
                 "• Custom Role (2000)\n"
                 "• Custom Role Color (1500)\n"
                 "• Hoisted Role (5000)\n"
                 "• Custom Level BG (3000)\n"
                 "• ELO Shield (1000)\n"
-                "• Streak Saver (1500)\n"
-                "• Training Reserve (300)\n"
-                "• Coaching Session (1500)"
+                "• Streak Saver (1500)\n\n"
+                "**✨ Exclusive Shop**\n"
+                "`!exclusiveshop` - Role-locked items\n"
+                "`!buyexclusive <item>` - Purchase\n"
+                "*Higher levels = more items!*"
             )
             
         elif self.values[0] == "Backup":
@@ -7923,7 +7993,8 @@ class HelpSelect(discord.ui.Select):
                 "`!userinfo @user` - Full user info\n"
                 "`!checklevel @user` - Check stats\n"
                 "`!addxp / !removexp` - Manage XP\n"
-                "`!addfcoins / !removefcoins` - Manage coins\n\n"
+                "`!addfcoins / !removefcoins` - Manage coins\n"
+                "`!setlevel @user <level>` - Set level\n\n"
                 "**🏆 Other**\n"
                 "`!tournament` - Tournament commands\n"
                 "`!activitycheck` - Activity check\n"
@@ -9897,6 +9968,7 @@ class PersistentBot(commands.Bot):
         self.add_view(ServerInfoLevelsView())
         self.add_view(ServerInfoBoosterView())
         self.add_view(ServerInfoBotView())
+        self.add_view(AlliancePanelView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -20569,6 +20641,416 @@ async def setup_mod_log(ctx):
     
     await channel.send(embed=embed)
     await ctx.send(f"✅ Created mod log channel: {channel.mention}")
+
+
+# ==========================================
+# ALLIANCE SYSTEM
+# ==========================================
+
+ALLIANCE_TICKET_CHANNEL = "alliance-requests"
+ALLIES_CHANNEL = "allies"
+
+def get_allies_data():
+    """Get alliance data from main data file"""
+    data = load_data()
+    if "allies" not in data:
+        data["allies"] = {}
+        save_data(data)
+    return data["allies"]
+
+def save_ally(ally_data):
+    """Save an ally to the database"""
+    data = load_data()
+    if "allies" not in data:
+        data["allies"] = {}
+    data["allies"][ally_data["name"].lower()] = ally_data
+    save_data(data)
+
+def remove_ally(ally_name):
+    """Remove an ally from the database"""
+    data = load_data()
+    if "allies" in data and ally_name.lower() in data["allies"]:
+        del data["allies"][ally_name.lower()]
+        save_data(data)
+        return True
+    return False
+
+def get_ally(ally_name):
+    """Get a specific ally's data"""
+    allies = get_allies_data()
+    return allies.get(ally_name.lower())
+
+
+class AllianceRequestModal(discord.ui.Modal, title="🤝 Alliance Request"):
+    """Modal for clans to request alliance"""
+    
+    clan_name = discord.ui.TextInput(
+        label="Clan/Group Name",
+        placeholder="Enter your clan name...",
+        min_length=2,
+        max_length=50,
+        required=True
+    )
+    
+    owner_name = discord.ui.TextInput(
+        label="Owner Discord (username#0000 or @mention)",
+        placeholder="e.g., @Username or Username#1234",
+        min_length=2,
+        max_length=50,
+        required=True
+    )
+    
+    member_count = discord.ui.TextInput(
+        label="Approximate Member Count",
+        placeholder="e.g., 50, 100+, etc.",
+        min_length=1,
+        max_length=20,
+        required=True
+    )
+    
+    discord_invite = discord.ui.TextInput(
+        label="Discord Server Invite Link",
+        placeholder="https://discord.gg/...",
+        min_length=10,
+        max_length=100,
+        required=True
+    )
+    
+    reason = discord.ui.TextInput(
+        label="Why do you want to ally with us?",
+        style=discord.TextStyle.paragraph,
+        placeholder="Tell us about your clan and why you want to ally...",
+        min_length=20,
+        max_length=500,
+        required=True
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Find or create alliance requests channel
+        ticket_channel = discord.utils.get(interaction.guild.text_channels, name=ALLIANCE_TICKET_CHANNEL)
+        
+        if not ticket_channel:
+            # Create the channel if it doesn't exist
+            overwrites = {
+                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            }
+            for role_name in HIGH_STAFF_ROLES:
+                role = discord.utils.get(interaction.guild.roles, name=role_name)
+                if role:
+                    overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            
+            ticket_channel = await interaction.guild.create_text_channel(
+                name=ALLIANCE_TICKET_CHANNEL,
+                overwrites=overwrites,
+                topic="🤝 Alliance requests from other clans"
+            )
+        
+        # Create the request embed
+        embed = discord.Embed(
+            title="🤝 New Alliance Request",
+            color=0x3498db,
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="🏰 Clan Name", value=self.clan_name.value, inline=True)
+        embed.add_field(name="👑 Owner", value=self.owner_name.value, inline=True)
+        embed.add_field(name="👥 Members", value=self.member_count.value, inline=True)
+        embed.add_field(name="🔗 Discord Invite", value=self.discord_invite.value, inline=False)
+        embed.add_field(name="📝 Reason", value=self.reason.value, inline=False)
+        embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.display_avatar.url)
+        
+        # Add approve/deny buttons
+        view = AllianceRequestView(
+            clan_name=self.clan_name.value,
+            owner=self.owner_name.value,
+            members=self.member_count.value,
+            invite=self.discord_invite.value,
+            requester_id=interaction.user.id
+        )
+        
+        await ticket_channel.send(embed=embed, view=view)
+        await interaction.response.send_message(
+            "✅ Your alliance request has been submitted!\n\nOur staff will review it and get back to you.",
+            ephemeral=True
+        )
+
+
+class AllianceRequestView(discord.ui.View):
+    """View for staff to approve/deny alliance requests"""
+    
+    def __init__(self, clan_name, owner, members, invite, requester_id):
+        super().__init__(timeout=None)
+        self.clan_name = clan_name
+        self.owner = owner
+        self.members = members
+        self.invite = invite
+        self.requester_id = requester_id
+    
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not any(role.name in HIGH_STAFF_ROLES for role in interaction.user.roles):
+            return await interaction.response.send_message("❌ Only High Staff can approve alliances.", ephemeral=True)
+        
+        # Save the ally
+        ally_data = {
+            "name": self.clan_name,
+            "owner": self.owner,
+            "members": self.members,
+            "invite": self.invite,
+            "added_by": interaction.user.id,
+            "added_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "requester_id": self.requester_id
+        }
+        save_ally(ally_data)
+        
+        # Update the embed
+        embed = interaction.message.embeds[0]
+        embed.color = 0x2ecc71
+        embed.title = "✅ Alliance Approved"
+        embed.add_field(name="✅ Status", value=f"Approved by {interaction.user.mention}", inline=False)
+        
+        # Disable buttons
+        for child in self.children:
+            child.disabled = True
+        
+        await interaction.message.edit(embed=embed, view=self)
+        
+        # Notify requester
+        try:
+            requester = interaction.guild.get_member(self.requester_id)
+            if requester:
+                await requester.send(f"🎉 Great news! Your alliance request for **{self.clan_name}** has been **approved**!")
+        except:
+            pass
+        
+        # Update allies channel
+        await update_allies_embed(interaction.guild)
+        
+        await interaction.response.send_message(f"✅ Alliance with **{self.clan_name}** approved!", ephemeral=True)
+    
+    @discord.ui.button(label="Deny", style=discord.ButtonStyle.danger, emoji="❌")
+    async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not any(role.name in HIGH_STAFF_ROLES for role in interaction.user.roles):
+            return await interaction.response.send_message("❌ Only High Staff can deny alliances.", ephemeral=True)
+        
+        # Update the embed
+        embed = interaction.message.embeds[0]
+        embed.color = 0xe74c3c
+        embed.title = "❌ Alliance Denied"
+        embed.add_field(name="❌ Status", value=f"Denied by {interaction.user.mention}", inline=False)
+        
+        # Disable buttons
+        for child in self.children:
+            child.disabled = True
+        
+        await interaction.message.edit(embed=embed, view=self)
+        
+        # Notify requester
+        try:
+            requester = interaction.guild.get_member(self.requester_id)
+            if requester:
+                await requester.send(f"Your alliance request for **{self.clan_name}** has been **denied**. You may contact staff for more information.")
+        except:
+            pass
+        
+        await interaction.response.send_message(f"❌ Alliance with **{self.clan_name}** denied.", ephemeral=True)
+
+
+class AlliancePanelView(discord.ui.View):
+    """Persistent view for the alliance panel"""
+    
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Request Alliance", style=discord.ButtonStyle.primary, emoji="🤝", custom_id="alliance_request_btn")
+    async def request_alliance(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AllianceRequestModal())
+
+
+async def update_allies_embed(guild):
+    """Update the allies embed in the allies channel"""
+    allies_channel = discord.utils.get(guild.text_channels, name=ALLIES_CHANNEL)
+    if not allies_channel:
+        return
+    
+    allies = get_allies_data()
+    
+    # Create the main embed
+    embed = discord.Embed(
+        title="🤝 THE FALLEN ALLIANCES 🤝",
+        description="Our trusted allies and partners in battle.\n\n*Want to ally with us? Click the button below!*",
+        color=0x8B0000
+    )
+    
+    if allies:
+        # Sort allies by name
+        sorted_allies = sorted(allies.values(), key=lambda x: x.get("name", "").lower())
+        
+        for ally in sorted_allies:
+            name = ally.get("name", "Unknown")
+            owner = ally.get("owner", "Unknown")
+            members = ally.get("members", "?")
+            invite = ally.get("invite", "")
+            
+            # Create field value
+            value = f"👑 **Owner:** {owner}\n👥 **Members:** {members}"
+            if invite:
+                value += f"\n🔗 [Join Server]({invite})"
+            
+            embed.add_field(name=f"⚔️ {name}", value=value, inline=True)
+        
+        embed.set_footer(text=f"Total Allies: {len(allies)} • Last updated")
+    else:
+        embed.add_field(name="No Allies Yet", value="Be the first to ally with The Fallen!", inline=False)
+    
+    embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+    
+    # Try to find and edit existing message, or send new one
+    async for message in allies_channel.history(limit=20):
+        if message.author == guild.me and message.embeds and "ALLIANCES" in message.embeds[0].title:
+            await message.edit(embed=embed, view=AlliancePanelView())
+            return
+    
+    # Send new message if not found
+    await allies_channel.send(embed=embed, view=AlliancePanelView())
+
+
+@bot.command(name="setup_allies")
+@commands.has_permissions(administrator=True)
+async def setup_allies(ctx):
+    """Setup the alliance panel in the allies channel"""
+    # Find or create allies channel
+    allies_channel = discord.utils.get(ctx.guild.text_channels, name=ALLIES_CHANNEL)
+    
+    if not allies_channel:
+        allies_channel = await ctx.guild.create_text_channel(
+            name=ALLIES_CHANNEL,
+            topic="🤝 Our allied clans and groups"
+        )
+        await ctx.send(f"✅ Created allies channel: {allies_channel.mention}")
+    
+    await update_allies_embed(ctx.guild)
+    await ctx.send(f"✅ Alliance panel posted in {allies_channel.mention}")
+
+
+@bot.command(name="addally")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def add_ally(ctx, *, args: str = None):
+    """Manually add an ally: !addally <name> | <owner> | <members> | <invite>"""
+    if not args:
+        embed = discord.Embed(
+            title="📝 Add Ally Usage",
+            description="```!addally <name> | <owner> | <members> | <invite>```",
+            color=0x3498db
+        )
+        embed.add_field(name="Example", value='`!addally CONTRA | @Tsuki | 50+ | https://discord.gg/xyz`', inline=False)
+        return await ctx.send(embed=embed)
+    
+    parts = [p.strip() for p in args.split("|")]
+    if len(parts) < 4:
+        return await ctx.send("❌ Please use format: `!addally <name> | <owner> | <members> | <invite>`")
+    
+    name, owner, members, invite = parts[0], parts[1], parts[2], parts[3]
+    
+    ally_data = {
+        "name": name,
+        "owner": owner,
+        "members": members,
+        "invite": invite,
+        "added_by": ctx.author.id,
+        "added_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+    save_ally(ally_data)
+    
+    await update_allies_embed(ctx.guild)
+    await ctx.send(f"✅ Added **{name}** as an ally!")
+    await log_action(ctx.guild, "🤝 Ally Added", f"**{name}** added by {ctx.author.mention}", 0x2ecc71)
+
+
+@bot.command(name="removeally", aliases=["deleteally"])
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def remove_ally_cmd(ctx, *, ally_name: str = None):
+    """Remove an ally: !removeally <name>"""
+    if not ally_name:
+        return await ctx.send("❌ Please specify the ally name: `!removeally <name>`")
+    
+    if remove_ally(ally_name):
+        await update_allies_embed(ctx.guild)
+        await ctx.send(f"✅ Removed **{ally_name}** from allies.")
+        await log_action(ctx.guild, "🤝 Ally Removed", f"**{ally_name}** removed by {ctx.author.mention}", 0xe74c3c)
+    else:
+        await ctx.send(f"❌ Ally **{ally_name}** not found.")
+
+
+@bot.command(name="editally")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def edit_ally(ctx, ally_name: str = None, field: str = None, *, value: str = None):
+    """Edit an ally's info: !editally <name> <field> <value>"""
+    if not all([ally_name, field, value]):
+        embed = discord.Embed(
+            title="📝 Edit Ally Usage",
+            description="```!editally <name> <field> <value>```",
+            color=0x3498db
+        )
+        embed.add_field(name="Fields", value="`name`, `owner`, `members`, `invite`", inline=False)
+        embed.add_field(name="Example", value='`!editally CONTRA members 100+`', inline=False)
+        return await ctx.send(embed=embed)
+    
+    ally = get_ally(ally_name)
+    if not ally:
+        return await ctx.send(f"❌ Ally **{ally_name}** not found.")
+    
+    field = field.lower()
+    if field not in ["name", "owner", "members", "invite"]:
+        return await ctx.send("❌ Invalid field. Use: `name`, `owner`, `members`, `invite`")
+    
+    old_value = ally.get(field, "None")
+    ally[field] = value
+    
+    # If name changed, need to re-key in database
+    if field == "name":
+        remove_ally(ally_name)
+    save_ally(ally)
+    
+    await update_allies_embed(ctx.guild)
+    await ctx.send(f"✅ Updated **{ally_name}**'s {field}: `{old_value}` → `{value}`")
+
+
+@bot.command(name="allies", aliases=["listallies"])
+async def list_allies(ctx):
+    """List all current allies"""
+    allies = get_allies_data()
+    
+    if not allies:
+        return await ctx.send("❌ No allies registered yet.")
+    
+    embed = discord.Embed(
+        title="🤝 The Fallen Allies",
+        color=0x8B0000
+    )
+    
+    for ally in sorted(allies.values(), key=lambda x: x.get("name", "").lower()):
+        name = ally.get("name", "Unknown")
+        owner = ally.get("owner", "Unknown")
+        members = ally.get("members", "?")
+        invite = ally.get("invite", "No link")
+        
+        embed.add_field(
+            name=f"⚔️ {name}",
+            value=f"👑 {owner} • 👥 {members}\n🔗 {invite}",
+            inline=False
+        )
+    
+    embed.set_footer(text=f"Total: {len(allies)} allies")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="refreshallies")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def refresh_allies(ctx):
+    """Refresh the allies panel embed"""
+    await update_allies_embed(ctx.guild)
+    await ctx.send("✅ Allies panel refreshed!")
 
 
 # ==========================================
