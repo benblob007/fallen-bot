@@ -117,6 +117,153 @@ LEVEL_CONFIG = {
     200: {"role": "Eternal Shadow Sovereign", "coins": 50000},
 }
 
+# ==========================================
+# ROLE PERKS SYSTEM
+# ==========================================
+# Each milestone role gives permanent perks!
+ROLE_PERKS = {
+    "Faint Emberling": {          # Level 5
+        "xp_multiplier": 1.0,
+        "daily_multiplier": 1.0,
+        "weekly_bonus": 0,
+        "shop_tier": 0,
+    },
+    "Initiate of Shadows": {      # Level 10
+        "xp_multiplier": 1.05,    # +5% XP
+        "daily_multiplier": 1.1,  # +10% daily
+        "weekly_bonus": 50,       # +50 coins weekly
+        "shop_tier": 1,
+    },
+    "Abysswalk Student": {        # Level 20
+        "xp_multiplier": 1.10,    # +10% XP
+        "daily_multiplier": 1.25, # +25% daily
+        "weekly_bonus": 100,      # +100 coins weekly
+        "shop_tier": 1,
+    },
+    "Twilight Disciple": {        # Level 30
+        "xp_multiplier": 1.15,    # +15% XP
+        "daily_multiplier": 1.5,  # +50% daily
+        "weekly_bonus": 200,      # +200 coins weekly
+        "shop_tier": 2,
+    },
+    "Duskforged Aspirant": {      # Level 40
+        "xp_multiplier": 1.18,    # +18% XP
+        "daily_multiplier": 1.5,
+        "weekly_bonus": 300,
+        "shop_tier": 2,
+    },
+    "Bearer of Abyssal Echo": {   # Level 50
+        "xp_multiplier": 1.20,    # +20% XP
+        "daily_multiplier": 1.75, # +75% daily
+        "weekly_bonus": 500,      # +500 coins weekly
+        "shop_tier": 3,
+    },
+    "Nightwoven Adept": {         # Level 60
+        "xp_multiplier": 1.22,
+        "daily_multiplier": 1.75,
+        "weekly_bonus": 600,
+        "shop_tier": 3,
+    },
+    "Veilmarked Veteran": {       # Level 70
+        "xp_multiplier": 1.25,    # +25% XP
+        "daily_multiplier": 2.0,  # 2x daily
+        "weekly_bonus": 750,
+        "shop_tier": 3,
+    },
+    "Shadowborn Ascendant": {     # Level 80
+        "xp_multiplier": 1.28,
+        "daily_multiplier": 2.0,
+        "weekly_bonus": 1000,
+        "shop_tier": 4,
+    },
+    "Abyssforged Warden": {       # Level 100
+        "xp_multiplier": 1.30,    # +30% XP
+        "daily_multiplier": 2.5,  # 2.5x daily
+        "weekly_bonus": 1500,     # +1500 coins weekly
+        "shop_tier": 4,
+    },
+    "Eclipsed Oathbearer": {      # Level 120
+        "xp_multiplier": 1.35,
+        "daily_multiplier": 2.5,
+        "weekly_bonus": 2000,
+        "shop_tier": 5,
+    },
+    "Harbinger of Dusk": {        # Level 140
+        "xp_multiplier": 1.40,    # +40% XP
+        "daily_multiplier": 3.0,  # 3x daily
+        "weekly_bonus": 3000,
+        "shop_tier": 5,
+    },
+    "Ascended Dreadkeeper": {     # Level 160
+        "xp_multiplier": 1.45,
+        "daily_multiplier": 3.0,
+        "weekly_bonus": 5000,
+        "shop_tier": 5,
+    },
+    "Eternal Shadow Sovereign": { # Level 200
+        "xp_multiplier": 1.50,    # +50% XP
+        "daily_multiplier": 4.0,  # 4x daily!
+        "weekly_bonus": 10000,    # +10k coins weekly
+        "shop_tier": 6,           # Access to ALL exclusive items
+    },
+}
+
+# Role hierarchy for perk checking (highest to lowest)
+ROLE_HIERARCHY = [
+    "Eternal Shadow Sovereign",
+    "Ascended Dreadkeeper", 
+    "Harbinger of Dusk",
+    "Eclipsed Oathbearer",
+    "Abyssforged Warden",
+    "Shadowborn Ascendant",
+    "Veilmarked Veteran",
+    "Nightwoven Adept",
+    "Bearer of Abyssal Echo",
+    "Duskforged Aspirant",
+    "Twilight Disciple",
+    "Abysswalk Student",
+    "Initiate of Shadows",
+    "Faint Emberling",
+]
+
+# Exclusive shop items by tier
+EXCLUSIVE_SHOP = {
+    # Tier 1 - Level 10+
+    1: {
+        "shadow_badge": {"name": "🌑 Shadow Badge", "price": 500, "description": "A dark badge for your profile"},
+        "ember_trail": {"name": "🔥 Ember Trail", "price": 750, "description": "Fiery effect on level card"},
+    },
+    # Tier 2 - Level 30+
+    2: {
+        "twilight_frame": {"name": "🌙 Twilight Frame", "price": 1500, "description": "Purple glow around avatar"},
+        "void_title": {"name": "🕳️ Void Title", "price": 2000, "description": "Custom title: 'Void Walker'"},
+    },
+    # Tier 3 - Level 50+
+    3: {
+        "abyssal_aura": {"name": "💜 Abyssal Aura", "price": 3000, "description": "Dark purple aura effect"},
+        "echo_effect": {"name": "🔊 Echo Effect", "price": 3500, "description": "Special level-up animation"},
+        "custom_bg_slot": {"name": "🖼️ Custom BG Slot", "price": 5000, "description": "Upload custom level card background"},
+    },
+    # Tier 4 - Level 80+
+    4: {
+        "shadow_crown": {"name": "👑 Shadow Crown", "price": 7500, "description": "Crown overlay on avatar"},
+        "warden_title": {"name": "⚔️ Warden Title", "price": 8000, "description": "Custom title: 'Abyssal Warden'"},
+        "animated_border": {"name": "✨ Animated Border", "price": 10000, "description": "Animated profile border"},
+    },
+    # Tier 5 - Level 120+
+    5: {
+        "harbinger_wings": {"name": "🦇 Harbinger Wings", "price": 15000, "description": "Wing overlay on level card"},
+        "dusk_theme": {"name": "🌆 Dusk Theme", "price": 20000, "description": "Exclusive sunset color scheme"},
+        "legendary_title": {"name": "⭐ Legendary Title", "price": 25000, "description": "Custom title: 'Legend of The Fallen'"},
+    },
+    # Tier 6 - Level 200 (Sovereign exclusive)
+    6: {
+        "sovereign_crown": {"name": "💎 Sovereign Crown", "price": 50000, "description": "Diamond crown - ultimate flex"},
+        "eternal_aura": {"name": "🌌 Eternal Aura", "price": 75000, "description": "Galaxy effect on all cards"},
+        "custom_title": {"name": "📝 Custom Title", "price": 100000, "description": "Create your OWN title!"},
+    },
+}
+
 XP_TEXT_RANGE = (5, 15)      # XP per message
 XP_VOICE_RANGE = (15, 30)    # XP per 2 minutes in voice
 XP_REACTION_RANGE = (2, 8)   # XP per reaction
@@ -826,6 +973,35 @@ def get_level_from_xp(total_xp):
 def get_milestone_reward(level):
     """Get role and coin reward for milestone levels"""
     return LEVEL_CONFIG.get(level)
+
+def get_member_perks(member):
+    """Get the highest role perks for a member"""
+    if member is None:
+        return {"xp_multiplier": 1.0, "daily_multiplier": 1.0, "weekly_bonus": 0, "shop_tier": 0, "role_name": None}
+    
+    member_role_names = [role.name for role in member.roles]
+    
+    # Check from highest to lowest role
+    for role_name in ROLE_HIERARCHY:
+        if role_name in member_role_names:
+            perks = ROLE_PERKS.get(role_name, {}).copy()
+            perks["role_name"] = role_name
+            return perks
+    
+    # No milestone role found
+    return {"xp_multiplier": 1.0, "daily_multiplier": 1.0, "weekly_bonus": 0, "shop_tier": 0, "role_name": None}
+
+def get_available_shop_items(member):
+    """Get all shop items available to a member based on their tier"""
+    perks = get_member_perks(member)
+    shop_tier = perks.get("shop_tier", 0)
+    
+    available_items = {}
+    for tier in range(1, shop_tier + 1):
+        if tier in EXCLUSIVE_SHOP:
+            available_items.update(EXCLUSIVE_SHOP[tier])
+    
+    return available_items
 
 def get_level_rank(user_id):
     data = load_data()
@@ -11807,9 +11983,17 @@ async def on_message(message):
         # Check cooldown before giving XP
         if check_xp_cooldown(message.author.id, "message"):
             xp = random.randint(*XP_TEXT_RANGE)
-            # Booster bonus: +25% XP
+            
+            # Get role perks multiplier
+            perks = get_member_perks(message.author)
+            role_multiplier = perks.get("xp_multiplier", 1.0)
+            
+            # Booster bonus stacks with role bonus
             if is_booster(message.author):
-                xp = int(xp * BOOSTER_XP_MULTIPLIER)
+                xp = int(xp * BOOSTER_XP_MULTIPLIER * role_multiplier)
+            else:
+                xp = int(xp * role_multiplier)
+            
             add_xp_to_user(message.author.id, xp)
             await check_level_up(message.author.id, message.guild)
         
@@ -11824,9 +12008,17 @@ async def on_reaction_add(reaction, user):
         # Check cooldown before giving XP
         if check_xp_cooldown(user.id, "reaction"):
             xp = random.randint(*XP_REACTION_RANGE)
-            # Booster bonus: +25% XP
+            
+            # Get role perks multiplier
+            perks = get_member_perks(user)
+            role_multiplier = perks.get("xp_multiplier", 1.0)
+            
+            # Booster bonus stacks with role bonus
             if is_booster(user):
-                xp = int(xp * BOOSTER_XP_MULTIPLIER)
+                xp = int(xp * BOOSTER_XP_MULTIPLIER * role_multiplier)
+            else:
+                xp = int(xp * role_multiplier)
+            
             add_xp_to_user(user.id, xp)
             await check_level_up(user.id, reaction.message.guild)
         
@@ -13601,7 +13793,7 @@ async def stats(ctx, member: discord.Member = None):
 
 @bot.hybrid_command(name="daily", description="Claim your daily reward")
 async def daily(ctx):
-    """Claim daily coins and XP - 2x for Boosters!"""
+    """Claim daily coins and XP - Boosted by your role!"""
     user_data = get_user_data(ctx.author.id)
     now = datetime.datetime.now(datetime.timezone.utc)
     last = user_data.get('last_daily')
@@ -13626,11 +13818,20 @@ async def daily(ctx):
     coins = base_coins + (25 * bonus)
     xp = base_xp + (10 * bonus)
     
-    # Booster perk: 2x daily rewards!
+    # Get role perks multiplier
+    perks = get_member_perks(ctx.author)
+    role_multiplier = perks.get("daily_multiplier", 1.0)
+    role_name = perks.get("role_name")
+    
+    # Booster perk: 2x daily rewards (stacks with role bonus)
     booster_bonus = is_booster(ctx.author)
     if booster_bonus:
-        coins = coins * BOOSTER_DAILY_MULTIPLIER
-        xp = xp * BOOSTER_DAILY_MULTIPLIER
+        total_multiplier = BOOSTER_DAILY_MULTIPLIER * role_multiplier
+    else:
+        total_multiplier = role_multiplier
+    
+    coins = int(coins * total_multiplier)
+    xp = int(xp * total_multiplier)
     
     add_user_stat(ctx.author.id, "coins", coins)
     add_xp_to_user(ctx.author.id, xp)
@@ -13639,18 +13840,29 @@ async def daily(ctx):
     
     embed = discord.Embed(title="🎁 Daily Reward Claimed!", color=0x2ecc71)
     
-    if booster_bonus:
-        embed.description = f"**+{coins}** 💰 Fallen Coins\n**+{xp}** ✨ XP\n\n💎 **2x Booster Bonus Applied!**"
-        embed.color = 0x00FFFF  # Cyan for boosters
-    else:
-        embed.description = f"**+{coins}** 💰 Fallen Coins\n**+{xp}** ✨ XP"
+    # Build description based on bonuses
+    desc = f"**+{coins}** 💰 Fallen Coins\n**+{xp}** ✨ XP\n"
     
+    bonuses = []
+    if booster_bonus:
+        bonuses.append("💎 2x Booster Bonus")
+    if role_name and role_multiplier > 1.0:
+        bonuses.append(f"🎭 {role_name} ({int((role_multiplier-1)*100)}% bonus)")
+    
+    if bonuses:
+        desc += "\n" + " • ".join(bonuses)
+        embed.color = 0x00FFFF if booster_bonus else 0xFFD700
+    
+    embed.description = desc
     embed.add_field(name="🔥 Streak", value=f"{streak} days", inline=True)
     
+    if total_multiplier > 1.0:
+        embed.add_field(name="📈 Total Bonus", value=f"{int((total_multiplier-1)*100)}%", inline=True)
+    
     if streak > 1:
-        embed.set_footer(text=f"Streak bonus: +{25 * bonus} coins, +{10 * bonus} XP" + (" (doubled!)" if booster_bonus else ""))
-    elif not booster_bonus:
-        embed.set_footer(text="💎 Boosters get 2x daily rewards!")
+        embed.set_footer(text=f"Streak bonus: +{25 * bonus} coins, +{10 * bonus} XP (before multipliers)")
+    elif not booster_bonus and not role_name:
+        embed.set_footer(text="💡 Level up to unlock daily multipliers!")
     
     await ctx.send(embed=embed)
     await check_level_up(ctx.author.id, ctx.guild)
@@ -13700,6 +13912,228 @@ async def booster_reward(ctx):
     
     await ctx.send(embed=embed)
     await check_level_up(ctx.author.id, ctx.guild)
+
+
+@bot.hybrid_command(name="weekly", description="Claim your weekly role reward")
+async def weekly_reward(ctx):
+    """Claim weekly bonus coins based on your role!"""
+    perks = get_member_perks(ctx.author)
+    weekly_bonus = perks.get("weekly_bonus", 0)
+    role_name = perks.get("role_name")
+    
+    if weekly_bonus == 0:
+        embed = discord.Embed(
+            title="📅 Weekly Role Reward",
+            description="You don't have a milestone role yet!\n\nReach **Level 10** to unlock weekly rewards.",
+            color=0x808080
+        )
+        embed.add_field(
+            name="🎯 Upcoming Rewards",
+            value="• Level 10: +50 coins/week\n• Level 20: +100 coins/week\n• Level 30: +200 coins/week\n• Level 50: +500 coins/week\n• Level 100: +1,500 coins/week",
+            inline=False
+        )
+        return await ctx.send(embed=embed)
+    
+    user_data = get_user_data(ctx.author.id)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    last = user_data.get('last_weekly_role_reward')
+    
+    if last:
+        try:
+            last_dt = datetime.datetime.fromisoformat(last)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=datetime.timezone.utc)
+            diff = (now - last_dt).total_seconds()
+            if diff < 604800:  # 7 days
+                days_left = int((604800 - diff) // 86400)
+                hours_left = int(((604800 - diff) % 86400) // 3600)
+                return await ctx.send(f"⏰ You can claim your weekly reward in **{days_left}d {hours_left}h**", ephemeral=True)
+        except:
+            pass
+    
+    add_user_stat(ctx.author.id, "coins", weekly_bonus)
+    update_user_data(ctx.author.id, "last_weekly_role_reward", now.isoformat())
+    
+    embed = discord.Embed(
+        title="📅 Weekly Role Reward!",
+        description=f"**+{weekly_bonus}** 💰 Fallen Coins\n\n🎭 From your **{role_name}** role",
+        color=0xFFD700
+    )
+    embed.set_footer(text="Come back next week for more!")
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    
+    await ctx.send(embed=embed)
+
+
+@bot.hybrid_command(name="perks", description="View your role perks and bonuses")
+async def view_perks(ctx):
+    """View all your current perks and bonuses"""
+    perks = get_member_perks(ctx.author)
+    booster = is_booster(ctx.author)
+    
+    embed = discord.Embed(
+        title=f"🎭 {ctx.author.display_name}'s Perks",
+        color=0x00FFFF if booster else 0xFFD700
+    )
+    
+    # Role perks
+    role_name = perks.get("role_name")
+    if role_name:
+        xp_bonus = int((perks.get("xp_multiplier", 1.0) - 1) * 100)
+        daily_bonus = int((perks.get("daily_multiplier", 1.0) - 1) * 100)
+        weekly = perks.get("weekly_bonus", 0)
+        shop_tier = perks.get("shop_tier", 0)
+        
+        role_perks = f"**{role_name}**\n"
+        role_perks += f"• +{xp_bonus}% XP from all activities\n" if xp_bonus > 0 else ""
+        role_perks += f"• +{daily_bonus}% daily rewards\n" if daily_bonus > 0 else ""
+        role_perks += f"• +{weekly} coins weekly\n" if weekly > 0 else ""
+        role_perks += f"• Shop Tier {shop_tier} access" if shop_tier > 0 else ""
+        
+        embed.add_field(name="🎭 Role Perks", value=role_perks, inline=False)
+    else:
+        embed.add_field(name="🎭 Role Perks", value="*No milestone role yet*\nReach Level 5 to start earning perks!", inline=False)
+    
+    # Booster perks
+    if booster:
+        booster_perks = "• +25% XP bonus (stacks with role!)\n• 2x daily rewards\n• +500 coins + 250 XP weekly\n• Animated level card\n• Diamond border"
+        embed.add_field(name="💎 Booster Perks", value=booster_perks, inline=False)
+    
+    # Total bonuses
+    total_xp = perks.get("xp_multiplier", 1.0)
+    if booster:
+        total_xp *= BOOSTER_XP_MULTIPLIER
+    total_daily = perks.get("daily_multiplier", 1.0)
+    if booster:
+        total_daily *= BOOSTER_DAILY_MULTIPLIER
+    
+    embed.add_field(
+        name="📊 Total Bonuses",
+        value=f"**XP:** +{int((total_xp - 1) * 100)}%\n**Daily:** +{int((total_daily - 1) * 100)}%",
+        inline=True
+    )
+    
+    # Shop access
+    shop_tier = perks.get("shop_tier", 0)
+    available_items = len(get_available_shop_items(ctx.author))
+    embed.add_field(
+        name="🛒 Shop Access",
+        value=f"Tier {shop_tier}\n{available_items} exclusive items",
+        inline=True
+    )
+    
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    embed.set_footer(text="Use !exclusiveshop to see available items")
+    
+    await ctx.send(embed=embed)
+
+
+@bot.hybrid_command(name="exclusiveshop", aliases=["eshop"], description="View exclusive shop items")
+async def exclusive_shop(ctx):
+    """View exclusive shop items available at your tier"""
+    perks = get_member_perks(ctx.author)
+    shop_tier = perks.get("shop_tier", 0)
+    role_name = perks.get("role_name")
+    
+    embed = discord.Embed(
+        title="🛒 Exclusive Shop",
+        color=0xFFD700
+    )
+    
+    if shop_tier == 0:
+        embed.description = "You need a **milestone role** to access the exclusive shop!\n\nReach **Level 10** to unlock Tier 1 items."
+        embed.add_field(
+            name="🔒 Shop Tiers",
+            value="• Tier 1: Level 10+\n• Tier 2: Level 30+\n• Tier 3: Level 50+\n• Tier 4: Level 80+\n• Tier 5: Level 120+\n• Tier 6: Level 200 (Sovereign)",
+            inline=False
+        )
+        return await ctx.send(embed=embed)
+    
+    embed.description = f"🎭 **{role_name}** • Tier {shop_tier} Access"
+    
+    # Show items by tier
+    for tier in range(1, shop_tier + 1):
+        if tier in EXCLUSIVE_SHOP:
+            items_text = ""
+            for item_id, item in EXCLUSIVE_SHOP[tier].items():
+                items_text += f"{item['name']} - **{item['price']:,}** coins\n*{item['description']}*\n\n"
+            
+            tier_names = {1: "Initiate", 2: "Disciple", 3: "Echo", 4: "Warden", 5: "Harbinger", 6: "Sovereign"}
+            embed.add_field(
+                name=f"{'🔓' if tier <= shop_tier else '🔒'} Tier {tier} - {tier_names.get(tier, '')}",
+                value=items_text if items_text else "No items",
+                inline=False
+            )
+    
+    # Show locked tiers preview
+    if shop_tier < 6:
+        next_tier = shop_tier + 1
+        if next_tier in EXCLUSIVE_SHOP:
+            locked_preview = ""
+            for item_id, item in list(EXCLUSIVE_SHOP[next_tier].items())[:2]:
+                locked_preview += f"🔒 {item['name']}\n"
+            embed.add_field(
+                name=f"🔒 Tier {next_tier} (Locked)",
+                value=locked_preview + "*Level up to unlock!*",
+                inline=False
+            )
+    
+    embed.set_footer(text="Use !buyexclusive <item_name> to purchase")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="buyexclusive", aliases=["ebuy"])
+async def buy_exclusive(ctx, *, item_name: str = None):
+    """Buy an exclusive shop item"""
+    if not item_name:
+        return await ctx.send("❌ Please specify an item name. Use `!exclusiveshop` to see available items.")
+    
+    available_items = get_available_shop_items(ctx.author)
+    
+    if not available_items:
+        return await ctx.send("❌ You don't have access to any exclusive items yet. Reach Level 10 to unlock!")
+    
+    # Find the item
+    found_item = None
+    found_id = None
+    for item_id, item in available_items.items():
+        if item_name.lower() in item['name'].lower() or item_name.lower() == item_id.lower():
+            found_item = item
+            found_id = item_id
+            break
+    
+    if not found_item:
+        return await ctx.send(f"❌ Item not found. Use `!exclusiveshop` to see available items.")
+    
+    # Check if user can afford it
+    user_data = get_user_data(ctx.author.id)
+    coins = user_data.get("coins", 0)
+    
+    if coins < found_item['price']:
+        return await ctx.send(f"❌ You need **{found_item['price']:,}** coins but only have **{coins:,}**")
+    
+    # Check if already owned
+    owned_items = user_data.get("exclusive_items", [])
+    if found_id in owned_items:
+        return await ctx.send(f"❌ You already own **{found_item['name']}**!")
+    
+    # Purchase
+    add_user_stat(ctx.author.id, "coins", -found_item['price'])
+    if "exclusive_items" not in user_data:
+        update_user_data(ctx.author.id, "exclusive_items", [found_id])
+    else:
+        owned_items.append(found_id)
+        update_user_data(ctx.author.id, "exclusive_items", owned_items)
+    
+    embed = discord.Embed(
+        title="🎉 Purchase Successful!",
+        description=f"You bought **{found_item['name']}**!\n\n*{found_item['description']}*",
+        color=0x2ecc71
+    )
+    embed.add_field(name="💰 Spent", value=f"{found_item['price']:,} coins", inline=True)
+    embed.add_field(name="💰 Remaining", value=f"{coins - found_item['price']:,} coins", inline=True)
+    
+    await ctx.send(embed=embed)
 
 
 @bot.hybrid_command(name="schedule", description="View upcoming events")
