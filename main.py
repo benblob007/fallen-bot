@@ -7734,6 +7734,7 @@ class HelpSelect(discord.ui.Select):
             discord.SelectOption(label="Spar Finder", emoji="🎯", description="Tier-based spar matchmaking"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
             discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
+            discord.SelectOption(label="Alliances", emoji="🤝", description="Allied clans & diplomacy"),
             discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
             discord.SelectOption(label="Stage Transfer", emoji="📋", description="Rank transfers & results"),
             discord.SelectOption(label="Staff", emoji="🛡️", description="Staff commands"),
@@ -7924,6 +7925,35 @@ class HelpSelect(discord.ui.Select):
                 "`!exclusiveshop` - Role-locked items\n"
                 "`!buyexclusive <item>` - Purchase\n"
                 "*Higher levels = more items!*"
+            )
+        
+        elif self.values[0] == "Alliances":
+            e.title="🤝 Alliance System"
+            e.description=(
+                "**👤 Everyone**\n"
+                "`!allies` - View all allied clans\n"
+                "`!allyinfo <name>` - Detailed ally info\n"
+                "Click **Request Alliance** in #allies\n\n"
+                "**📊 Alliance Tiers**\n"
+                "🤝 New • 🥉 Bronze (7d) • 🥈 Silver (30d)\n"
+                "🥇 Gold (90d) • 💎 Platinum (180d) • 💠 Diamond (1y)\n\n"
+                "**🟢 Status Indicators**\n"
+                "🟢 Active • 🟡 Semi-Active • 🔴 Inactive\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`!addally <name> | <owner> | <members> | <invite>`\n"
+                "`!removeally <name>` - Remove ally\n"
+                "`!editally <name> <field> <value>` - Edit info\n"
+                "`!refreshallies` - Refresh panel\n\n"
+                "**📝 Activity Logging**\n"
+                "`!allyactivity <ally> <type> <details>`\n"
+                "`!allylog [ally]` - View activity log\n"
+                "Types: backup, raid, war, event, trade, other\n\n"
+                "**⚙️ Management**\n"
+                "`!setallybanner <url>` - Set banner image\n"
+                "`!allycooldown` - View cooldowns\n"
+                "`!clearcooldown <name>` - Clear cooldown\n"
+                "`!setup_allies` - Setup allies panel\n"
+                "`!setup_allylog` - Setup log channel"
             )
             
         elif self.values[0] == "Backup":
@@ -20649,6 +20679,23 @@ async def setup_mod_log(ctx):
 
 ALLIANCE_TICKET_CHANNEL = "alliance-requests"
 ALLIES_CHANNEL = "allies"
+ALLIANCE_LOG_CHANNEL = "alliance-log"
+
+# Alliance Tier System (days allied -> tier)
+ALLIANCE_TIERS = {
+    0: {"name": "New Ally", "emoji": "🤝", "color": 0x808080},      # Just allied
+    7: {"name": "Bronze Ally", "emoji": "🥉", "color": 0xCD7F32},   # 1 week
+    30: {"name": "Silver Ally", "emoji": "🥈", "color": 0xC0C0C0},  # 1 month
+    90: {"name": "Gold Ally", "emoji": "🥇", "color": 0xFFD700},    # 3 months
+    180: {"name": "Platinum Ally", "emoji": "💎", "color": 0x00FFFF}, # 6 months
+    365: {"name": "Diamond Ally", "emoji": "💠", "color": 0xB9F2FF}, # 1 year
+}
+
+# Alliance cooldown (days before can re-ally after removal)
+ALLIANCE_COOLDOWN_DAYS = 14
+
+# Alliance banner image (set with !setallybanner <url>)
+ALLIANCE_BANNER_URL = None
 
 def get_allies_data():
     """Get alliance data from main data file"""
@@ -20657,6 +20704,185 @@ def get_allies_data():
         data["allies"] = {}
         save_data(data)
     return data["allies"]
+
+def get_alliance_cooldowns():
+    """Get alliance cooldown data"""
+    data = load_data()
+    if "alliance_cooldowns" not in data:
+        data["alliance_cooldowns"] = {}
+        save_data(data)
+    return data["alliance_cooldowns"]
+
+def add_alliance_cooldown(ally_name):
+    """Add a cooldown for a removed ally"""
+    data = load_data()
+    if "alliance_cooldowns" not in data:
+        data["alliance_cooldowns"] = {}
+    data["alliance_cooldowns"][ally_name.lower()] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    save_data(data)
+
+def check_alliance_cooldown(ally_name):
+    """Check if an ally is on cooldown. Returns days remaining or 0 if no cooldown."""
+    cooldowns = get_alliance_cooldowns()
+    if ally_name.lower() not in cooldowns:
+        return 0
+    
+    try:
+        removed_at = datetime.datetime.fromisoformat(cooldowns[ally_name.lower()])
+        if removed_at.tzinfo is None:
+            removed_at = removed_at.replace(tzinfo=datetime.timezone.utc)
+        
+        days_since = (datetime.datetime.now(datetime.timezone.utc) - removed_at).days
+        if days_since >= ALLIANCE_COOLDOWN_DAYS:
+            # Cooldown expired, remove it
+            data = load_data()
+            del data["alliance_cooldowns"][ally_name.lower()]
+            save_data(data)
+            return 0
+        return ALLIANCE_COOLDOWN_DAYS - days_since
+    except:
+        return 0
+
+def clear_alliance_cooldown(ally_name):
+    """Clear cooldown for an ally (staff override)"""
+    data = load_data()
+    if "alliance_cooldowns" in data and ally_name.lower() in data["alliance_cooldowns"]:
+        del data["alliance_cooldowns"][ally_name.lower()]
+        save_data(data)
+        return True
+    return False
+
+def get_alliance_tier(ally_data):
+    """Get the tier for an ally based on days allied"""
+    added_at = ally_data.get("added_at")
+    if not added_at:
+        return ALLIANCE_TIERS[0]
+    
+    try:
+        added_dt = datetime.datetime.fromisoformat(added_at)
+        if added_dt.tzinfo is None:
+            added_dt = added_dt.replace(tzinfo=datetime.timezone.utc)
+        
+        days_allied = (datetime.datetime.now(datetime.timezone.utc) - added_dt).days
+        
+        # Find highest tier they qualify for
+        current_tier = ALLIANCE_TIERS[0]
+        for days_required, tier_info in sorted(ALLIANCE_TIERS.items()):
+            if days_allied >= days_required:
+                current_tier = tier_info
+        
+        return current_tier
+    except:
+        return ALLIANCE_TIERS[0]
+
+def get_alliance_age(ally_data):
+    """Get human-readable alliance age"""
+    added_at = ally_data.get("added_at")
+    if not added_at:
+        return "Unknown"
+    
+    try:
+        added_dt = datetime.datetime.fromisoformat(added_at)
+        if added_dt.tzinfo is None:
+            added_dt = added_dt.replace(tzinfo=datetime.timezone.utc)
+        
+        delta = datetime.datetime.now(datetime.timezone.utc) - added_dt
+        days = delta.days
+        
+        if days == 0:
+            return "Today"
+        elif days == 1:
+            return "1 day"
+        elif days < 7:
+            return f"{days} days"
+        elif days < 30:
+            weeks = days // 7
+            return f"{weeks} week{'s' if weeks > 1 else ''}"
+        elif days < 365:
+            months = days // 30
+            return f"{months} month{'s' if months > 1 else ''}"
+        else:
+            years = days // 365
+            months = (days % 365) // 30
+            if months > 0:
+                return f"{years} year{'s' if years > 1 else ''}, {months} month{'s' if months > 1 else ''}"
+            return f"{years} year{'s' if years > 1 else ''}"
+    except:
+        return "Unknown"
+
+def get_alliance_status(ally_data):
+    """Get alliance status (Active/Inactive based on last interaction)"""
+    last_interaction = ally_data.get("last_interaction")
+    if not last_interaction:
+        # No interactions yet, check if new (less than 7 days)
+        added_at = ally_data.get("added_at")
+        if added_at:
+            try:
+                added_dt = datetime.datetime.fromisoformat(added_at)
+                if added_dt.tzinfo is None:
+                    added_dt = added_dt.replace(tzinfo=datetime.timezone.utc)
+                days_since = (datetime.datetime.now(datetime.timezone.utc) - added_dt).days
+                if days_since < 7:
+                    return {"status": "New", "emoji": "🆕", "color": 0x3498db}
+            except:
+                pass
+        return {"status": "Inactive", "emoji": "💤", "color": 0x808080}
+    
+    try:
+        last_dt = datetime.datetime.fromisoformat(last_interaction)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=datetime.timezone.utc)
+        
+        days_since = (datetime.datetime.now(datetime.timezone.utc) - last_dt).days
+        
+        if days_since <= 7:
+            return {"status": "Active", "emoji": "🟢", "color": 0x2ecc71}
+        elif days_since <= 30:
+            return {"status": "Semi-Active", "emoji": "🟡", "color": 0xf1c40f}
+        else:
+            return {"status": "Inactive", "emoji": "🔴", "color": 0xe74c3c}
+    except:
+        return {"status": "Unknown", "emoji": "❓", "color": 0x808080}
+
+def log_alliance_activity(ally_name, activity_type, details, user_id=None):
+    """Log an alliance activity"""
+    data = load_data()
+    if "alliance_activity_log" not in data:
+        data["alliance_activity_log"] = []
+    
+    log_entry = {
+        "ally": ally_name,
+        "type": activity_type,
+        "details": details,
+        "user_id": user_id,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }
+    
+    data["alliance_activity_log"].insert(0, log_entry)  # Add to front
+    
+    # Keep only last 500 entries
+    data["alliance_activity_log"] = data["alliance_activity_log"][:500]
+    save_data(data)
+    
+    # Update ally's last interaction time
+    if ally_name.lower() in data.get("allies", {}):
+        data["allies"][ally_name.lower()]["last_interaction"] = log_entry["timestamp"]
+        
+        # Increment activity counter
+        if "activity_count" not in data["allies"][ally_name.lower()]:
+            data["allies"][ally_name.lower()]["activity_count"] = 0
+        data["allies"][ally_name.lower()]["activity_count"] += 1
+        save_data(data)
+
+def get_alliance_activity_log(ally_name=None, limit=20):
+    """Get alliance activity log, optionally filtered by ally"""
+    data = load_data()
+    logs = data.get("alliance_activity_log", [])
+    
+    if ally_name:
+        logs = [l for l in logs if l.get("ally", "").lower() == ally_name.lower()]
+    
+    return logs[:limit]
 
 def save_ally(ally_data):
     """Save an ally to the database"""
@@ -20667,9 +20893,14 @@ def save_ally(ally_data):
     save_data(data)
 
 def remove_ally(ally_name):
-    """Remove an ally from the database"""
+    """Remove an ally from the database and add cooldown"""
     data = load_data()
     if "allies" in data and ally_name.lower() in data["allies"]:
+        # Add to cooldown list
+        add_alliance_cooldown(ally_name)
+        # Log the removal
+        log_alliance_activity(ally_name, "removed", "Alliance ended")
+        # Remove from allies
         del data["allies"][ally_name.lower()]
         save_data(data)
         return True
@@ -20791,6 +21022,15 @@ class AllianceRequestView(discord.ui.View):
         if not any(role.name in HIGH_STAFF_ROLES for role in interaction.user.roles):
             return await interaction.response.send_message("❌ Only High Staff can approve alliances.", ephemeral=True)
         
+        # Check cooldown
+        days_left = check_alliance_cooldown(self.clan_name)
+        if days_left > 0:
+            return await interaction.response.send_message(
+                f"⏳ **{self.clan_name}** is on cooldown for **{days_left}** more days.\n"
+                f"Use `!clearcooldown {self.clan_name}` to override.",
+                ephemeral=True
+            )
+        
         await interaction.response.defer(ephemeral=True)
         
         # Try to fetch server icon from invite
@@ -20815,9 +21055,14 @@ class AllianceRequestView(discord.ui.View):
             "icon_url": icon_url,
             "added_by": interaction.user.id,
             "added_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "requester_id": self.requester_id
+            "requester_id": self.requester_id,
+            "activity_count": 0,
+            "last_interaction": None
         }
         save_ally(ally_data)
+        
+        # Log the approval
+        log_alliance_activity(self.clan_name, "approved", f"Alliance approved by {interaction.user.name}", interaction.user.id)
         
         # Update the embed
         embed = interaction.message.embeds[0]
@@ -20843,6 +21088,22 @@ class AllianceRequestView(discord.ui.View):
         
         # Update allies channel
         await update_allies_embed(interaction.guild)
+        
+        # Post to alliance log if exists
+        log_channel = discord.utils.get(interaction.guild.text_channels, name=ALLIANCE_LOG_CHANNEL)
+        if log_channel:
+            log_embed = discord.Embed(
+                title="✅ New Alliance Formed",
+                description=f"**{self.clan_name}** is now allied with The Fallen!",
+                color=0x2ecc71
+            )
+            log_embed.add_field(name="Owner", value=self.owner, inline=True)
+            log_embed.add_field(name="Members", value=actual_member_count, inline=True)
+            log_embed.add_field(name="Approved By", value=interaction.user.mention, inline=True)
+            if icon_url:
+                log_embed.set_thumbnail(url=icon_url)
+            log_embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+            await log_channel.send(embed=log_embed)
         
         await interaction.followup.send(f"✅ Alliance with **{self.clan_name}** approved!" + (" (Server icon fetched!)" if icon_url else ""), ephemeral=True)
     
@@ -20898,24 +21159,55 @@ async def update_allies_embed(guild):
         async for message in allies_channel.history(limit=50):
             if message.author == guild.me and message.embeds:
                 title = message.embeds[0].title or ""
-                if title.startswith("⚔️") and "ALLIANCES" not in title:
+                # Delete ally cards but keep the header
+                if "ALLIANCES" not in title and ("⚔️" in title or "🥉" in title or "🥈" in title or "🥇" in title or "💎" in title or "💠" in title):
                     await message.delete()
                     await asyncio.sleep(0.3)
     except:
         pass
     
+    # Get alliance banner if set
+    data = load_data()
+    banner_url = data.get("alliance_banner_url")
+    
+    # Count allies by status
+    active_count = 0
+    inactive_count = 0
+    for ally in allies.values():
+        status = get_alliance_status(ally)
+        if status["status"] in ["Active", "New"]:
+            active_count += 1
+        elif status["status"] == "Inactive":
+            inactive_count += 1
+    
     # Create the main header embed
     header_embed = discord.Embed(
         title="🤝 THE FALLEN ALLIANCES 🤝",
-        description="**Our trusted allies and partners in battle.**\n\n*Want to ally with us? Click the button below!*\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        description=(
+            "**Our trusted allies and partners in battle.**\n\n"
+            f"🟢 **Active:** {active_count} • 🔴 **Inactive:** {inactive_count}\n\n"
+            "*Want to ally with us? Click the button below!*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
         color=0x8B0000
     )
+    
+    # Set banner image if available
+    if banner_url:
+        header_embed.set_image(url=banner_url)
     
     if guild.icon:
         header_embed.set_thumbnail(url=guild.icon.url)
     
     if not allies:
         header_embed.add_field(name="No Allies Yet", value="Be the first to ally with The Fallen!", inline=False)
+    
+    # Add tier legend
+    header_embed.add_field(
+        name="📊 Alliance Tiers",
+        value="🤝 New • 🥉 Bronze (7d) • 🥈 Silver (30d) • 🥇 Gold (90d) • 💎 Platinum (180d) • 💠 Diamond (1y)",
+        inline=False
+    )
     
     header_embed.set_footer(text=f"Total Allies: {len(allies)} • The Fallen", icon_url=guild.icon.url if guild.icon else None)
     header_embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
@@ -20933,7 +21225,13 @@ async def update_allies_embed(guild):
     
     # Send individual embeds for each ally (so each can have their own icon)
     if allies:
-        sorted_allies = sorted(allies.values(), key=lambda x: x.get("name", "").lower())
+        # Sort by tier (highest first), then by name
+        def sort_key(ally):
+            tier = get_alliance_tier(ally)
+            tier_order = {"Diamond Ally": 0, "Platinum Ally": 1, "Gold Ally": 2, "Silver Ally": 3, "Bronze Ally": 4, "New Ally": 5}
+            return (tier_order.get(tier["name"], 6), ally.get("name", "").lower())
+        
+        sorted_allies = sorted(allies.values(), key=sort_key)
         
         for ally in sorted_allies:
             name = ally.get("name", "Unknown")
@@ -20941,17 +21239,40 @@ async def update_allies_embed(guild):
             members = ally.get("members", "?")
             invite = ally.get("invite", "")
             icon_url = ally.get("icon_url")
+            activity_count = ally.get("activity_count", 0)
+            
+            # Get tier and status
+            tier = get_alliance_tier(ally)
+            status = get_alliance_status(ally)
+            alliance_age = get_alliance_age(ally)
+            
+            # Get established date
+            added_at = ally.get("added_at", "")
+            established = "Unknown"
+            if added_at:
+                try:
+                    added_dt = datetime.datetime.fromisoformat(added_at)
+                    established = added_dt.strftime("%b %d, %Y")
+                except:
+                    pass
             
             ally_embed = discord.Embed(
-                title=f"⚔️ {name}",
-                color=0x2f3136
+                title=f"{tier['emoji']} {name}",
+                color=tier["color"]
             )
+            
+            # Status indicator in description
+            ally_embed.description = f"{status['emoji']} **{status['status']}** • {tier['name']}"
             
             ally_embed.add_field(name="👑 Owner", value=owner, inline=True)
             ally_embed.add_field(name="👥 Members", value=members, inline=True)
             
             if invite:
                 ally_embed.add_field(name="🔗 Server", value=f"[Join]({invite})", inline=True)
+            
+            ally_embed.add_field(name="📅 Established", value=established, inline=True)
+            ally_embed.add_field(name="⏱️ Allied For", value=alliance_age, inline=True)
+            ally_embed.add_field(name="📊 Activities", value=str(activity_count), inline=True)
             
             if icon_url:
                 ally_embed.set_thumbnail(url=icon_url)
@@ -21202,8 +21523,338 @@ async def list_allies(ctx):
 @commands.has_any_role(*HIGH_STAFF_ROLES)
 async def refresh_allies(ctx):
     """Refresh the allies panel embed"""
+    try:
+        msg = await ctx.send("⏳ Refreshing allies panel...")
+        await asyncio.sleep(API_CALL_DELAY)  # Rate limit protection
+        await update_allies_embed(ctx.guild)
+        await msg.edit(content="✅ Allies panel refreshed!")
+    except discord.HTTPException as e:
+        if e.status == 429:
+            await ctx.send("⚠️ Rate limited by Discord! Please wait a moment and try again.")
+        else:
+            await ctx.send(f"❌ Discord error: {e}")
+    except Exception as e:
+        await ctx.send(f"❌ An error occurred: {e}")
+
+@refresh_allies.error
+async def refresh_allies_error(ctx, error):
+    if isinstance(error, commands.MissingAnyRole):
+        await ctx.send("❌ You need **High Staff** permissions to use this command.")
+    else:
+        await ctx.send(f"❌ An error occurred: {error}")
+
+
+@bot.command(name="setallybanner")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def set_ally_banner(ctx, url: str = None):
+    """Set a custom banner image for the allies channel"""
+    try:
+        if not url:
+            if ctx.message.attachments:
+                url = ctx.message.attachments[0].url
+            else:
+                embed = discord.Embed(
+                    title="🖼️ Set Alliance Banner",
+                    description="Set a custom banner for the allies panel.",
+                    color=0x3498db
+                )
+                embed.add_field(name="Usage", value="`!setallybanner <url>`\nor attach an image", inline=False)
+                return await ctx.send(embed=embed)
+        
+        if not url.startswith(("http://", "https://")):
+            return await ctx.send("❌ Invalid URL. Must start with http:// or https://")
+        
+        msg = await ctx.send("⏳ Setting banner...")
+        
+        data = load_data()
+        data["alliance_banner_url"] = url
+        save_data(data)
+        
+        await asyncio.sleep(API_CALL_DELAY)
+        await update_allies_embed(ctx.guild)
+        await msg.edit(content="✅ Alliance banner set!")
+    except discord.HTTPException as e:
+        if e.status == 429:
+            await ctx.send("⚠️ Rate limited! Please wait and try again.")
+        else:
+            await ctx.send(f"❌ Discord error: {e}")
+    except Exception as e:
+        await ctx.send(f"❌ An error occurred: {e}")
+
+@set_ally_banner.error
+async def set_ally_banner_error(ctx, error):
+    if isinstance(error, commands.MissingAnyRole):
+        await ctx.send("❌ You need **High Staff** permissions to use this command.")
+    else:
+        await ctx.send(f"❌ An error occurred: {error}")
+    
     await update_allies_embed(ctx.guild)
-    await ctx.send("✅ Allies panel refreshed!")
+    await ctx.send(f"✅ Alliance banner set! Refreshing panel...")
+
+
+@bot.command(name="clearallybanner")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def clear_ally_banner(ctx):
+    """Remove the custom banner from allies channel"""
+    data = load_data()
+    if "alliance_banner_url" in data:
+        del data["alliance_banner_url"]
+        save_data(data)
+    
+    await update_allies_embed(ctx.guild)
+    await ctx.send("✅ Alliance banner removed!")
+
+
+@bot.command(name="allyactivity", aliases=["logally"])
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def log_ally_activity(ctx, ally_name: str = None, activity_type: str = None, *, details: str = None):
+    """Log an activity with an ally: !allyactivity <ally> <type> <details>"""
+    if not all([ally_name, activity_type, details]):
+        embed = discord.Embed(
+            title="📝 Log Alliance Activity",
+            description="```!allyactivity <ally> <type> <details>```",
+            color=0x3498db
+        )
+        embed.add_field(
+            name="Activity Types",
+            value="`backup` - Helped with backup\n`raid` - Joint raid\n`war` - War support\n`event` - Joint event\n`trade` - Trading\n`other` - Other activity",
+            inline=False
+        )
+        embed.add_field(name="Example", value='`!allyactivity CONTRA backup Helped us fight SHDW in their server`', inline=False)
+        return await ctx.send(embed=embed)
+    
+    # Check if ally exists
+    ally = get_ally(ally_name)
+    if not ally:
+        return await ctx.send(f"❌ Ally **{ally_name}** not found. Use `!allies` to see all allies.")
+    
+    # Valid activity types
+    valid_types = ["backup", "raid", "war", "event", "trade", "other"]
+    if activity_type.lower() not in valid_types:
+        return await ctx.send(f"❌ Invalid activity type. Use: {', '.join(valid_types)}")
+    
+    # Log the activity
+    log_alliance_activity(ally["name"], activity_type.lower(), details, ctx.author.id)
+    
+    # Get emoji for type
+    type_emojis = {"backup": "🆘", "raid": "⚔️", "war": "🔥", "event": "📅", "trade": "💰", "other": "📝"}
+    emoji = type_emojis.get(activity_type.lower(), "📝")
+    
+    embed = discord.Embed(
+        title=f"{emoji} Alliance Activity Logged",
+        description=f"**Ally:** {ally['name']}\n**Type:** {activity_type.title()}\n**Details:** {details}",
+        color=0x2ecc71
+    )
+    embed.set_footer(text=f"Logged by {ctx.author.name}")
+    embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+    
+    await ctx.send(embed=embed)
+    
+    # Also post to alliance log channel if it exists
+    log_channel = discord.utils.get(ctx.guild.text_channels, name=ALLIANCE_LOG_CHANNEL)
+    if log_channel:
+        await log_channel.send(embed=embed)
+
+
+@bot.command(name="allylog", aliases=["alliancelog"])
+@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
+async def view_ally_log(ctx, ally_name: str = None):
+    """View alliance activity log: !allylog [ally_name]"""
+    logs = get_alliance_activity_log(ally_name, limit=15)
+    
+    if not logs:
+        if ally_name:
+            return await ctx.send(f"❌ No activity logs found for **{ally_name}**")
+        return await ctx.send("❌ No alliance activity logs found.")
+    
+    type_emojis = {"backup": "🆘", "raid": "⚔️", "war": "🔥", "event": "📅", "trade": "💰", "other": "📝", "approved": "✅", "removed": "❌"}
+    
+    embed = discord.Embed(
+        title=f"📋 Alliance Activity Log" + (f" - {ally_name}" if ally_name else ""),
+        color=0x3498db
+    )
+    
+    log_text = ""
+    for log in logs:
+        emoji = type_emojis.get(log.get("type", "other"), "📝")
+        ally = log.get("ally", "Unknown")
+        details = log.get("details", "No details")[:50]
+        timestamp = log.get("timestamp", "")
+        
+        # Format timestamp
+        try:
+            dt = datetime.datetime.fromisoformat(timestamp)
+            time_str = dt.strftime("%m/%d %H:%M")
+        except:
+            time_str = "?"
+        
+        log_text += f"{emoji} **{ally}** - {details}\n`{time_str}` • {log.get('type', 'other').title()}\n\n"
+    
+    embed.description = log_text if log_text else "No logs found"
+    embed.set_footer(text="Use !allyactivity to log new activities")
+    
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="allycooldown")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def check_ally_cooldown(ctx, ally_name: str = None):
+    """Check or clear alliance cooldown: !allycooldown [ally_name] [clear]"""
+    if not ally_name:
+        # Show all cooldowns
+        cooldowns = get_alliance_cooldowns()
+        if not cooldowns:
+            return await ctx.send("✅ No alliance cooldowns active.")
+        
+        embed = discord.Embed(title="⏳ Alliance Cooldowns", color=0xf1c40f)
+        for name, removed_at in cooldowns.items():
+            days_left = check_alliance_cooldown(name)
+            if days_left > 0:
+                embed.add_field(name=name.title(), value=f"{days_left} days remaining", inline=True)
+        
+        if not embed.fields:
+            return await ctx.send("✅ No alliance cooldowns active.")
+        
+        embed.set_footer(text=f"Cooldown period: {ALLIANCE_COOLDOWN_DAYS} days")
+        return await ctx.send(embed=embed)
+    
+    # Check specific ally
+    days_left = check_alliance_cooldown(ally_name)
+    if days_left > 0:
+        await ctx.send(f"⏳ **{ally_name}** is on cooldown for **{days_left}** more days before they can be re-allied.")
+    else:
+        await ctx.send(f"✅ **{ally_name}** has no cooldown. They can be allied.")
+
+
+@bot.command(name="clearcooldown")
+@commands.has_any_role(*HIGH_STAFF_ROLES)
+async def clear_ally_cooldown(ctx, ally_name: str):
+    """Clear alliance cooldown for an ally (staff override)"""
+    if clear_alliance_cooldown(ally_name):
+        await ctx.send(f"✅ Cooldown cleared for **{ally_name}**. They can now be re-allied.")
+    else:
+        await ctx.send(f"❌ No cooldown found for **{ally_name}**.")
+
+
+@bot.command(name="allyinfo")
+async def ally_info(ctx, *, ally_name: str = None):
+    """View detailed info about an ally"""
+    if not ally_name:
+        return await ctx.send("❌ Please specify an ally name: `!allyinfo <name>`")
+    
+    ally = get_ally(ally_name)
+    if not ally:
+        return await ctx.send(f"❌ Ally **{ally_name}** not found. Use `!allies` to see all allies.")
+    
+    tier = get_alliance_tier(ally)
+    status = get_alliance_status(ally)
+    age = get_alliance_age(ally)
+    
+    embed = discord.Embed(
+        title=f"{tier['emoji']} {ally['name']}",
+        color=tier["color"]
+    )
+    
+    embed.description = f"{status['emoji']} **{status['status']}** • {tier['name']}"
+    
+    embed.add_field(name="👑 Owner", value=ally.get("owner", "Unknown"), inline=True)
+    embed.add_field(name="👥 Members", value=ally.get("members", "?"), inline=True)
+    
+    invite = ally.get("invite", "")
+    if invite:
+        embed.add_field(name="🔗 Server", value=f"[Join]({invite})", inline=True)
+    
+    # Established date
+    added_at = ally.get("added_at", "")
+    if added_at:
+        try:
+            dt = datetime.datetime.fromisoformat(added_at)
+            embed.add_field(name="📅 Established", value=dt.strftime("%B %d, %Y"), inline=True)
+        except:
+            pass
+    
+    embed.add_field(name="⏱️ Allied For", value=age, inline=True)
+    embed.add_field(name="📊 Total Activities", value=str(ally.get("activity_count", 0)), inline=True)
+    
+    # Last interaction
+    last_interaction = ally.get("last_interaction")
+    if last_interaction:
+        try:
+            dt = datetime.datetime.fromisoformat(last_interaction)
+            embed.add_field(name="🕐 Last Activity", value=dt.strftime("%b %d, %Y"), inline=True)
+        except:
+            pass
+    
+    # Recent activity
+    recent_logs = get_alliance_activity_log(ally["name"], limit=3)
+    if recent_logs:
+        activity_text = ""
+        for log in recent_logs:
+            activity_text += f"• {log.get('type', 'other').title()}: {log.get('details', '')[:30]}...\n"
+        embed.add_field(name="📝 Recent Activity", value=activity_text, inline=False)
+    
+    if ally.get("icon_url"):
+        embed.set_thumbnail(url=ally["icon_url"])
+    
+    # Added by
+    added_by = ally.get("added_by")
+    if added_by:
+        try:
+            user = ctx.guild.get_member(added_by)
+            if user:
+                embed.set_footer(text=f"Added by {user.name}", icon_url=user.display_avatar.url)
+        except:
+            pass
+    
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="setup_allylog")
+@commands.has_permissions(administrator=True)
+async def setup_alliance_log(ctx):
+    """Create the alliance activity log channel"""
+    existing = discord.utils.get(ctx.guild.text_channels, name=ALLIANCE_LOG_CHANNEL)
+    if existing:
+        return await ctx.send(f"✅ Alliance log channel already exists: {existing.mention}")
+    
+    overwrites = {
+        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+    
+    for role_name in HIGH_STAFF_ROLES:
+        role = discord.utils.get(ctx.guild.roles, name=role_name)
+        if role:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    
+    staff_role = discord.utils.get(ctx.guild.roles, name=STAFF_ROLE_NAME)
+    if staff_role:
+        overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=False)
+    
+    channel = await ctx.guild.create_text_channel(
+        name=ALLIANCE_LOG_CHANNEL,
+        overwrites=overwrites,
+        topic="📋 Alliance activity log - Track all interactions with allied clans"
+    )
+    
+    embed = discord.Embed(
+        title="📋 Alliance Activity Log",
+        description=(
+            "This channel logs all alliance activities.\n\n"
+            "**Activity Types:**\n"
+            "🆘 Backup assistance\n"
+            "⚔️ Joint raids\n"
+            "🔥 War support\n"
+            "📅 Joint events\n"
+            "💰 Trading\n"
+            "📝 Other activities\n\n"
+            "Use `!allyactivity` to log interactions!"
+        ),
+        color=0x3498db
+    )
+    
+    await channel.send(embed=embed)
+    await ctx.send(f"✅ Created alliance log channel: {channel.mention}")
 
 
 # ==========================================
