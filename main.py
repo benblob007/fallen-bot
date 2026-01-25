@@ -94,6 +94,22 @@ LEVEL_CARD_PATHS = [
     os.path.join(os.path.dirname(__file__), "levelcard.png"),
 ]
 
+# Welcome card background (optional - will generate dark theme if not found)
+WELCOME_CARD_PATHS = [
+    "WelcomeCard.png",
+    "./WelcomeCard.png",
+    "/opt/render/project/src/WelcomeCard.png",
+    os.path.join(os.path.dirname(__file__), "WelcomeCard.png"),
+]
+
+# Profile card background (optional - will generate dark theme if not found)
+PROFILE_CARD_PATHS = [
+    "ProfileCard.png",
+    "./ProfileCard.png",
+    "/opt/render/project/src/ProfileCard.png",
+    os.path.join(os.path.dirname(__file__), "ProfileCard.png"),
+]
+
 # --- ECONOMY SETTINGS ---
 MAX_COINS = 1000000 
 
@@ -2257,6 +2273,61 @@ async def create_leaderboard_image(guild, users_data, sort_key="xp", title_suffi
     
     return output
 
+
+def create_themed_background(width, height, theme="welcome"):
+    """Create a themed dark background with The Fallen aesthetic"""
+    # Create base dark gradient
+    img = Image.new("RGBA", (width, height), (15, 12, 20, 255))
+    draw = ImageDraw.Draw(img)
+    
+    # Add gradient effect (darker at edges)
+    for i in range(height):
+        # Vertical gradient - darker at top and bottom
+        darkness = abs(i - height // 2) / (height // 2)
+        darkness = int(darkness * 30)
+        for j in range(width):
+            # Horizontal vignette
+            h_darkness = abs(j - width // 2) / (width // 2)
+            h_darkness = int(h_darkness * 20)
+            total_dark = min(darkness + h_darkness, 50)
+            # Only draw every few pixels for performance
+            if i % 3 == 0 and j % 3 == 0:
+                color = (max(15 - total_dark, 0), max(12 - total_dark, 0), max(20 - total_dark, 0), 255)
+                draw.point((j, i), fill=color)
+    
+    # Add subtle red accent patterns based on theme
+    if theme == "welcome":
+        # Red glow at top
+        for i in range(50):
+            alpha = int(255 * (1 - i / 50) * 0.3)
+            draw.line([(0, i), (width, i)], fill=(139, 0, 0, alpha))
+        # Red glow at bottom
+        for i in range(50):
+            y = height - 50 + i
+            alpha = int(255 * (i / 50) * 0.3)
+            draw.line([(0, y), (width, y)], fill=(139, 0, 0, alpha))
+    elif theme == "profile":
+        # Corner accents for profile
+        # Top left corner glow
+        for i in range(80):
+            alpha = int(255 * (1 - i / 80) * 0.2)
+            draw.arc([(0 - i, 0 - i), (i * 2, i * 2)], 0, 90, fill=(139, 0, 0, alpha))
+        # Bottom right corner glow
+        for i in range(80):
+            alpha = int(255 * (1 - i / 80) * 0.2)
+            draw.arc([(width - i * 2, height - i * 2), (width + i, height + i)], 180, 270, fill=(139, 0, 0, alpha))
+    
+    # Add subtle texture/noise for depth
+    import random
+    for _ in range(width * height // 100):
+        x = random.randint(0, width - 1)
+        y = random.randint(0, height - 1)
+        brightness = random.randint(20, 35)
+        draw.point((x, y), fill=(brightness, brightness, brightness + 5, 40))
+    
+    return img
+
+
 # ==========================================
 # WELCOME CARD IMAGE GENERATOR
 # ==========================================
@@ -2268,35 +2339,25 @@ async def create_welcome_card(member):
     
     width, height = 900, 350
     
-    # Load background
+    # Try to load custom welcome background first
     background = None
-    for path in LEVEL_CARD_PATHS:
+    for path in WELCOME_CARD_PATHS:
         if os.path.exists(path):
             try:
                 background = Image.open(path).convert("RGBA")
+                background = background.resize((width, height), Image.Resampling.LANCZOS)
                 break
             except:
                 pass
     
-    if background is None and LEVEL_CARD_BACKGROUND:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(LEVEL_CARD_BACKGROUND) as resp:
-                    if resp.status == 200:
-                        img_data = await resp.read()
-                        background = Image.open(BytesIO(img_data)).convert("RGBA")
-        except:
-            pass
-    
+    # If no custom background, create themed one
     if background is None:
-        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
-    else:
-        background = background.resize((width, height), Image.Resampling.LANCZOS)
+        background = create_themed_background(width, height, theme="welcome")
     
     card = background.copy()
     
-    # Dark overlay
-    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 180))
+    # Subtle dark overlay for text readability
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 100))
     card = Image.alpha_composite(card, overlay)
     
     draw = ImageDraw.Draw(card)
@@ -2310,19 +2371,23 @@ async def create_welcome_card(member):
     except:
         font_title = font_name = font_text = font_small = ImageFont.load_default()
     
-    # Top decorative line
-    draw.rectangle([(20, 15), (width - 20, 20)], fill=(139, 0, 0))
+    # Top decorative line with glow effect
+    draw.rectangle([(0, 0), (width, 5)], fill=(139, 0, 0))
+    draw.rectangle([(0, 5), (width, 8)], fill=(80, 0, 0))
     
     # Welcome text
     welcome_text = "WELCOME TO"
     w_bbox = draw.textbbox((0, 0), welcome_text, font=font_text)
     w_width = w_bbox[2] - w_bbox[0]
-    draw.text(((width - w_width) // 2, 40), welcome_text, font=font_text, fill=(200, 200, 200))
+    draw.text(((width - w_width) // 2, 40), welcome_text, font=font_text, fill=(180, 180, 180))
     
-    # Server name
+    # Server name with shadow
     server_text = "THE FALLEN"
     s_bbox = draw.textbbox((0, 0), server_text, font=font_title)
     s_width = s_bbox[2] - s_bbox[0]
+    # Shadow
+    draw.text(((width - s_width) // 2 + 2, 72), server_text, font=font_title, fill=(50, 0, 0))
+    # Main text
     draw.text(((width - s_width) // 2, 70), server_text, font=font_title, fill=(255, 255, 255))
     
     # Avatar
@@ -2345,7 +2410,11 @@ async def create_welcome_card(member):
                     mask_draw = ImageDraw.Draw(mask)
                     mask_draw.ellipse((0, 0, avatar_size, avatar_size), fill=255)
                     
-                    # Red border
+                    # Red border with glow effect
+                    draw.ellipse(
+                        [avatar_x - 8, avatar_y - 8, avatar_x + avatar_size + 8, avatar_y + avatar_size + 8],
+                        fill=(60, 0, 0)
+                    )
                     draw.ellipse(
                         [avatar_x - 5, avatar_y - 5, avatar_x + avatar_size + 5, avatar_y + avatar_size + 5],
                         fill=(139, 0, 0)
@@ -2354,15 +2423,22 @@ async def create_welcome_card(member):
                     card.paste(avatar_img, (avatar_x, avatar_y), mask)
                     draw = ImageDraw.Draw(card)
     except:
+        # Draw placeholder avatar
+        draw.ellipse(
+            [avatar_x - 5, avatar_y - 5, avatar_x + avatar_size + 5, avatar_y + avatar_size + 5],
+            fill=(139, 0, 0)
+        )
         draw.ellipse(
             [avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size],
-            fill=(60, 60, 70)
+            fill=(40, 35, 50)
         )
     
-    # Username
-    name_text = member.display_name
+    # Username with shadow
+    name_text = member.display_name[:20]  # Truncate long names
     n_bbox = draw.textbbox((0, 0), name_text, font=font_name)
     n_width = n_bbox[2] - n_bbox[0]
+    # Shadow
+    draw.text(((width - n_width) // 2 + 2, 267), name_text, font=font_name, fill=(30, 0, 0))
     draw.text(((width - n_width) // 2, 265), name_text, font=font_name, fill=(255, 255, 255))
     
     # Member count
@@ -2372,7 +2448,8 @@ async def create_welcome_card(member):
     draw.text(((width - m_width) // 2, 305), member_num, font=font_text, fill=(139, 0, 0))
     
     # Bottom decorative line
-    draw.rectangle([(20, height - 20), (width - 20, height - 15)], fill=(139, 0, 0))
+    draw.rectangle([(0, height - 8), (width, height - 5)], fill=(80, 0, 0))
+    draw.rectangle([(0, height - 5), (width, height)], fill=(139, 0, 0))
     
     # Save
     output = BytesIO()
@@ -2391,33 +2468,25 @@ async def create_profile_card(member, user_data, rank, achievements, is_booster_
     
     width, height = 900, 500
     
-    # Load background
+    # Try to load custom profile background first
     background = None
-    for path in LEVEL_CARD_PATHS:
+    for path in PROFILE_CARD_PATHS:
         if os.path.exists(path):
             try:
                 background = Image.open(path).convert("RGBA")
+                background = background.resize((width, height), Image.Resampling.LANCZOS)
                 break
             except:
                 pass
     
-    if background is None and LEVEL_CARD_BACKGROUND:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(LEVEL_CARD_BACKGROUND) as resp:
-                    if resp.status == 200:
-                        img_data = await resp.read()
-                        background = Image.open(BytesIO(img_data)).convert("RGBA")
-        except:
-            pass
-    
+    # If no custom background, create themed one
     if background is None:
-        background = Image.new("RGBA", (width, height), (20, 20, 30, 255))
-    else:
-        background = background.resize((width, height), Image.Resampling.LANCZOS)
+        background = create_themed_background(width, height, theme="profile")
     
     card = background.copy()
-    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 200))
+    
+    # Subtle overlay for text readability
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 120))
     card = Image.alpha_composite(card, overlay)
     
     draw = ImageDraw.Draw(card)
@@ -7734,7 +7803,6 @@ class HelpSelect(discord.ui.Select):
             discord.SelectOption(label="Spar Finder", emoji="🎯", description="Tier-based spar matchmaking"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
             discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
-            discord.SelectOption(label="Alliances", emoji="🤝", description="Allied clans & diplomacy"),
             discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
             discord.SelectOption(label="Stage Transfer", emoji="📋", description="Rank transfers & results"),
             discord.SelectOption(label="Staff", emoji="🛡️", description="Staff commands"),
@@ -7927,35 +7995,6 @@ class HelpSelect(discord.ui.Select):
                 "*Higher levels = more items!*"
             )
         
-        elif self.values[0] == "Alliances":
-            e.title="🤝 Alliance System"
-            e.description=(
-                "**👤 Everyone**\n"
-                "`!allies` - View all allied clans\n"
-                "`!allyinfo <name>` - Detailed ally info\n"
-                "Click **Request Alliance** in #allies\n\n"
-                "**📊 Alliance Tiers**\n"
-                "🤝 New • 🥉 Bronze (7d) • 🥈 Silver (30d)\n"
-                "🥇 Gold (90d) • 💎 Platinum (180d) • 💠 Diamond (1y)\n\n"
-                "**🟢 Status Indicators**\n"
-                "🟢 Active • 🟡 Semi-Active • 🔴 Inactive\n\n"
-                "**🛡️ Staff Commands**\n"
-                "`!addally <name> | <owner> | <members> | <invite>`\n"
-                "`!removeally <name>` - Remove ally\n"
-                "`!editally <name> <field> <value>` - Edit info\n"
-                "`!refreshallies` - Refresh panel\n\n"
-                "**📝 Activity Logging**\n"
-                "`!allyactivity <ally> <type> <details>`\n"
-                "`!allylog [ally]` - View activity log\n"
-                "Types: backup, raid, war, event, trade, other\n\n"
-                "**⚙️ Management**\n"
-                "`!setallybanner <url>` - Set banner image\n"
-                "`!allycooldown` - View cooldowns\n"
-                "`!clearcooldown <name>` - Clear cooldown\n"
-                "`!setup_allies` - Setup allies panel\n"
-                "`!setup_allylog` - Setup log channel"
-            )
-            
         elif self.values[0] == "Backup":
             e.title="🆘 Backup System"
             e.description=(
@@ -8019,6 +8058,11 @@ class HelpSelect(discord.ui.Select):
                 "`!lock [reason]` - Lock channel\n"
                 "`!unlock` - Unlock channel\n"
                 "`!slowmode <seconds>` - Set slowmode\n\n"
+                "**😴 Inactivity System (Mainers)**\n"
+                "`!mainers` - View all Mainers & status\n"
+                "`!inactivity_check` - Run inactivity check\n"
+                "`!inactivity_strikes @user` - View strikes\n"
+                "`!inactive_list` - All striked members\n\n"
                 "**👤 User Management**\n"
                 "`!userinfo @user` - Full user info\n"
                 "`!checklevel @user` - Check stats\n"
@@ -8034,7 +8078,12 @@ class HelpSelect(discord.ui.Select):
         elif self.values[0] == "Admin":
             e.title="⚙️ Admin Commands"
             e.description=(
-                "**🔐 Permission Setup**\n"
+                "**🔐 Command Permissions**\n"
+                "`!cmdperms list` - View all custom perms\n"
+                "`!cmdperms add <cmd> @Role` - Allow role\n"
+                "`!cmdperms remove <cmd> @Role` - Remove\n"
+                "`!cmdperms commands` - List available cmds\n\n"
+                "**🔒 Permission Setup**\n"
                 "`!setup_permissions confirm` - Fix all perms\n"
                 "`!fix_muted` - Fix Muted role everywhere\n"
                 "`!lockdown confirm` - Emergency lock\n"
@@ -9998,7 +10047,6 @@ class PersistentBot(commands.Bot):
         self.add_view(ServerInfoLevelsView())
         self.add_view(ServerInfoBoosterView())
         self.add_view(ServerInfoBotView())
-        self.add_view(AlliancePanelView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -14504,7 +14552,6 @@ async def quick_tryout(ctx, time: str, *, description: str = ""):
     member9="Ninth attendee (optional)",
     member10="Tenth attendee (optional)"
 )
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def log_training(ctx, 
                        member1: discord.Member,
                        member2: discord.Member = None,
@@ -14517,6 +14564,10 @@ async def log_training(ctx,
                        member9: discord.Member = None,
                        member10: discord.Member = None):
     """Log training attendance - add up to 10 members, or use mentions for more"""
+    # Check permissions (staff OR custom role)
+    if not await check_custom_perms(ctx, "log_training"):
+        return await ctx.send("❌ You don't have permission to use this command.", ephemeral=True)
+    
     # Collect all provided members
     members = [m for m in [member1, member2, member3, member4, member5, 
                            member6, member7, member8, member9, member10] if m is not None]
@@ -14615,7 +14666,6 @@ async def log_training(ctx,
     member9="Ninth attendee (optional)",
     member10="Tenth attendee (optional)"
 )
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def log_tryout(ctx,
                      member1: discord.Member,
                      member2: discord.Member = None,
@@ -14628,6 +14678,10 @@ async def log_tryout(ctx,
                      member9: discord.Member = None,
                      member10: discord.Member = None):
     """Log tryout attendance - add up to 10 members, or use mentions for more"""
+    # Check permissions (staff OR custom role)
+    if not await check_custom_perms(ctx, "log_tryout"):
+        return await ctx.send("❌ You don't have permission to use this command.", ephemeral=True)
+    
     # Collect all provided members
     members = [m for m in [member1, member2, member3, member4, member5, 
                            member6, member7, member8, member9, member10] if m is not None]
@@ -15847,11 +15901,113 @@ async def elo_reset_cmd(ctx, confirm: str = None):
 # INACTIVITY COMMANDS
 # ==========================================
 
+@bot.command(name="mainers", description="Staff: View all members with Mainer role")
+async def mainers_cmd(ctx):
+    """Show all members with the Mainer role and their activity status"""
+    # Check permissions (staff OR custom role)
+    if not await check_custom_perms(ctx, "mainers"):
+        return await ctx.send("❌ You don't have permission to use this command.")
+    
+    mainer_role = discord.utils.get(ctx.guild.roles, name=INACTIVITY_REQUIRED_ROLE)
+    
+    if not mainer_role:
+        return await ctx.send(f"❌ Role **{INACTIVITY_REQUIRED_ROLE}** not found!")
+    
+    mainers = [m for m in ctx.guild.members if mainer_role in m.roles and not m.bot]
+    
+    if not mainers:
+        return await ctx.send("❌ No members with the Mainer role found!")
+    
+    # Sort by display name
+    mainers.sort(key=lambda m: m.display_name.lower())
+    
+    # Build the list with activity info
+    embed = discord.Embed(
+        title=f"📋 Mainer Roster ({len(mainers)} members)",
+        color=0x8B0000,
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    
+    # Get inactivity data
+    inactivity_data = load_inactivity_data()
+    strikes_data = inactivity_data.get("strikes", {})
+    
+    description_lines = []
+    active_count = 0
+    warned_count = 0
+    critical_count = 0
+    immune_count = 0
+    
+    for member in mainers[:50]:  # Limit to 50 for embed
+        user_data = get_user_data(member.id)
+        strike_info = strikes_data.get(str(member.id), {})
+        strikes = strike_info.get("count", 0)
+        
+        # Check immunity
+        immunity_role = discord.utils.get(member.roles, name=INACTIVITY_IMMUNITY_ROLE)
+        
+        # Get last active
+        last_active = user_data.get("last_active")
+        if last_active:
+            try:
+                last_active_date = datetime.datetime.fromisoformat(last_active.replace('Z', '+00:00'))
+                days_ago = (datetime.datetime.now(datetime.timezone.utc) - last_active_date).days
+                activity_text = f"{days_ago}d ago" if days_ago > 0 else "Today"
+            except:
+                activity_text = "Unknown"
+                days_ago = 0
+        else:
+            activity_text = "Never"
+            days_ago = 999
+        
+        # Status emoji
+        if immunity_role:
+            status = "🛡️"
+            immune_count += 1
+        elif strikes >= 3:
+            status = "🔴"
+            critical_count += 1
+        elif strikes > 0:
+            status = "🟡"
+            warned_count += 1
+        elif days_ago >= INACTIVITY_CHECK_DAYS:
+            status = "⚠️"
+        else:
+            status = "🟢"
+            active_count += 1
+        
+        # Strike display
+        if strikes > 0:
+            strike_text = f" [{strikes}/5]"
+        else:
+            strike_text = ""
+        
+        description_lines.append(f"{status} {member.display_name}{strike_text} • {activity_text}")
+    
+    # Split into chunks for embed field limits
+    chunk_size = 20
+    for i in range(0, len(description_lines), chunk_size):
+        chunk = description_lines[i:i+chunk_size]
+        name = "Members" if i == 0 else "​"  # Zero-width space for subsequent
+        embed.add_field(name=name, value="\n".join(chunk), inline=False)
+    
+    # Summary footer
+    embed.set_footer(text=f"🟢 Active: {active_count} | 🟡 Warned: {warned_count} | 🔴 Critical: {critical_count} | 🛡️ Immune: {immune_count}")
+    
+    if len(mainers) > 50:
+        embed.description = f"*Showing first 50 of {len(mainers)} members*"
+    
+    await ctx.send(embed=embed)
+
+
 @bot.command(name="inactivity_check", description="Staff: Run inactivity check on all ranked members")
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 @commands.cooldown(1, 300, commands.BucketType.guild)  # Once per 5 minutes per server
 async def inactivity_check_cmd(ctx):
     """Run inactivity check on Mainers with ranked roles"""
+    # Check permissions (staff OR custom role)
+    if not await check_custom_perms(ctx, "inactivity_check"):
+        return await ctx.send("❌ You don't have permission to use this command.")
+    
     await ctx.defer()
     
     # Add delay between each member check to avoid rate limits
@@ -16129,9 +16285,12 @@ async def clear_inactivity_strikes_cmd(ctx, member: discord.Member):
     )
 
 @bot.command(name="inactive_list", description="Staff: Show all members with inactivity strikes")
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def inactive_list_cmd(ctx):
     """Show all members with inactivity strikes"""
+    # Check permissions (staff OR custom role)
+    if not await check_custom_perms(ctx, "inactive_list"):
+        return await ctx.send("❌ You don't have permission to use this command.")
+    
     data = load_inactivity_data()
     
     striked_users = [(uid, info) for uid, info in data.get("strikes", {}).items() if info.get("count", 0) > 0]
@@ -20674,1187 +20833,287 @@ async def setup_mod_log(ctx):
 
 
 # ==========================================
-# ALLIANCE SYSTEM
+# COMMAND PERMISSION SYSTEM
 # ==========================================
 
-ALLIANCE_TICKET_CHANNEL = "alliance-requests"
-ALLIES_CHANNEL = "allies"
-ALLIANCE_LOG_CHANNEL = "alliance-log"
+COMMAND_PERMS_FILE = "command_permissions.json"
 
-# Alliance Tier System (days allied -> tier)
-ALLIANCE_TIERS = {
-    0: {"name": "New Ally", "emoji": "🤝", "color": 0x808080},      # Just allied
-    7: {"name": "Bronze Ally", "emoji": "🥉", "color": 0xCD7F32},   # 1 week
-    30: {"name": "Silver Ally", "emoji": "🥈", "color": 0xC0C0C0},  # 1 month
-    90: {"name": "Gold Ally", "emoji": "🥇", "color": 0xFFD700},    # 3 months
-    180: {"name": "Platinum Ally", "emoji": "💎", "color": 0x00FFFF}, # 6 months
-    365: {"name": "Diamond Ally", "emoji": "💠", "color": 0xB9F2FF}, # 1 year
-}
-
-# Alliance cooldown (days before can re-ally after removal)
-ALLIANCE_COOLDOWN_DAYS = 14
-
-# Alliance banner image (set with !setallybanner <url>)
-ALLIANCE_BANNER_URL = None
-
-def get_allies_data():
-    """Get alliance data from main data file"""
-    data = load_data()
-    if "allies" not in data:
-        data["allies"] = {}
-        save_data(data)
-    return data["allies"]
-
-def get_alliance_cooldowns():
-    """Get alliance cooldown data"""
-    data = load_data()
-    if "alliance_cooldowns" not in data:
-        data["alliance_cooldowns"] = {}
-        save_data(data)
-    return data["alliance_cooldowns"]
-
-def add_alliance_cooldown(ally_name):
-    """Add a cooldown for a removed ally"""
-    data = load_data()
-    if "alliance_cooldowns" not in data:
-        data["alliance_cooldowns"] = {}
-    data["alliance_cooldowns"][ally_name.lower()] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    save_data(data)
-
-def check_alliance_cooldown(ally_name):
-    """Check if an ally is on cooldown. Returns days remaining or 0 if no cooldown."""
-    cooldowns = get_alliance_cooldowns()
-    if ally_name.lower() not in cooldowns:
-        return 0
-    
+def load_command_perms():
+    """Load custom command permissions"""
     try:
-        removed_at = datetime.datetime.fromisoformat(cooldowns[ally_name.lower()])
-        if removed_at.tzinfo is None:
-            removed_at = removed_at.replace(tzinfo=datetime.timezone.utc)
-        
-        days_since = (datetime.datetime.now(datetime.timezone.utc) - removed_at).days
-        if days_since >= ALLIANCE_COOLDOWN_DAYS:
-            # Cooldown expired, remove it
-            data = load_data()
-            del data["alliance_cooldowns"][ally_name.lower()]
-            save_data(data)
-            return 0
-        return ALLIANCE_COOLDOWN_DAYS - days_since
-    except:
-        return 0
+        with open(COMMAND_PERMS_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"commands": {}}
 
-def clear_alliance_cooldown(ally_name):
-    """Clear cooldown for an ally (staff override)"""
-    data = load_data()
-    if "alliance_cooldowns" in data and ally_name.lower() in data["alliance_cooldowns"]:
-        del data["alliance_cooldowns"][ally_name.lower()]
-        save_data(data)
+def save_command_perms(data):
+    """Save custom command permissions"""
+    with open(COMMAND_PERMS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def get_command_roles(command_name):
+    """Get list of role IDs that can use a command"""
+    data = load_command_perms()
+    return data.get("commands", {}).get(command_name.lower(), [])
+
+def add_command_role(command_name, role_id):
+    """Add a role to a command's permission list"""
+    data = load_command_perms()
+    if "commands" not in data:
+        data["commands"] = {}
+    
+    cmd = command_name.lower()
+    if cmd not in data["commands"]:
+        data["commands"][cmd] = []
+    
+    if role_id not in data["commands"][cmd]:
+        data["commands"][cmd].append(role_id)
+        save_command_perms(data)
         return True
     return False
 
-def get_alliance_tier(ally_data):
-    """Get the tier for an ally based on days allied"""
-    added_at = ally_data.get("added_at")
-    if not added_at:
-        return ALLIANCE_TIERS[0]
+def remove_command_role(command_name, role_id):
+    """Remove a role from a command's permission list"""
+    data = load_command_perms()
+    cmd = command_name.lower()
     
-    try:
-        added_dt = datetime.datetime.fromisoformat(added_at)
-        if added_dt.tzinfo is None:
-            added_dt = added_dt.replace(tzinfo=datetime.timezone.utc)
-        
-        days_allied = (datetime.datetime.now(datetime.timezone.utc) - added_dt).days
-        
-        # Find highest tier they qualify for
-        current_tier = ALLIANCE_TIERS[0]
-        for days_required, tier_info in sorted(ALLIANCE_TIERS.items()):
-            if days_allied >= days_required:
-                current_tier = tier_info
-        
-        return current_tier
-    except:
-        return ALLIANCE_TIERS[0]
-
-def get_alliance_age(ally_data):
-    """Get human-readable alliance age"""
-    added_at = ally_data.get("added_at")
-    if not added_at:
-        return "Unknown"
-    
-    try:
-        added_dt = datetime.datetime.fromisoformat(added_at)
-        if added_dt.tzinfo is None:
-            added_dt = added_dt.replace(tzinfo=datetime.timezone.utc)
-        
-        delta = datetime.datetime.now(datetime.timezone.utc) - added_dt
-        days = delta.days
-        
-        if days == 0:
-            return "Today"
-        elif days == 1:
-            return "1 day"
-        elif days < 7:
-            return f"{days} days"
-        elif days < 30:
-            weeks = days // 7
-            return f"{weeks} week{'s' if weeks > 1 else ''}"
-        elif days < 365:
-            months = days // 30
-            return f"{months} month{'s' if months > 1 else ''}"
-        else:
-            years = days // 365
-            months = (days % 365) // 30
-            if months > 0:
-                return f"{years} year{'s' if years > 1 else ''}, {months} month{'s' if months > 1 else ''}"
-            return f"{years} year{'s' if years > 1 else ''}"
-    except:
-        return "Unknown"
-
-def get_alliance_status(ally_data):
-    """Get alliance status (Active/Inactive based on last interaction)"""
-    last_interaction = ally_data.get("last_interaction")
-    if not last_interaction:
-        # No interactions yet, check if new (less than 7 days)
-        added_at = ally_data.get("added_at")
-        if added_at:
-            try:
-                added_dt = datetime.datetime.fromisoformat(added_at)
-                if added_dt.tzinfo is None:
-                    added_dt = added_dt.replace(tzinfo=datetime.timezone.utc)
-                days_since = (datetime.datetime.now(datetime.timezone.utc) - added_dt).days
-                if days_since < 7:
-                    return {"status": "New", "emoji": "🆕", "color": 0x3498db}
-            except:
-                pass
-        return {"status": "Inactive", "emoji": "💤", "color": 0x808080}
-    
-    try:
-        last_dt = datetime.datetime.fromisoformat(last_interaction)
-        if last_dt.tzinfo is None:
-            last_dt = last_dt.replace(tzinfo=datetime.timezone.utc)
-        
-        days_since = (datetime.datetime.now(datetime.timezone.utc) - last_dt).days
-        
-        if days_since <= 7:
-            return {"status": "Active", "emoji": "🟢", "color": 0x2ecc71}
-        elif days_since <= 30:
-            return {"status": "Semi-Active", "emoji": "🟡", "color": 0xf1c40f}
-        else:
-            return {"status": "Inactive", "emoji": "🔴", "color": 0xe74c3c}
-    except:
-        return {"status": "Unknown", "emoji": "❓", "color": 0x808080}
-
-def log_alliance_activity(ally_name, activity_type, details, user_id=None):
-    """Log an alliance activity"""
-    data = load_data()
-    if "alliance_activity_log" not in data:
-        data["alliance_activity_log"] = []
-    
-    log_entry = {
-        "ally": ally_name,
-        "type": activity_type,
-        "details": details,
-        "user_id": user_id,
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
-    }
-    
-    data["alliance_activity_log"].insert(0, log_entry)  # Add to front
-    
-    # Keep only last 500 entries
-    data["alliance_activity_log"] = data["alliance_activity_log"][:500]
-    save_data(data)
-    
-    # Update ally's last interaction time
-    if ally_name.lower() in data.get("allies", {}):
-        data["allies"][ally_name.lower()]["last_interaction"] = log_entry["timestamp"]
-        
-        # Increment activity counter
-        if "activity_count" not in data["allies"][ally_name.lower()]:
-            data["allies"][ally_name.lower()]["activity_count"] = 0
-        data["allies"][ally_name.lower()]["activity_count"] += 1
-        save_data(data)
-
-def get_alliance_activity_log(ally_name=None, limit=20):
-    """Get alliance activity log, optionally filtered by ally"""
-    data = load_data()
-    logs = data.get("alliance_activity_log", [])
-    
-    if ally_name:
-        logs = [l for l in logs if l.get("ally", "").lower() == ally_name.lower()]
-    
-    return logs[:limit]
-
-def save_ally(ally_data):
-    """Save an ally to the database"""
-    data = load_data()
-    if "allies" not in data:
-        data["allies"] = {}
-    data["allies"][ally_data["name"].lower()] = ally_data
-    save_data(data)
-
-def remove_ally(ally_name):
-    """Remove an ally from the database and add cooldown"""
-    data = load_data()
-    if "allies" in data and ally_name.lower() in data["allies"]:
-        # Add to cooldown list
-        add_alliance_cooldown(ally_name)
-        # Log the removal
-        log_alliance_activity(ally_name, "removed", "Alliance ended")
-        # Remove from allies
-        del data["allies"][ally_name.lower()]
-        save_data(data)
+    if cmd in data.get("commands", {}) and role_id in data["commands"][cmd]:
+        data["commands"][cmd].remove(role_id)
+        if not data["commands"][cmd]:  # Remove empty list
+            del data["commands"][cmd]
+        save_command_perms(data)
         return True
     return False
 
-def get_ally(ally_name):
-    """Get a specific ally's data"""
-    allies = get_allies_data()
-    return allies.get(ally_name.lower())
+def reset_command_perms(command_name):
+    """Reset a command's permissions to default"""
+    data = load_command_perms()
+    cmd = command_name.lower()
+    
+    if cmd in data.get("commands", {}):
+        del data["commands"][cmd]
+        save_command_perms(data)
+        return True
+    return False
+
+def has_command_permission(ctx, command_name):
+    """Check if user has permission to use a command (custom roles)"""
+    # Get custom roles for this command
+    allowed_roles = get_command_roles(command_name)
+    
+    if not allowed_roles:
+        return False  # No custom permissions set
+    
+    # Check if user has any of the allowed roles
+    user_role_ids = [role.id for role in ctx.author.roles]
+    return any(role_id in user_role_ids for role_id in allowed_roles)
+
+async def check_custom_perms(ctx, command_name):
+    """Combined permission check - staff OR custom role"""
+    # Check if admin
+    if ctx.author.guild_permissions.administrator:
+        return True
+    
+    # Check if has staff role
+    if is_staff(ctx.author):
+        return True
+    
+    # Check if has high staff role
+    if is_high_staff(ctx.author):
+        return True
+    
+    # Check custom permissions
+    if has_command_permission(ctx, command_name):
+        return True
+    
+    return False
 
 
-class AllianceRequestModal(discord.ui.Modal, title="🤝 Alliance Request"):
-    """Modal for clans to request alliance"""
+# List of commands that support custom permissions
+CUSTOMIZABLE_COMMANDS = [
+    "giveaway", "giveaway_req", "activitycheck", "activitystats",
+    "mainers", "inactivity_check", "inactive_list", "inactivity_strikes",
+    "backup", "massrole", "giverole", "takerole", "inrole",
+    "addxp", "removexp", "addfcoins", "removefcoins", "setlevel",
+    "tournament", "bracket", "tparticipants", "tstatus",
+    "warn", "warnings", "warnlog", "mute", "unmute", "purge",
+    "lock", "unlock", "slowmode", "userinfo", "checklevel",
+    "event", "schedule", "top10_refresh", "top10_update",
+    "promote", "demote", "result", "staffstats",
+    "log_training", "log_tryout"
+]
+
+
+@bot.command(name="cmdperms")
+@commands.has_permissions(administrator=True)
+async def command_permissions(ctx, action: str = None, command_name: str = None, role: discord.Role = None):
+    """
+    Manage custom command permissions
     
-    clan_name = discord.ui.TextInput(
-        label="Clan/Group Name",
-        placeholder="Enter your clan name...",
-        min_length=2,
-        max_length=50,
-        required=True
-    )
+    Usage:
+    !cmdperms list - View all custom permissions
+    !cmdperms list <command> - View roles for specific command
+    !cmdperms add <command> @Role - Allow role to use command
+    !cmdperms remove <command> @Role - Remove role access
+    !cmdperms reset <command> - Reset command to default permissions
+    !cmdperms commands - List all customizable commands
+    """
+    if not action:
+        embed = discord.Embed(
+            title="🔐 Command Permission System",
+            description=(
+                "Assign custom roles to use specific commands!\n\n"
+                "**Usage:**\n"
+                "`!cmdperms list` - View all custom permissions\n"
+                "`!cmdperms list <cmd>` - View roles for command\n"
+                "`!cmdperms add <cmd> @Role` - Allow role\n"
+                "`!cmdperms remove <cmd> @Role` - Remove access\n"
+                "`!cmdperms reset <cmd>` - Reset to default\n"
+                "`!cmdperms commands` - List customizable commands\n\n"
+                "**Example:**\n"
+                "`!cmdperms add giveaway @Event Host`\n"
+                "`!cmdperms add activitycheck @Activity Manager`"
+            ),
+            color=0x3498db
+        )
+        embed.set_footer(text="Custom permissions work alongside staff permissions")
+        return await ctx.send(embed=embed)
     
-    owner_name = discord.ui.TextInput(
-        label="Owner Discord (username#0000 or @mention)",
-        placeholder="e.g., @Username or Username#1234",
-        min_length=2,
-        max_length=50,
-        required=True
-    )
+    action = action.lower()
     
-    member_count = discord.ui.TextInput(
-        label="Approximate Member Count",
-        placeholder="e.g., 50, 100+, etc.",
-        min_length=1,
-        max_length=20,
-        required=True
-    )
-    
-    discord_invite = discord.ui.TextInput(
-        label="Discord Server Invite Link",
-        placeholder="https://discord.gg/...",
-        min_length=10,
-        max_length=100,
-        required=True
-    )
-    
-    reason = discord.ui.TextInput(
-        label="Why do you want to ally with us?",
-        style=discord.TextStyle.paragraph,
-        placeholder="Tell us about your clan and why you want to ally...",
-        min_length=20,
-        max_length=500,
-        required=True
-    )
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        # Find or create alliance requests channel
-        ticket_channel = discord.utils.get(interaction.guild.text_channels, name=ALLIANCE_TICKET_CHANNEL)
+    # List all customizable commands
+    if action == "commands":
+        # Split into columns
+        cmds = sorted(CUSTOMIZABLE_COMMANDS)
+        mid = len(cmds) // 2
+        col1 = cmds[:mid]
+        col2 = cmds[mid:]
         
-        if not ticket_channel:
-            # Create the channel if it doesn't exist
-            overwrites = {
-                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                interaction.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-            }
-            for role_name in HIGH_STAFF_ROLES:
-                role = discord.utils.get(interaction.guild.roles, name=role_name)
+        embed = discord.Embed(
+            title="📋 Customizable Commands",
+            description="These commands can have custom role permissions:",
+            color=0x3498db
+        )
+        embed.add_field(name="Commands", value="\n".join(f"`{c}`" for c in col1), inline=True)
+        embed.add_field(name="​", value="\n".join(f"`{c}`" for c in col2), inline=True)
+        embed.set_footer(text=f"{len(CUSTOMIZABLE_COMMANDS)} commands available")
+        return await ctx.send(embed=embed)
+    
+    # List permissions
+    if action == "list":
+        data = load_command_perms()
+        
+        if command_name:
+            # Show permissions for specific command
+            cmd = command_name.lower()
+            role_ids = data.get("commands", {}).get(cmd, [])
+            
+            if not role_ids:
+                return await ctx.send(f"📋 No custom permissions set for `{cmd}` (uses default staff permissions)")
+            
+            roles_text = []
+            for rid in role_ids:
+                role = ctx.guild.get_role(rid)
                 if role:
-                    overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                    roles_text.append(f"• {role.mention}")
+                else:
+                    roles_text.append(f"• Unknown Role ({rid})")
             
-            ticket_channel = await interaction.guild.create_text_channel(
-                name=ALLIANCE_TICKET_CHANNEL,
-                overwrites=overwrites,
-                topic="🤝 Alliance requests from other clans"
+            embed = discord.Embed(
+                title=f"🔐 Permissions for `{cmd}`",
+                description="\n".join(roles_text),
+                color=0x3498db
             )
+            return await ctx.send(embed=embed)
         
-        # Create the request embed
+        # Show all custom permissions
+        commands_data = data.get("commands", {})
+        
+        if not commands_data:
+            return await ctx.send("📋 No custom command permissions set yet!\n\nUse `!cmdperms add <command> @Role` to add permissions.")
+        
         embed = discord.Embed(
-            title="🤝 New Alliance Request",
-            color=0x3498db,
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
-        )
-        embed.add_field(name="🏰 Clan Name", value=self.clan_name.value, inline=True)
-        embed.add_field(name="👑 Owner", value=self.owner_name.value, inline=True)
-        embed.add_field(name="👥 Members", value=self.member_count.value, inline=True)
-        embed.add_field(name="🔗 Discord Invite", value=self.discord_invite.value, inline=False)
-        embed.add_field(name="📝 Reason", value=self.reason.value, inline=False)
-        embed.set_footer(text=f"Requested by {interaction.user.name}", icon_url=interaction.user.display_avatar.url)
-        
-        # Add approve/deny buttons
-        view = AllianceRequestView(
-            clan_name=self.clan_name.value,
-            owner=self.owner_name.value,
-            members=self.member_count.value,
-            invite=self.discord_invite.value,
-            requester_id=interaction.user.id
+            title="🔐 All Custom Command Permissions",
+            color=0x3498db
         )
         
-        await ticket_channel.send(embed=embed, view=view)
-        await interaction.response.send_message(
-            "✅ Your alliance request has been submitted!\n\nOur staff will review it and get back to you.",
-            ephemeral=True
-        )
-
-
-class AllianceRequestView(discord.ui.View):
-    """View for staff to approve/deny alliance requests"""
-    
-    def __init__(self, clan_name, owner, members, invite, requester_id):
-        super().__init__(timeout=None)
-        self.clan_name = clan_name
-        self.owner = owner
-        self.members = members
-        self.invite = invite
-        self.requester_id = requester_id
-    
-    @discord.ui.button(label="Approve", style=discord.ButtonStyle.success, emoji="✅")
-    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not any(role.name in HIGH_STAFF_ROLES for role in interaction.user.roles):
-            return await interaction.response.send_message("❌ Only High Staff can approve alliances.", ephemeral=True)
-        
-        # Check cooldown
-        days_left = check_alliance_cooldown(self.clan_name)
-        if days_left > 0:
-            return await interaction.response.send_message(
-                f"⏳ **{self.clan_name}** is on cooldown for **{days_left}** more days.\n"
-                f"Use `!clearcooldown {self.clan_name}` to override.",
-                ephemeral=True
+        for cmd, role_ids in sorted(commands_data.items()):
+            roles_text = []
+            for rid in role_ids:
+                role = ctx.guild.get_role(rid)
+                if role:
+                    roles_text.append(role.name)
+                else:
+                    roles_text.append(f"Unknown ({rid})")
+            
+            embed.add_field(
+                name=f"`{cmd}`",
+                value=", ".join(roles_text) or "None",
+                inline=True
             )
         
-        await interaction.response.defer(ephemeral=True)
+        embed.set_footer(text=f"{len(commands_data)} commands with custom permissions")
+        return await ctx.send(embed=embed)
+    
+    # Add permission
+    if action == "add":
+        if not command_name:
+            return await ctx.send("❌ Please specify a command!\n`!cmdperms add <command> @Role`")
+        if not role:
+            return await ctx.send("❌ Please mention a role!\n`!cmdperms add <command> @Role`")
         
-        # Try to fetch server icon from invite
-        icon_url = None
-        actual_member_count = self.members
-        try:
-            invite_code = self.invite.split("/")[-1].split("?")[0]
-            invite_info = await bot.fetch_invite(invite_code, with_counts=True)
-            if invite_info.guild.icon:
-                icon_url = str(invite_info.guild.icon.url)
-            if invite_info.approximate_member_count:
-                actual_member_count = str(invite_info.approximate_member_count)
-        except Exception as e:
-            print(f"Could not fetch invite info: {e}")
+        cmd = command_name.lower()
         
-        # Save the ally with icon
-        ally_data = {
-            "name": self.clan_name,
-            "owner": self.owner,
-            "members": actual_member_count,
-            "invite": self.invite,
-            "icon_url": icon_url,
-            "added_by": interaction.user.id,
-            "added_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "requester_id": self.requester_id,
-            "activity_count": 0,
-            "last_interaction": None
-        }
-        save_ally(ally_data)
-        
-        # Log the approval
-        log_alliance_activity(self.clan_name, "approved", f"Alliance approved by {interaction.user.name}", interaction.user.id)
-        
-        # Update the embed
-        embed = interaction.message.embeds[0]
-        embed.color = 0x2ecc71
-        embed.title = "✅ Alliance Approved"
-        embed.add_field(name="✅ Status", value=f"Approved by {interaction.user.mention}", inline=False)
-        if icon_url:
-            embed.set_thumbnail(url=icon_url)
-        
-        # Disable buttons
-        for child in self.children:
-            child.disabled = True
-        
-        await interaction.message.edit(embed=embed, view=self)
-        
-        # Notify requester
-        try:
-            requester = interaction.guild.get_member(self.requester_id)
-            if requester:
-                await requester.send(f"🎉 Great news! Your alliance request for **{self.clan_name}** has been **approved**!")
-        except:
-            pass
-        
-        # Update allies channel
-        await update_allies_embed(interaction.guild)
-        
-        # Post to alliance log if exists
-        log_channel = discord.utils.get(interaction.guild.text_channels, name=ALLIANCE_LOG_CHANNEL)
-        if log_channel:
-            log_embed = discord.Embed(
-                title="✅ New Alliance Formed",
-                description=f"**{self.clan_name}** is now allied with The Fallen!",
-                color=0x2ecc71
+        # Check if command exists in customizable list
+        if cmd not in CUSTOMIZABLE_COMMANDS:
+            return await ctx.send(
+                f"❌ `{cmd}` is not a customizable command!\n"
+                f"Use `!cmdperms commands` to see available commands."
             )
-            log_embed.add_field(name="Owner", value=self.owner, inline=True)
-            log_embed.add_field(name="Members", value=actual_member_count, inline=True)
-            log_embed.add_field(name="Approved By", value=interaction.user.mention, inline=True)
-            if icon_url:
-                log_embed.set_thumbnail(url=icon_url)
-            log_embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
-            await log_channel.send(embed=log_embed)
         
-        await interaction.followup.send(f"✅ Alliance with **{self.clan_name}** approved!" + (" (Server icon fetched!)" if icon_url else ""), ephemeral=True)
-    
-    @discord.ui.button(label="Deny", style=discord.ButtonStyle.danger, emoji="❌")
-    async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not any(role.name in HIGH_STAFF_ROLES for role in interaction.user.roles):
-            return await interaction.response.send_message("❌ Only High Staff can deny alliances.", ephemeral=True)
-        
-        # Update the embed
-        embed = interaction.message.embeds[0]
-        embed.color = 0xe74c3c
-        embed.title = "❌ Alliance Denied"
-        embed.add_field(name="❌ Status", value=f"Denied by {interaction.user.mention}", inline=False)
-        
-        # Disable buttons
-        for child in self.children:
-            child.disabled = True
-        
-        await interaction.message.edit(embed=embed, view=self)
-        
-        # Notify requester
-        try:
-            requester = interaction.guild.get_member(self.requester_id)
-            if requester:
-                await requester.send(f"Your alliance request for **{self.clan_name}** has been **denied**. You may contact staff for more information.")
-        except:
-            pass
-        
-        await interaction.response.send_message(f"❌ Alliance with **{self.clan_name}** denied.", ephemeral=True)
-
-
-class AlliancePanelView(discord.ui.View):
-    """Persistent view for the alliance panel"""
-    
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="Request Alliance", style=discord.ButtonStyle.primary, emoji="🤝", custom_id="alliance_request_btn")
-    async def request_alliance(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(AllianceRequestModal())
-
-
-async def update_allies_embed(guild):
-    """Update the allies embed in the allies channel"""
-    allies_channel = discord.utils.get(guild.text_channels, name=ALLIES_CHANNEL)
-    if not allies_channel:
+        if add_command_role(cmd, role.id):
+            await ctx.send(f"✅ {role.mention} can now use `!{cmd}`")
+        else:
+            await ctx.send(f"⚠️ {role.mention} already has permission for `!{cmd}`")
         return
     
-    allies = get_allies_data()
-    
-    # Delete old individual ally embeds first
-    try:
-        async for message in allies_channel.history(limit=50):
-            if message.author == guild.me and message.embeds:
-                title = message.embeds[0].title or ""
-                # Delete ally cards but keep the header
-                if "ALLIANCES" not in title and ("⚔️" in title or "🥉" in title or "🥈" in title or "🥇" in title or "💎" in title or "💠" in title):
-                    await message.delete()
-                    await asyncio.sleep(0.3)
-    except:
-        pass
-    
-    # Get alliance banner if set
-    data = load_data()
-    banner_url = data.get("alliance_banner_url")
-    
-    # Count allies by status
-    active_count = 0
-    inactive_count = 0
-    for ally in allies.values():
-        status = get_alliance_status(ally)
-        if status["status"] in ["Active", "New"]:
-            active_count += 1
-        elif status["status"] == "Inactive":
-            inactive_count += 1
-    
-    # Create the main header embed
-    header_embed = discord.Embed(
-        title="🤝 THE FALLEN ALLIANCES 🤝",
-        description=(
-            "**Our trusted allies and partners in battle.**\n\n"
-            f"🟢 **Active:** {active_count} • 🔴 **Inactive:** {inactive_count}\n\n"
-            "*Want to ally with us? Click the button below!*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        ),
-        color=0x8B0000
-    )
-    
-    # Set banner image if available
-    if banner_url:
-        header_embed.set_image(url=banner_url)
-    
-    if guild.icon:
-        header_embed.set_thumbnail(url=guild.icon.url)
-    
-    if not allies:
-        header_embed.add_field(name="No Allies Yet", value="Be the first to ally with The Fallen!", inline=False)
-    
-    # Add tier legend
-    header_embed.add_field(
-        name="📊 Alliance Tiers",
-        value="🤝 New • 🥉 Bronze (7d) • 🥈 Silver (30d) • 🥇 Gold (90d) • 💎 Platinum (180d) • 💠 Diamond (1y)",
-        inline=False
-    )
-    
-    header_embed.set_footer(text=f"Total Allies: {len(allies)} • The Fallen", icon_url=guild.icon.url if guild.icon else None)
-    header_embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
-    
-    # Find or update header message
-    header_msg = None
-    async for message in allies_channel.history(limit=20):
-        if message.author == guild.me and message.embeds and "ALLIANCES" in str(message.embeds[0].title or ""):
-            header_msg = message
-            await message.edit(embed=header_embed, view=AlliancePanelView())
-            break
-    
-    if not header_msg:
-        await allies_channel.send(embed=header_embed, view=AlliancePanelView())
-    
-    # Send individual embeds for each ally (so each can have their own icon)
-    if allies:
-        # Sort by tier (highest first), then by name
-        def sort_key(ally):
-            tier = get_alliance_tier(ally)
-            tier_order = {"Diamond Ally": 0, "Platinum Ally": 1, "Gold Ally": 2, "Silver Ally": 3, "Bronze Ally": 4, "New Ally": 5}
-            return (tier_order.get(tier["name"], 6), ally.get("name", "").lower())
+    # Remove permission
+    if action == "remove":
+        if not command_name:
+            return await ctx.send("❌ Please specify a command!\n`!cmdperms remove <command> @Role`")
+        if not role:
+            return await ctx.send("❌ Please mention a role!\n`!cmdperms remove <command> @Role`")
         
-        sorted_allies = sorted(allies.values(), key=sort_key)
+        cmd = command_name.lower()
         
-        for ally in sorted_allies:
-            name = ally.get("name", "Unknown")
-            owner = ally.get("owner", "Unknown")
-            members = ally.get("members", "?")
-            invite = ally.get("invite", "")
-            icon_url = ally.get("icon_url")
-            activity_count = ally.get("activity_count", 0)
-            
-            # Get tier and status
-            tier = get_alliance_tier(ally)
-            status = get_alliance_status(ally)
-            alliance_age = get_alliance_age(ally)
-            
-            # Get established date
-            added_at = ally.get("added_at", "")
-            established = "Unknown"
-            if added_at:
-                try:
-                    added_dt = datetime.datetime.fromisoformat(added_at)
-                    established = added_dt.strftime("%b %d, %Y")
-                except:
-                    pass
-            
-            ally_embed = discord.Embed(
-                title=f"{tier['emoji']} {name}",
-                color=tier["color"]
-            )
-            
-            # Status indicator in description
-            ally_embed.description = f"{status['emoji']} **{status['status']}** • {tier['name']}"
-            
-            ally_embed.add_field(name="👑 Owner", value=owner, inline=True)
-            ally_embed.add_field(name="👥 Members", value=members, inline=True)
-            
-            if invite:
-                ally_embed.add_field(name="🔗 Server", value=f"[Join]({invite})", inline=True)
-            
-            ally_embed.add_field(name="📅 Established", value=established, inline=True)
-            ally_embed.add_field(name="⏱️ Allied For", value=alliance_age, inline=True)
-            ally_embed.add_field(name="📊 Activities", value=str(activity_count), inline=True)
-            
-            if icon_url:
-                ally_embed.set_thumbnail(url=icon_url)
-            
-            await allies_channel.send(embed=ally_embed)
-            await asyncio.sleep(0.5)  # Avoid rate limits
-
-
-async def fetch_invite_info(invite_url):
-    """Fetch server info from a Discord invite"""
-    try:
-        # Extract invite code from URL
-        invite_code = invite_url.split("/")[-1].split("?")[0]
-        invite = await bot.fetch_invite(invite_code, with_counts=True)
-        return {
-            "name": invite.guild.name,
-            "icon_url": str(invite.guild.icon.url) if invite.guild.icon else None,
-            "member_count": invite.approximate_member_count,
-            "online_count": invite.approximate_presence_count
-        }
-    except Exception as e:
-        print(f"Failed to fetch invite info: {e}")
-        return None
-
-
-async def create_ally_embed(ally_data, guild):
-    """Create a detailed embed for a single ally"""
-    embed = discord.Embed(color=0x8B0000)
-    
-    name = ally_data.get("name", "Unknown")
-    owner = ally_data.get("owner", "Unknown")
-    members = ally_data.get("members", "?")
-    invite = ally_data.get("invite", "")
-    icon_url = ally_data.get("icon_url")
-    
-    embed.title = f"⚔️ {name}"
-    embed.description = f"👑 **Owner:** {owner}\n👥 **Members:** {members}"
-    
-    if invite:
-        embed.description += f"\n\n🔗 **[Join Their Server]({invite})**"
-    
-    if icon_url:
-        embed.set_thumbnail(url=icon_url)
-    
-    return embed
-
-
-async def update_allies_showcase(guild):
-    """Create individual embeds for each ally with their server icons"""
-    allies_channel = discord.utils.get(guild.text_channels, name=ALLIES_CHANNEL)
-    if not allies_channel:
+        if remove_command_role(cmd, role.id):
+            await ctx.send(f"✅ Removed {role.mention} from `!{cmd}`")
+        else:
+            await ctx.send(f"⚠️ {role.mention} doesn't have custom permission for `!{cmd}`")
         return
     
-    allies = get_allies_data()
-    
-    # Delete old ally messages (keep the main panel)
-    async for message in allies_channel.history(limit=50):
-        if message.author == guild.me:
-            if message.embeds and message.embeds[0].title and "ALLIANCES" not in message.embeds[0].title:
-                if message.embeds[0].title.startswith("⚔️"):
-                    await message.delete()
-                    await asyncio.sleep(0.5)
-    
-    # Create header embed
-    header_embed = discord.Embed(
-        title="🤝 THE FALLEN ALLIANCES 🤝",
-        description="Our trusted allies and partners in battle.\n\n━━━━━━━━━━━━━━━━━━━━━━",
-        color=0x8B0000
-    )
-    if guild.icon:
-        header_embed.set_thumbnail(url=guild.icon.url)
-    header_embed.set_footer(text=f"Total Allies: {len(allies)} • Click below to request alliance", icon_url=guild.icon.url if guild.icon else None)
-    
-    # Find or create header message
-    header_found = False
-    async for message in allies_channel.history(limit=20):
-        if message.author == guild.me and message.embeds and "ALLIANCES" in str(message.embeds[0].title):
-            await message.edit(embed=header_embed, view=AlliancePanelView())
-            header_found = True
-            break
-    
-    if not header_found:
-        await allies_channel.send(embed=header_embed, view=AlliancePanelView())
-    
-    # Send individual ally embeds
-    if allies:
-        sorted_allies = sorted(allies.values(), key=lambda x: x.get("name", "").lower())
+    # Reset command permissions
+    if action == "reset":
+        if not command_name:
+            return await ctx.send("❌ Please specify a command!\n`!cmdperms reset <command>`")
         
-        for ally in sorted_allies:
-            ally_embed = await create_ally_embed(ally, guild)
-            await allies_channel.send(embed=ally_embed)
-            await asyncio.sleep(0.5)  # Avoid rate limits
-
-
-@bot.command(name="setup_allies")
-@commands.has_permissions(administrator=True)
-async def setup_allies(ctx):
-    """Setup the alliance panel in the allies channel"""
-    # Find or create allies channel
-    allies_channel = discord.utils.get(ctx.guild.text_channels, name=ALLIES_CHANNEL)
-    
-    if not allies_channel:
-        allies_channel = await ctx.guild.create_text_channel(
-            name=ALLIES_CHANNEL,
-            topic="🤝 Our allied clans and groups"
-        )
-        await ctx.send(f"✅ Created allies channel: {allies_channel.mention}")
-    
-    await update_allies_embed(ctx.guild)
-    await ctx.send(f"✅ Alliance panel posted in {allies_channel.mention}")
-
-
-
-
-
-@bot.command(name="addally")
-@commands.has_any_role(*HIGH_STAFF_ROLES)
-async def add_ally(ctx, *, args: str = None):
-    """Manually add an ally: !addally <name> | <owner> | <members> | <invite>"""
-    if not args:
-        embed = discord.Embed(
-            title="Add Ally Usage",
-            description="```!addally <name> | <owner> | <members> | <invite>```",
-            color=0x3498db
-        )
-        embed.add_field(name="Example", value='`!addally CONTRA | @Tsuki | 50+ | https://discord.gg/xyz`', inline=False)
-        return await ctx.send(embed=embed)
-    
-    parts = [p.strip() for p in args.split("|")]
-    if len(parts) < 4:
-        return await ctx.send("Please use format: `!addally <name> | <owner> | <members> | <invite>`")
-    
-    name, owner, members, invite = parts[0], parts[1], parts[2], parts[3]
-    
-    msg = await ctx.send(f"Adding **{name}** and fetching server info...")
-    
-    # Try to fetch server icon from invite
-    icon_url = None
-    actual_member_count = members
-    try:
-        invite_code = invite.split("/")[-1].split("?")[0]
-        invite_info = await bot.fetch_invite(invite_code, with_counts=True)
-        if invite_info.guild.icon:
-            icon_url = str(invite_info.guild.icon.url)
-        if invite_info.approximate_member_count:
-            actual_member_count = str(invite_info.approximate_member_count)
-    except Exception as e:
-        print(f"Could not fetch invite info: {e}")
-    
-    ally_data = {
-        "name": name,
-        "owner": owner,
-        "members": actual_member_count,
-        "invite": invite,
-        "icon_url": icon_url,
-        "added_by": ctx.author.id,
-        "added_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-    }
-    save_ally(ally_data)
-    
-    await update_allies_embed(ctx.guild)
-    
-    result_msg = f"Added **{name}** as an ally!"
-    if icon_url:
-        result_msg += " (Server icon fetched!)"
-    await msg.edit(content=result_msg)
-    await log_action(ctx.guild, "Ally Added", f"**{name}** added by {ctx.author.mention}", 0x2ecc71)
-
-@bot.command(name="removeally", aliases=["deleteally"])
-@commands.has_any_role(*HIGH_STAFF_ROLES)
-async def remove_ally_cmd(ctx, *, ally_name: str = None):
-    """Remove an ally: !removeally <name>"""
-    if not ally_name:
-        return await ctx.send("❌ Please specify the ally name: `!removeally <name>`")
-    
-    if remove_ally(ally_name):
-        await update_allies_embed(ctx.guild)
-        await ctx.send(f"✅ Removed **{ally_name}** from allies.")
-        await log_action(ctx.guild, "🤝 Ally Removed", f"**{ally_name}** removed by {ctx.author.mention}", 0xe74c3c)
-    else:
-        await ctx.send(f"❌ Ally **{ally_name}** not found.")
-
-
-@bot.command(name="editally")
-@commands.has_any_role(*HIGH_STAFF_ROLES)
-async def edit_ally(ctx, ally_name: str = None, field: str = None, *, value: str = None):
-    """Edit an ally's info: !editally <name> <field> <value>"""
-    if not all([ally_name, field, value]):
-        embed = discord.Embed(
-            title="📝 Edit Ally Usage",
-            description="```!editally <name> <field> <value>```",
-            color=0x3498db
-        )
-        embed.add_field(name="Fields", value="`name`, `owner`, `members`, `invite`", inline=False)
-        embed.add_field(name="Example", value='`!editally CONTRA members 100+`', inline=False)
-        return await ctx.send(embed=embed)
-    
-    ally = get_ally(ally_name)
-    if not ally:
-        return await ctx.send(f"❌ Ally **{ally_name}** not found.")
-    
-    field = field.lower()
-    if field not in ["name", "owner", "members", "invite"]:
-        return await ctx.send("❌ Invalid field. Use: `name`, `owner`, `members`, `invite`")
-    
-    old_value = ally.get(field, "None")
-    ally[field] = value
-    
-    # If name changed, need to re-key in database
-    if field == "name":
-        remove_ally(ally_name)
-    save_ally(ally)
-    
-    await update_allies_embed(ctx.guild)
-    await ctx.send(f"✅ Updated **{ally_name}**'s {field}: `{old_value}` → `{value}`")
-
-
-@bot.command(name="allies", aliases=["listallies"])
-async def list_allies(ctx):
-    """List all current allies"""
-    allies = get_allies_data()
-    
-    if not allies:
-        return await ctx.send("❌ No allies registered yet.")
-    
-    embed = discord.Embed(
-        title="🤝 The Fallen Allies",
-        color=0x8B0000
-    )
-    
-    for ally in sorted(allies.values(), key=lambda x: x.get("name", "").lower()):
-        name = ally.get("name", "Unknown")
-        owner = ally.get("owner", "Unknown")
-        members = ally.get("members", "?")
-        invite = ally.get("invite", "No link")
+        cmd = command_name.lower()
         
-        embed.add_field(
-            name=f"⚔️ {name}",
-            value=f"👑 {owner} • 👥 {members}\n🔗 {invite}",
-            inline=False
-        )
-    
-    embed.set_footer(text=f"Total: {len(allies)} allies")
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="refreshallies")
-@commands.has_any_role(*HIGH_STAFF_ROLES)
-async def refresh_allies(ctx):
-    """Refresh the allies panel embed"""
-    try:
-        msg = await ctx.send("⏳ Refreshing allies panel...")
-        await asyncio.sleep(API_CALL_DELAY)  # Rate limit protection
-        await update_allies_embed(ctx.guild)
-        await msg.edit(content="✅ Allies panel refreshed!")
-    except discord.HTTPException as e:
-        if e.status == 429:
-            await ctx.send("⚠️ Rate limited by Discord! Please wait a moment and try again.")
+        if reset_command_perms(cmd):
+            await ctx.send(f"✅ Reset `!{cmd}` to default staff permissions")
         else:
-            await ctx.send(f"❌ Discord error: {e}")
-    except Exception as e:
-        await ctx.send(f"❌ An error occurred: {e}")
-
-@refresh_allies.error
-async def refresh_allies_error(ctx, error):
-    if isinstance(error, commands.MissingAnyRole):
-        await ctx.send("❌ You need **High Staff** permissions to use this command.")
-    else:
-        await ctx.send(f"❌ An error occurred: {error}")
+            await ctx.send(f"⚠️ `!{cmd}` has no custom permissions to reset")
+        return
+    
+    await ctx.send("❌ Unknown action! Use `list`, `add`, `remove`, `reset`, or `commands`")
 
 
-@bot.command(name="setallybanner")
-@commands.has_any_role(*HIGH_STAFF_ROLES)
-async def set_ally_banner(ctx, url: str = None):
-    """Set a custom banner image for the allies channel"""
-    try:
-        if not url:
-            if ctx.message.attachments:
-                url = ctx.message.attachments[0].url
-            else:
-                embed = discord.Embed(
-                    title="🖼️ Set Alliance Banner",
-                    description="Set a custom banner for the allies panel.",
-                    color=0x3498db
-                )
-                embed.add_field(name="Usage", value="`!setallybanner <url>`\nor attach an image", inline=False)
-                return await ctx.send(embed=embed)
-        
-        if not url.startswith(("http://", "https://")):
-            return await ctx.send("❌ Invalid URL. Must start with http:// or https://")
-        
-        msg = await ctx.send("⏳ Setting banner...")
-        
-        data = load_data()
-        data["alliance_banner_url"] = url
-        save_data(data)
-        
-        await asyncio.sleep(API_CALL_DELAY)
-        await update_allies_embed(ctx.guild)
-        await msg.edit(content="✅ Alliance banner set!")
-    except discord.HTTPException as e:
-        if e.status == 429:
-            await ctx.send("⚠️ Rate limited! Please wait and try again.")
-        else:
-            await ctx.send(f"❌ Discord error: {e}")
-    except Exception as e:
-        await ctx.send(f"❌ An error occurred: {e}")
-
-@set_ally_banner.error
-async def set_ally_banner_error(ctx, error):
-    if isinstance(error, commands.MissingAnyRole):
-        await ctx.send("❌ You need **High Staff** permissions to use this command.")
-    else:
-        await ctx.send(f"❌ An error occurred: {error}")
-    
-    await update_allies_embed(ctx.guild)
-    await ctx.send(f"✅ Alliance banner set! Refreshing panel...")
-
-
-@bot.command(name="clearallybanner")
-@commands.has_any_role(*HIGH_STAFF_ROLES)
-async def clear_ally_banner(ctx):
-    """Remove the custom banner from allies channel"""
-    data = load_data()
-    if "alliance_banner_url" in data:
-        del data["alliance_banner_url"]
-        save_data(data)
-    
-    await update_allies_embed(ctx.guild)
-    await ctx.send("✅ Alliance banner removed!")
-
-
-@bot.command(name="allyactivity", aliases=["logally"])
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def log_ally_activity(ctx, ally_name: str = None, activity_type: str = None, *, details: str = None):
-    """Log an activity with an ally: !allyactivity <ally> <type> <details>"""
-    if not all([ally_name, activity_type, details]):
-        embed = discord.Embed(
-            title="📝 Log Alliance Activity",
-            description="```!allyactivity <ally> <type> <details>```",
-            color=0x3498db
-        )
-        embed.add_field(
-            name="Activity Types",
-            value="`backup` - Helped with backup\n`raid` - Joint raid\n`war` - War support\n`event` - Joint event\n`trade` - Trading\n`other` - Other activity",
-            inline=False
-        )
-        embed.add_field(name="Example", value='`!allyactivity CONTRA backup Helped us fight SHDW in their server`', inline=False)
-        return await ctx.send(embed=embed)
-    
-    # Check if ally exists
-    ally = get_ally(ally_name)
-    if not ally:
-        return await ctx.send(f"❌ Ally **{ally_name}** not found. Use `!allies` to see all allies.")
-    
-    # Valid activity types
-    valid_types = ["backup", "raid", "war", "event", "trade", "other"]
-    if activity_type.lower() not in valid_types:
-        return await ctx.send(f"❌ Invalid activity type. Use: {', '.join(valid_types)}")
-    
-    # Log the activity
-    log_alliance_activity(ally["name"], activity_type.lower(), details, ctx.author.id)
-    
-    # Get emoji for type
-    type_emojis = {"backup": "🆘", "raid": "⚔️", "war": "🔥", "event": "📅", "trade": "💰", "other": "📝"}
-    emoji = type_emojis.get(activity_type.lower(), "📝")
-    
-    embed = discord.Embed(
-        title=f"{emoji} Alliance Activity Logged",
-        description=f"**Ally:** {ally['name']}\n**Type:** {activity_type.title()}\n**Details:** {details}",
-        color=0x2ecc71
-    )
-    embed.set_footer(text=f"Logged by {ctx.author.name}")
-    embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
-    
-    await ctx.send(embed=embed)
-    
-    # Also post to alliance log channel if it exists
-    log_channel = discord.utils.get(ctx.guild.text_channels, name=ALLIANCE_LOG_CHANNEL)
-    if log_channel:
-        await log_channel.send(embed=embed)
-
-
-@bot.command(name="allylog", aliases=["alliancelog"])
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def view_ally_log(ctx, ally_name: str = None):
-    """View alliance activity log: !allylog [ally_name]"""
-    logs = get_alliance_activity_log(ally_name, limit=15)
-    
-    if not logs:
-        if ally_name:
-            return await ctx.send(f"❌ No activity logs found for **{ally_name}**")
-        return await ctx.send("❌ No alliance activity logs found.")
-    
-    type_emojis = {"backup": "🆘", "raid": "⚔️", "war": "🔥", "event": "📅", "trade": "💰", "other": "📝", "approved": "✅", "removed": "❌"}
-    
-    embed = discord.Embed(
-        title=f"📋 Alliance Activity Log" + (f" - {ally_name}" if ally_name else ""),
-        color=0x3498db
-    )
-    
-    log_text = ""
-    for log in logs:
-        emoji = type_emojis.get(log.get("type", "other"), "📝")
-        ally = log.get("ally", "Unknown")
-        details = log.get("details", "No details")[:50]
-        timestamp = log.get("timestamp", "")
-        
-        # Format timestamp
-        try:
-            dt = datetime.datetime.fromisoformat(timestamp)
-            time_str = dt.strftime("%m/%d %H:%M")
-        except:
-            time_str = "?"
-        
-        log_text += f"{emoji} **{ally}** - {details}\n`{time_str}` • {log.get('type', 'other').title()}\n\n"
-    
-    embed.description = log_text if log_text else "No logs found"
-    embed.set_footer(text="Use !allyactivity to log new activities")
-    
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="allycooldown")
-@commands.has_any_role(*HIGH_STAFF_ROLES)
-async def check_ally_cooldown(ctx, ally_name: str = None):
-    """Check or clear alliance cooldown: !allycooldown [ally_name] [clear]"""
-    if not ally_name:
-        # Show all cooldowns
-        cooldowns = get_alliance_cooldowns()
-        if not cooldowns:
-            return await ctx.send("✅ No alliance cooldowns active.")
-        
-        embed = discord.Embed(title="⏳ Alliance Cooldowns", color=0xf1c40f)
-        for name, removed_at in cooldowns.items():
-            days_left = check_alliance_cooldown(name)
-            if days_left > 0:
-                embed.add_field(name=name.title(), value=f"{days_left} days remaining", inline=True)
-        
-        if not embed.fields:
-            return await ctx.send("✅ No alliance cooldowns active.")
-        
-        embed.set_footer(text=f"Cooldown period: {ALLIANCE_COOLDOWN_DAYS} days")
-        return await ctx.send(embed=embed)
-    
-    # Check specific ally
-    days_left = check_alliance_cooldown(ally_name)
-    if days_left > 0:
-        await ctx.send(f"⏳ **{ally_name}** is on cooldown for **{days_left}** more days before they can be re-allied.")
-    else:
-        await ctx.send(f"✅ **{ally_name}** has no cooldown. They can be allied.")
-
-
-@bot.command(name="clearcooldown")
-@commands.has_any_role(*HIGH_STAFF_ROLES)
-async def clear_ally_cooldown(ctx, ally_name: str):
-    """Clear alliance cooldown for an ally (staff override)"""
-    if clear_alliance_cooldown(ally_name):
-        await ctx.send(f"✅ Cooldown cleared for **{ally_name}**. They can now be re-allied.")
-    else:
-        await ctx.send(f"❌ No cooldown found for **{ally_name}**.")
-
-
-@bot.command(name="allyinfo")
-async def ally_info(ctx, *, ally_name: str = None):
-    """View detailed info about an ally"""
-    if not ally_name:
-        return await ctx.send("❌ Please specify an ally name: `!allyinfo <name>`")
-    
-    ally = get_ally(ally_name)
-    if not ally:
-        return await ctx.send(f"❌ Ally **{ally_name}** not found. Use `!allies` to see all allies.")
-    
-    tier = get_alliance_tier(ally)
-    status = get_alliance_status(ally)
-    age = get_alliance_age(ally)
-    
-    embed = discord.Embed(
-        title=f"{tier['emoji']} {ally['name']}",
-        color=tier["color"]
-    )
-    
-    embed.description = f"{status['emoji']} **{status['status']}** • {tier['name']}"
-    
-    embed.add_field(name="👑 Owner", value=ally.get("owner", "Unknown"), inline=True)
-    embed.add_field(name="👥 Members", value=ally.get("members", "?"), inline=True)
-    
-    invite = ally.get("invite", "")
-    if invite:
-        embed.add_field(name="🔗 Server", value=f"[Join]({invite})", inline=True)
-    
-    # Established date
-    added_at = ally.get("added_at", "")
-    if added_at:
-        try:
-            dt = datetime.datetime.fromisoformat(added_at)
-            embed.add_field(name="📅 Established", value=dt.strftime("%B %d, %Y"), inline=True)
-        except:
-            pass
-    
-    embed.add_field(name="⏱️ Allied For", value=age, inline=True)
-    embed.add_field(name="📊 Total Activities", value=str(ally.get("activity_count", 0)), inline=True)
-    
-    # Last interaction
-    last_interaction = ally.get("last_interaction")
-    if last_interaction:
-        try:
-            dt = datetime.datetime.fromisoformat(last_interaction)
-            embed.add_field(name="🕐 Last Activity", value=dt.strftime("%b %d, %Y"), inline=True)
-        except:
-            pass
-    
-    # Recent activity
-    recent_logs = get_alliance_activity_log(ally["name"], limit=3)
-    if recent_logs:
-        activity_text = ""
-        for log in recent_logs:
-            activity_text += f"• {log.get('type', 'other').title()}: {log.get('details', '')[:30]}...\n"
-        embed.add_field(name="📝 Recent Activity", value=activity_text, inline=False)
-    
-    if ally.get("icon_url"):
-        embed.set_thumbnail(url=ally["icon_url"])
-    
-    # Added by
-    added_by = ally.get("added_by")
-    if added_by:
-        try:
-            user = ctx.guild.get_member(added_by)
-            if user:
-                embed.set_footer(text=f"Added by {user.name}", icon_url=user.display_avatar.url)
-        except:
-            pass
-    
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="setup_allylog")
-@commands.has_permissions(administrator=True)
-async def setup_alliance_log(ctx):
-    """Create the alliance activity log channel"""
-    existing = discord.utils.get(ctx.guild.text_channels, name=ALLIANCE_LOG_CHANNEL)
-    if existing:
-        return await ctx.send(f"✅ Alliance log channel already exists: {existing.mention}")
-    
-    overwrites = {
-        ctx.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-        ctx.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-    }
-    
-    for role_name in HIGH_STAFF_ROLES:
-        role = discord.utils.get(ctx.guild.roles, name=role_name)
-        if role:
-            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-    
-    staff_role = discord.utils.get(ctx.guild.roles, name=STAFF_ROLE_NAME)
-    if staff_role:
-        overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=False)
-    
-    channel = await ctx.guild.create_text_channel(
-        name=ALLIANCE_LOG_CHANNEL,
-        overwrites=overwrites,
-        topic="📋 Alliance activity log - Track all interactions with allied clans"
-    )
-    
-    embed = discord.Embed(
-        title="📋 Alliance Activity Log",
-        description=(
-            "This channel logs all alliance activities.\n\n"
-            "**Activity Types:**\n"
-            "🆘 Backup assistance\n"
-            "⚔️ Joint raids\n"
-            "🔥 War support\n"
-            "📅 Joint events\n"
-            "💰 Trading\n"
-            "📝 Other activities\n\n"
-            "Use `!allyactivity` to log interactions!"
-        ),
-        color=0x3498db
-    )
-    
-    await channel.send(embed=embed)
-    await ctx.send(f"✅ Created alliance log channel: {channel.mention}")
+# Custom permission check decorator
+def has_custom_perms(command_name):
+    """Decorator to check custom command permissions"""
+    async def predicate(ctx):
+        return await check_custom_perms(ctx, command_name)
+    return commands.check(predicate)
 
 
 # ==========================================
