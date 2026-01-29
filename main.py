@@ -73,7 +73,8 @@ RECURRING_EVENTS_FILE = "recurring_events.json"
 TRANSCRIPTS_FILE = "ticket_transcripts.json"
 PRACTICE_FILE = "practice_sessions.json"
 LEGACY_FILE = "legacy_data.json"
-EMBEDS_FILE = "custom_embeds.json"      
+EMBEDS_FILE = "custom_embeds.json"
+POLLS_FILE = "polls_data.json"      
 
 # --- LEVEL CARD SETTINGS ---
 # LOCAL FILE ONLY - use your template with black pills
@@ -7799,6 +7800,7 @@ class HelpSelect(discord.ui.Select):
             discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
             discord.SelectOption(label="Perks & Rewards", emoji="🎭", description="Role perks, daily, weekly"),
             discord.SelectOption(label="Events", emoji="📅", description="Trainings & tryouts"),
+            discord.SelectOption(label="Polls", emoji="📊", description="Availability polls"),
             discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
             discord.SelectOption(label="Spar Finder", emoji="🎯", description="Tier-based spar matchmaking"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
@@ -7966,6 +7968,34 @@ class HelpSelect(discord.ui.Select):
                 "**🔥 Streak Roles**\n"
                 "3→♰Shadow Initiate | 5→♰Rising Shadow\n"
                 "10→♰Relentless | 20→♰Undying | 50→♰Eternal"
+            )
+        
+        elif self.values[0] == "Polls":
+            e.title="📊 Availability Polls"
+            e.description=(
+                "**📋 What Are Polls?**\n"
+                "Staff can create polls to find the best\n"
+                "times for trainings and tryouts!\n\n"
+                "**👤 How to Respond**\n"
+                "1️⃣ Click a **day button** (Mon-Sun)\n"
+                "2️⃣ Enter your **available times**\n"
+                "3️⃣ Repeat for other days\n"
+                "4️⃣ Click **✅ Submit** when done!\n\n"
+                "**🔘 Poll Buttons**\n"
+                "• Day buttons (Mon-Sun) - Select times\n"
+                "• ✅ Submit - Finalize response\n"
+                "• 👁️ My Times - View your selections\n"
+                "• 📊 Results - Staff only\n"
+                "• 🔒 Close - Staff only\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`!poll training` - Create training poll\n"
+                "`!poll tryout` - Create tryout poll\n"
+                "`!poll list` - View active polls\n"
+                "`!poll results <id>` - View results\n\n"
+                "**📈 Results Show**\n"
+                "🏆 Best times ranked with medals\n"
+                "📊 Visual bar chart by day\n"
+                "👥 Total response count"
             )
             
         elif self.values[0] == "Economy & Shop": 
@@ -11889,6 +11919,11 @@ async def on_ready():
         bot.recurring_events_task_started = True
         print("✅ Recurring events task started!")
     
+    # Setup persistent poll views
+    if not hasattr(bot, 'poll_views_loaded'):
+        await setup_poll_views()
+        bot.poll_views_loaded = True
+    
     print("=" * 50)
     print("🚀 Bot is ready!")
     print("=" * 50)
@@ -12854,6 +12889,7 @@ async def help_cmd(ctx):
         name="━━━━━ Activities ━━━━━",
         value=(
             "📅 **Events** - Trainings & tryouts\n"
+            "📊 **Polls** - Availability scheduling\n"
             "⚔️ **Duels & ELO** - 1v1 battles\n"
             "🏆 **Tournaments** - Competitions\n"
             "🆘 **Backup** - Request help"
@@ -23693,6 +23729,751 @@ class TournamentCreateButtonView(discord.ui.View):
             return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
         
         await interaction.response.send_modal(TournamentCreateModal())
+
+
+# ============================================================
+# POLL SYSTEM FOR TRAININGS & TRYOUTS SCHEDULING
+# ============================================================
+
+# --- POLL DATA FUNCTIONS ---
+
+def load_polls_data():
+    """Load poll data from JSON"""
+    if os.path.exists(POLLS_FILE):
+        try:
+            with open(POLLS_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {"active_polls": {}, "poll_history": []}
+
+def save_polls_data(data):
+    """Save poll data to JSON"""
+    with open(POLLS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+# --- POLL CONFIGURATION ---
+
+POLL_DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+POLL_TIME_SLOTS = [
+    "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", 
+    "5:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", 
+    "10:00 PM", "11:00 PM"
+]
+
+POLL_DAY_EMOJIS = {
+    "Monday": "1️⃣", "Tuesday": "2️⃣", "Wednesday": "3️⃣", 
+    "Thursday": "4️⃣", "Friday": "5️⃣", "Saturday": "6️⃣", "Sunday": "7️⃣"
+}
+
+# --- TIME NORMALIZATION ---
+
+def normalize_poll_time(time_str: str) -> str:
+    """Normalize time string to standard format"""
+    time_str = time_str.strip().upper()
+    
+    patterns = [
+        (r"^(\d{1,2}):?(\d{2})?\s*(AM|PM)$", lambda m: f"{int(m.group(1))}:{m.group(2) or '00'} {m.group(3)}"),
+        (r"^(\d{1,2})\s*(AM|PM)$", lambda m: f"{int(m.group(1))}:00 {m.group(2)}"),
+        (r"^(\d{1,2}):(\d{2})$", lambda m: convert_poll_24_to_12(int(m.group(1)), int(m.group(2)))),
+    ]
+    
+    for pattern, formatter in patterns:
+        match = re.match(pattern, time_str)
+        if match:
+            return formatter(match)
+    
+    return None
+
+
+def convert_poll_24_to_12(hour: int, minute: int) -> str:
+    """Convert 24-hour time to 12-hour format"""
+    if hour == 0:
+        return f"12:{minute:02d} AM"
+    elif hour < 12:
+        return f"{hour}:{minute:02d} AM"
+    elif hour == 12:
+        return f"12:{minute:02d} PM"
+    else:
+        return f"{hour - 12}:{minute:02d} PM"
+
+
+# --- TIME SELECTION MODAL ---
+
+class PollTimeSelectionModal(discord.ui.Modal):
+    """Modal for selecting times for a specific day"""
+    
+    def __init__(self, day: str, poll_id: str):
+        self.day = day
+        self.poll_id = poll_id
+        super().__init__(title=f"Select Times for {day}")
+        
+        self.times_input = discord.ui.TextInput(
+            label=f"Your available times",
+            placeholder="e.g., 3:00 PM, 5:00 PM, 7:00 PM",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=200
+        )
+        self.add_item(self.times_input)
+        
+        self.reference = discord.ui.TextInput(
+            label="Common times (for reference - don't edit)",
+            default=", ".join(POLL_TIME_SLOTS[:6]) + "\n" + ", ".join(POLL_TIME_SLOTS[6:]),
+            style=discord.TextStyle.paragraph,
+            required=False
+        )
+        self.add_item(self.reference)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        raw_times = self.times_input.value
+        times = [t.strip() for t in raw_times.replace(";", ",").split(",") if t.strip()]
+        
+        valid_times = []
+        for time in times:
+            normalized = normalize_poll_time(time)
+            if normalized:
+                valid_times.append(normalized)
+        
+        if not valid_times:
+            return await interaction.response.send_message(
+                "❌ No valid times found. Please use format like: `3:00 PM, 5:00 PM`",
+                ephemeral=True
+            )
+        
+        data = load_polls_data()
+        poll = data["active_polls"].get(self.poll_id)
+        
+        if not poll:
+            return await interaction.response.send_message("❌ This poll is no longer active.", ephemeral=True)
+        
+        user_id = str(interaction.user.id)
+        if "responses" not in poll:
+            poll["responses"] = {}
+        if user_id not in poll["responses"]:
+            poll["responses"][user_id] = {}
+        
+        poll["responses"][user_id][self.day] = valid_times
+        
+        if "responders" not in poll:
+            poll["responders"] = []
+        if user_id not in poll["responders"]:
+            poll["responders"].append(user_id)
+        
+        save_polls_data(data)
+        
+        await interaction.response.send_message(
+            f"✅ **{self.day}** saved!\n\nSelected times: **{', '.join(valid_times)}**\n\n*Click other days to add more, or click ✅ Submit when done!*",
+            ephemeral=True
+        )
+
+
+# --- POLL BUTTONS ---
+
+class PollDayButton(discord.ui.Button):
+    """Button for each day of the week"""
+    
+    def __init__(self, day: str, poll_id: str, row: int = 0):
+        self.day = day
+        self.poll_id = poll_id
+        emoji = POLL_DAY_EMOJIS.get(day, "📅")
+        super().__init__(
+            label=day[:3],
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"poll_day_{poll_id}_{day}",
+            emoji=emoji,
+            row=row
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(PollTimeSelectionModal(
+            day=self.day,
+            poll_id=self.poll_id
+        ))
+
+
+class PollSubmitButton(discord.ui.Button):
+    """Button to finalize submission"""
+    
+    def __init__(self, poll_id: str):
+        self.poll_id = poll_id
+        super().__init__(
+            label="Submit",
+            style=discord.ButtonStyle.success,
+            custom_id=f"poll_submit_{poll_id}",
+            emoji="✅",
+            row=2
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        data = load_polls_data()
+        poll = data["active_polls"].get(self.poll_id)
+        
+        if not poll:
+            return await interaction.response.send_message("❌ This poll is no longer active.", ephemeral=True)
+        
+        user_id = str(interaction.user.id)
+        responses = poll.get("responses", {})
+        user_response = responses.get(user_id, {})
+        
+        if not user_response:
+            return await interaction.response.send_message(
+                "❌ You haven't selected any times yet!\n\nClick on the day buttons to select your available times.",
+                ephemeral=True
+            )
+        
+        total_slots = sum(len(times) for times in user_response.values())
+        days_selected = len(user_response)
+        
+        selection_text = ""
+        for day in POLL_DAYS_OF_WEEK:
+            if day in user_response:
+                times = user_response[day]
+                selection_text += f"**{day}:** {', '.join(times)}\n"
+        
+        embed = discord.Embed(
+            title="✅ Availability Submitted!",
+            description=f"Thank you for your response!\n\n**Your Selections:**\n{selection_text}",
+            color=0x00FF00
+        )
+        embed.add_field(name="📊 Summary", value=f"**{days_selected}** days, **{total_slots}** time slots", inline=False)
+        embed.set_footer(text="You can update your selections anytime by clicking the day buttons again.")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class PollViewSelectionsButton(discord.ui.Button):
+    """Button to view current selections"""
+    
+    def __init__(self, poll_id: str):
+        self.poll_id = poll_id
+        super().__init__(
+            label="My Times",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"poll_view_{poll_id}",
+            emoji="👁️",
+            row=2
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        data = load_polls_data()
+        poll = data["active_polls"].get(self.poll_id)
+        
+        if not poll:
+            return await interaction.response.send_message("❌ This poll is no longer active.", ephemeral=True)
+        
+        user_id = str(interaction.user.id)
+        user_response = poll.get("responses", {}).get(user_id, {})
+        
+        if not user_response:
+            return await interaction.response.send_message(
+                "📋 You haven't selected any times yet.\n\nClick on the day buttons (Mon, Tue, etc.) to select your available times!",
+                ephemeral=True
+            )
+        
+        embed = discord.Embed(
+            title="📋 Your Current Selections",
+            color=0x3498DB
+        )
+        
+        for day in POLL_DAYS_OF_WEEK:
+            if day in user_response:
+                times = user_response[day]
+                embed.add_field(
+                    name=f"{POLL_DAY_EMOJIS[day]} {day}",
+                    value="\n".join(times) if times else "No times",
+                    inline=True
+                )
+        
+        embed.set_footer(text="Click day buttons to modify your selections.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class PollStaffResultsButton(discord.ui.Button):
+    """Staff button to view results"""
+    
+    def __init__(self, poll_id: str):
+        self.poll_id = poll_id
+        super().__init__(
+            label="Results",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"poll_staffresults_{poll_id}",
+            emoji="📊",
+            row=3
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        data = load_polls_data()
+        poll = data["active_polls"].get(self.poll_id)
+        
+        if not poll:
+            return await interaction.followup.send("❌ Poll not found.", ephemeral=True)
+        
+        embed = await generate_poll_results_embed(poll, interaction.guild)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+class PollStaffCloseButton(discord.ui.Button):
+    """Staff button to close poll"""
+    
+    def __init__(self, poll_id: str):
+        self.poll_id = poll_id
+        super().__init__(
+            label="Close",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"poll_staffclose_{poll_id}",
+            emoji="🔒",
+            row=3
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        if not is_staff(interaction.user):
+            return await interaction.response.send_message("❌ Staff only!", ephemeral=True)
+        
+        await interaction.response.defer()
+        
+        data = load_polls_data()
+        poll = data["active_polls"].get(self.poll_id)
+        
+        if not poll:
+            return await interaction.followup.send("❌ Poll not found.")
+        
+        # Generate final results
+        embed = await generate_poll_results_embed(poll, interaction.guild, final=True)
+        
+        # Move to history
+        poll["closed_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        poll["closed_by"] = interaction.user.id
+        data["poll_history"].append(poll)
+        del data["active_polls"][self.poll_id]
+        save_polls_data(data)
+        
+        # Update original message
+        try:
+            closed_embed = discord.Embed(
+                title=f"🔒 {poll['title']} (CLOSED)",
+                description="This poll has been closed. See final results below.",
+                color=0x808080
+            )
+            await interaction.message.edit(embed=closed_embed, view=None)
+        except:
+            pass
+        
+        await interaction.followup.send(embed=embed)
+
+
+# --- POLL VIEW ---
+
+class PollDaySelectView(discord.ui.View):
+    """Main view for the poll with day selection"""
+    
+    def __init__(self, poll_id: str, poll_type: str):
+        super().__init__(timeout=None)
+        self.poll_id = poll_id
+        self.poll_type = poll_type
+        
+        # Add day buttons (2 rows)
+        for i, day in enumerate(POLL_DAYS_OF_WEEK):
+            self.add_item(PollDayButton(day=day, poll_id=poll_id, row=i // 4))
+        
+        # Add user action buttons (row 2)
+        self.add_item(PollSubmitButton(poll_id=poll_id))
+        self.add_item(PollViewSelectionsButton(poll_id=poll_id))
+        
+        # Add staff buttons (row 3)
+        self.add_item(PollStaffResultsButton(poll_id=poll_id))
+        self.add_item(PollStaffCloseButton(poll_id=poll_id))
+
+
+# --- RESULTS GENERATION ---
+
+async def generate_poll_results_embed(poll: dict, guild: discord.Guild, final: bool = False) -> discord.Embed:
+    """Generate results embed with best times analysis"""
+    
+    responses = poll.get("responses", {})
+    responders = poll.get("responders", [])
+    
+    title_prefix = "📊 FINAL RESULTS:" if final else "📊 Current Results:"
+    embed = discord.Embed(
+        title=f"{title_prefix} {poll['title']}",
+        color=0x8B0000 if final else 0xFFD700
+    )
+    
+    if not responses:
+        embed.description = "No responses yet."
+        return embed
+    
+    # Count votes for each day/time combination
+    time_counts = {}
+    day_counts = {}
+    
+    for user_id, user_days in responses.items():
+        for day, times in user_days.items():
+            if day not in day_counts:
+                day_counts[day] = set()
+            day_counts[day].add(user_id)
+            
+            if day not in time_counts:
+                time_counts[day] = {}
+            
+            for time in times:
+                if time not in time_counts[day]:
+                    time_counts[day][time] = 0
+                time_counts[day][time] += 1
+    
+    # Find best times
+    best_slots = []
+    for day, times in time_counts.items():
+        for time, count in times.items():
+            best_slots.append((day, time, count))
+    
+    best_slots.sort(key=lambda x: x[2], reverse=True)
+    
+    # Top 5 best times
+    if best_slots:
+        top_times = best_slots[:5]
+        top_text = "\n".join([
+            f"🥇 **{day}** @ **{time}** — {count} {'person' if count == 1 else 'people'}" if i == 0 else
+            f"🥈 **{day}** @ **{time}** — {count} {'person' if count == 1 else 'people'}" if i == 1 else
+            f"🥉 **{day}** @ **{time}** — {count} {'person' if count == 1 else 'people'}" if i == 2 else
+            f"**{i+1}.** {day} @ {time} — {count} {'person' if count == 1 else 'people'}"
+            for i, (day, time, count) in enumerate(top_times)
+        ])
+        embed.add_field(
+            name="🏆 BEST TIMES",
+            value=top_text,
+            inline=False
+        )
+    
+    # Day breakdown with visual bars
+    day_text = ""
+    max_count = max(len(day_counts.get(d, set())) for d in POLL_DAYS_OF_WEEK) if day_counts else 1
+    
+    for day in POLL_DAYS_OF_WEEK:
+        count = len(day_counts.get(day, set()))
+        if max_count > 0:
+            bar_length = int((count / max_count) * 10)
+        else:
+            bar_length = 0
+        bar = "🟥" * bar_length + "⬛" * (10 - bar_length)
+        day_text += f"{POLL_DAY_EMOJIS[day]} **{day[:3]}**: {bar} `{count}`\n"
+    
+    embed.add_field(
+        name="📅 AVAILABILITY BY DAY",
+        value=day_text,
+        inline=False
+    )
+    
+    # Responder list (if final and not too many)
+    if final and len(responders) <= 20:
+        responder_names = []
+        for uid in responders[:20]:
+            try:
+                member = guild.get_member(int(uid))
+                if member:
+                    responder_names.append(member.display_name)
+            except:
+                pass
+        if responder_names:
+            embed.add_field(
+                name="👥 RESPONDENTS",
+                value=", ".join(responder_names),
+                inline=False
+            )
+    
+    embed.add_field(
+        name="📈 TOTAL RESPONSES",
+        value=f"**{len(responders)}** members responded",
+        inline=True
+    )
+    
+    embed.set_footer(text=f"✝ THE FALLEN ✝ | Poll ID: {poll.get('id', 'N/A')}")
+    
+    return embed
+
+
+# --- POLL CREATE MODAL ---
+
+class PollCreateModal(discord.ui.Modal):
+    """Modal for creating a poll"""
+    
+    def __init__(self, poll_type: str):
+        self.poll_type = poll_type
+        title_text = "Training" if poll_type == "training" else "Tryout"
+        super().__init__(title=f"Create {title_text} Poll")
+        
+        self.poll_title = discord.ui.TextInput(
+            label="Poll Title",
+            placeholder=f"e.g., Weekly {title_text} Schedule",
+            default=f"{title_text} Availability",
+            max_length=100,
+            required=True
+        )
+        self.add_item(self.poll_title)
+        
+        self.description = discord.ui.TextInput(
+            label="Description (optional)",
+            placeholder=f"Let us know when you're available!",
+            default=f"Select your available days and times for {title_text.lower()}s.",
+            style=discord.TextStyle.paragraph,
+            max_length=500,
+            required=False
+        )
+        self.add_item(self.description)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        poll_id = f"{self.poll_type}_{int(datetime.datetime.now().timestamp())}"
+        
+        poll_data = {
+            "id": poll_id,
+            "type": self.poll_type,
+            "title": self.poll_title.value,
+            "description": self.description.value or f"Select your available times!",
+            "created_by": interaction.user.id,
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "channel_id": interaction.channel.id,
+            "message_id": None,
+            "responses": {},
+            "responders": []
+        }
+        
+        type_emoji = "🏋️" if self.poll_type == "training" else "⚔️"
+        embed = discord.Embed(
+            title=f"{type_emoji} {self.poll_title.value}",
+            description=(
+                f"{poll_data['description']}\n\n"
+                "**📋 How to respond:**\n"
+                "1️⃣ Click a **day button** (Mon, Tue, etc.)\n"
+                "2️⃣ Enter your **available times** for that day\n"
+                "3️⃣ Repeat for **other days** you're available\n"
+                "4️⃣ Click **✅ Submit** when finished!\n\n"
+                "*Staff can view results and close the poll using the buttons below.*"
+            ),
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="👥 Responses",
+            value="0 members",
+            inline=True
+        )
+        embed.add_field(
+            name="📅 Type",
+            value=self.poll_type.title(),
+            inline=True
+        )
+        embed.set_footer(text=f"✝ THE FALLEN ✝ | Poll ID: {poll_id}")
+        
+        view = PollDaySelectView(poll_id=poll_id, poll_type=self.poll_type)
+        
+        await interaction.response.send_message(embed=embed, view=view)
+        
+        message = await interaction.original_response()
+        poll_data["message_id"] = message.id
+        
+        data = load_polls_data()
+        data["active_polls"][poll_id] = poll_data
+        save_polls_data(data)
+
+
+# --- POLL COMMANDS ---
+
+@bot.hybrid_group(name="poll", description="Availability poll commands")
+async def poll_group(ctx):
+    """Poll commands for scheduling trainings and tryouts"""
+    if ctx.invoked_subcommand is None:
+        embed = discord.Embed(
+            title="📊 Poll Commands",
+            description="Create availability polls for trainings and tryouts!",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="📝 Create Polls (Staff)",
+            value=(
+                "`!poll training` - Training availability poll\n"
+                "`!poll tryout` - Tryout availability poll"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="📋 Manage Polls",
+            value=(
+                "`!poll list` - View active polls\n"
+                "`!poll results <poll_id>` - View results (staff)"
+            ),
+            inline=False
+        )
+        embed.set_footer(text="✝ THE FALLEN ✝")
+        await ctx.send(embed=embed)
+
+
+@poll_group.command(name="training", description="Create a training availability poll")
+async def poll_training_cmd(ctx):
+    """Create a training availability poll"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", ephemeral=True)
+    
+    if ctx.interaction:
+        await ctx.interaction.response.send_modal(PollCreateModal(poll_type="training"))
+    else:
+        # For prefix command, create with default values
+        poll_id = f"training_{int(datetime.datetime.now().timestamp())}"
+        poll_data = {
+            "id": poll_id,
+            "type": "training",
+            "title": "Training Availability",
+            "description": "Select your available days and times for trainings.",
+            "created_by": ctx.author.id,
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "channel_id": ctx.channel.id,
+            "message_id": None,
+            "responses": {},
+            "responders": []
+        }
+        
+        embed = discord.Embed(
+            title="🏋️ Training Availability",
+            description=(
+                f"{poll_data['description']}\n\n"
+                "**📋 How to respond:**\n"
+                "1️⃣ Click a **day button** (Mon, Tue, etc.)\n"
+                "2️⃣ Enter your **available times** for that day\n"
+                "3️⃣ Repeat for **other days** you're available\n"
+                "4️⃣ Click **✅ Submit** when finished!"
+            ),
+            color=0x8B0000
+        )
+        embed.add_field(name="👥 Responses", value="0 members", inline=True)
+        embed.set_footer(text=f"✝ THE FALLEN ✝ | Poll ID: {poll_id}")
+        
+        view = PollDaySelectView(poll_id=poll_id, poll_type="training")
+        message = await ctx.send(embed=embed, view=view)
+        
+        poll_data["message_id"] = message.id
+        data = load_polls_data()
+        data["active_polls"][poll_id] = poll_data
+        save_polls_data(data)
+
+
+@poll_group.command(name="tryout", description="Create a tryout availability poll")
+async def poll_tryout_cmd(ctx):
+    """Create a tryout availability poll"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", ephemeral=True)
+    
+    if ctx.interaction:
+        await ctx.interaction.response.send_modal(PollCreateModal(poll_type="tryout"))
+    else:
+        poll_id = f"tryout_{int(datetime.datetime.now().timestamp())}"
+        poll_data = {
+            "id": poll_id,
+            "type": "tryout",
+            "title": "Tryout Availability",
+            "description": "Select your available days and times for tryouts.",
+            "created_by": ctx.author.id,
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "channel_id": ctx.channel.id,
+            "message_id": None,
+            "responses": {},
+            "responders": []
+        }
+        
+        embed = discord.Embed(
+            title="⚔️ Tryout Availability",
+            description=(
+                f"{poll_data['description']}\n\n"
+                "**📋 How to respond:**\n"
+                "1️⃣ Click a **day button** (Mon, Tue, etc.)\n"
+                "2️⃣ Enter your **available times** for that day\n"
+                "3️⃣ Repeat for **other days** you're available\n"
+                "4️⃣ Click **✅ Submit** when finished!"
+            ),
+            color=0x8B0000
+        )
+        embed.add_field(name="👥 Responses", value="0 members", inline=True)
+        embed.set_footer(text=f"✝ THE FALLEN ✝ | Poll ID: {poll_id}")
+        
+        view = PollDaySelectView(poll_id=poll_id, poll_type="tryout")
+        message = await ctx.send(embed=embed, view=view)
+        
+        poll_data["message_id"] = message.id
+        data = load_polls_data()
+        data["active_polls"][poll_id] = poll_data
+        save_polls_data(data)
+
+
+@poll_group.command(name="list", description="List all active polls")
+async def poll_list_cmd(ctx):
+    """List all active polls"""
+    data = load_polls_data()
+    active = data.get("active_polls", {})
+    
+    if not active:
+        return await ctx.send("📊 No active polls at the moment.")
+    
+    embed = discord.Embed(
+        title="📊 Active Polls",
+        color=0x8B0000
+    )
+    
+    for poll_id, poll in active.items():
+        type_emoji = "🏋️" if poll["type"] == "training" else "⚔️"
+        responders = len(poll.get("responders", []))
+        embed.add_field(
+            name=f"{type_emoji} {poll['title']}",
+            value=f"**Responses:** {responders}\n**ID:** `{poll_id}`",
+            inline=False
+        )
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    await ctx.send(embed=embed)
+
+
+@poll_group.command(name="results", description="View poll results")
+async def poll_results_cmd(ctx, poll_id: str):
+    """View results of a specific poll"""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only!", ephemeral=True)
+    
+    data = load_polls_data()
+    
+    poll = data["active_polls"].get(poll_id)
+    
+    if not poll:
+        for p in data.get("poll_history", []):
+            if p.get("id") == poll_id:
+                poll = p
+                break
+    
+    if not poll:
+        return await ctx.send(f"❌ Poll `{poll_id}` not found.")
+    
+    embed = await generate_poll_results_embed(poll, ctx.guild)
+    await ctx.send(embed=embed)
+
+
+# --- SETUP POLL VIEWS ON READY ---
+
+async def setup_poll_views():
+    """Register persistent poll views - call this in on_ready"""
+    data = load_polls_data()
+    count = 0
+    for poll_id, poll in data.get("active_polls", {}).items():
+        view = PollDaySelectView(poll_id=poll_id, poll_type=poll.get("type", "training"))
+        bot.add_view(view)
+        count += 1
+    if count > 0:
+        print(f"✅ Registered {count} poll views")
+
+
+# ============================================================
+# END POLL SYSTEM
+# ============================================================
 
 
 # Run the bot with reconnect enabled
