@@ -501,7 +501,6 @@ SHOP_ITEMS = [
     
     # Gameplay Items
     {"id": "elo_shield", "name": "🛡️ ELO Shield", "price": 1000, "desc": "Prevents ELO loss on your next duel loss.", "type": "consumable", "uses": 1},
-    {"id": "streak_saver", "name": "🔥 Streak Saver", "price": 1500, "desc": "Protects your attendance streak once if you miss.", "type": "consumable", "uses": 1},
     {"id": "training_reserve", "name": "📋 Training Slot Reserve", "price": 300, "desc": "Reserve your spot in the next training.", "type": "consumable", "uses": 1},
     
     # Special Access
@@ -4955,14 +4954,6 @@ ATTENDANCE_REWARDS = {
     "host": {"coins": 300, "xp": 100}
 }
 
-# Streak Bonuses (attendance streak -> bonus coins)
-STREAK_BONUSES = {
-    3: 50,    # 3 events in a row = +50 bonus
-    5: 100,   # 5 events = +100 bonus
-    7: 200,   # 7 events = +200 bonus
-    10: 500,  # 10 events = +500 bonus
-}
-
 # Attendance Role Rewards (total attendance -> role name)
 # These roles should be created in Discord with desired colors
 ATTENDANCE_ROLE_REWARDS = {
@@ -4971,16 +4962,6 @@ ATTENDANCE_ROLE_REWARDS = {
     30: "Fallen Warrior",          # 30 total trainings
     50: "Fallen Slayer",           # 50 total trainings
     100: "Fallen Immortal",        # 100 total trainings
-}
-
-# Streak Role Rewards (current streak -> role name)
-# These are for maintaining consistent attendance
-STREAK_ROLE_REWARDS = {
-    3: "♰ Shadow Initiate",         # 3 streak
-    5: "♰ Rising Shadow",           # 5 streak
-    10: "♰ Relentless",             # 10 streak
-    20: "♰ Undying",                # 20 streak
-    50: "♰ Eternal Fallen",         # 50 streak
 }
 
 async def check_attendance_roles(member, guild):
@@ -5011,50 +4992,12 @@ async def check_attendance_roles(member, guild):
     
     return roles_to_add
 
-async def check_streak_roles(member, guild, current_streak):
-    """Check and award streak milestone roles"""
-    roles_to_add = []
-    highest_earned = None
-    
-    # Find highest earned streak role
-    for threshold, role_name in sorted(STREAK_ROLE_REWARDS.items()):
-        if current_streak >= threshold:
-            highest_earned = role_name
-    
-    if highest_earned:
-        # Remove lower streak roles, keep only highest
-        for threshold, role_name in STREAK_ROLE_REWARDS.items():
-            role = discord.utils.get(guild.roles, name=role_name)
-            if role:
-                if role_name == highest_earned:
-                    if role not in member.roles:
-                        await safe_add_role(member, role)
-                        roles_to_add.append(role_name)
-                else:
-                    if role in member.roles:
-                        await safe_remove_role(member, role)
-    else:
-        # No streak role earned, remove all streak roles
-        for threshold, role_name in STREAK_ROLE_REWARDS.items():
-            role = discord.utils.get(guild.roles, name=role_name)
-            if role and role in member.roles:
-                await safe_remove_role(member, role)
-    
-    return roles_to_add
-
-async def remove_streak_roles(member, guild):
-    """Remove all streak roles when streak breaks"""
-    for threshold, role_name in STREAK_ROLE_REWARDS.items():
-        role = discord.utils.get(guild.roles, name=role_name)
-        if role and role in member.roles:
-            await safe_remove_role(member, role)
-
 def load_events_data():
     try:
         with open(EVENTS_FILE, "r") as f:
             return json.load(f)
     except:
-        return {"scheduled_events": [], "attendance_streaks": {}, "attendance_history": {}}
+        return {"scheduled_events": [], "attendance_history": {}}
 
 def save_events_data(data):
     with open(EVENTS_FILE, "w") as f:
@@ -5380,19 +5323,10 @@ def log_attendance(event_id, attendee_ids, host_id):
         # Reset activity timestamp - prevents inactivity strikes
         reset_member_activity(int(uid))
         
-        # Update streak
-        streak = update_attendance_streak(uid)
-        streak_bonus = get_streak_bonus(streak)
-        
-        if streak_bonus > 0:
-            add_user_stat(int(uid), "coins", streak_bonus)
-        
         rewards_given.append({
             "user_id": uid,
-            "coins": rewards["coins"] + streak_bonus,
-            "xp": rewards["xp"],
-            "streak": streak,
-            "streak_bonus": streak_bonus
+            "coins": rewards["coins"],
+            "xp": rewards["xp"]
         })
     
     # Award host
@@ -5412,59 +5346,6 @@ def log_attendance(event_id, attendee_ids, host_id):
         "attendees": rewards_given,
         "host_rewards": host_rewards
     }
-
-def update_attendance_streak(user_id):
-    """Update user's attendance streak"""
-    data = load_events_data()
-    uid = str(user_id)
-    
-    if "attendance_streaks" not in data:
-        data["attendance_streaks"] = {}
-    
-    if uid not in data["attendance_streaks"]:
-        data["attendance_streaks"][uid] = {"current": 0, "best": 0, "last_event": None}
-    
-    streak_data = data["attendance_streaks"][uid]
-    streak_data["current"] += 1
-    
-    if streak_data["current"] > streak_data["best"]:
-        streak_data["best"] = streak_data["current"]
-    
-    streak_data["last_event"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    save_events_data(data)
-    
-    return streak_data["current"]
-
-def break_attendance_streak(user_id):
-    """Break user's attendance streak (missed event)"""
-    data = load_events_data()
-    uid = str(user_id)
-    
-    if "attendance_streaks" not in data:
-        data["attendance_streaks"] = {}
-    
-    if uid in data["attendance_streaks"]:
-        data["attendance_streaks"][uid]["current"] = 0
-        save_events_data(data)
-
-def get_attendance_streak(user_id):
-    """Get user's current attendance streak"""
-    data = load_events_data()
-    uid = str(user_id)
-    
-    if "attendance_streaks" not in data:
-        return {"current": 0, "best": 0}
-    
-    return data["attendance_streaks"].get(uid, {"current": 0, "best": 0})
-
-def get_streak_bonus(streak):
-    """Get bonus coins for streak milestone"""
-    bonus = 0
-    for milestone, coins in STREAK_BONUSES.items():
-        if streak == milestone:
-            bonus = coins
-            break
-    return bonus
 
 def get_upcoming_events(limit=10):
     """Get upcoming scheduled events"""
@@ -5591,8 +5472,7 @@ async def create_event_embed(event, guild):
             f"**👑 Host:** {host_str}\n\n"
             f"**💰 Rewards:**\n"
             f"• {rewards['coins']} Fallen Coins\n"
-            f"• {rewards['xp']} XP\n"
-            f"• Attendance streak bonus!"
+            f"• {rewards['xp']} XP"
         ),
         color=color
     )
@@ -7598,14 +7478,6 @@ class ShopView(discord.ui.View):
                 "*Shield is consumed after one loss.*",
                 ephemeral=True
             )
-        elif item_id == "streak_saver":
-            update_user_data(interaction.user.id, "streak_saver_active", True)
-            await interaction.response.send_message(
-                "🔥 **Streak Saver Activated!**\n"
-                "If you miss the next training, your streak will be protected.\n"
-                "*Saver is consumed after one missed event.*",
-                ephemeral=True
-            )
         elif item_id == "training_reserve":
             update_user_data(interaction.user.id, "training_reserved", True)
             await interaction.response.send_message(
@@ -7952,29 +7824,29 @@ class HelpSelect(discord.ui.Select):
             e.title="📅 Events (Trainings & Tryouts)"
             e.description=(
                 "**👤 Member Commands**\n"
-                "`/schedule` - View upcoming events\n"
-                "`/event list` - All scheduled events\n"
-                "`/attendance_streak` - Your streak\n\n"
+                "`/schedule` - View upcoming events\n\n"
                 "**💰 Attendance Rewards**\n"
                 "• Training: 100 coins + 50 XP\n"
                 "• Tryout: 150 coins + 75 XP\n"
                 "• Host: 300 coins + 100 XP\n\n"
-                "**🔥 Streak Bonuses**\n"
-                "• 3 streak: +50 | 5: +100\n"
-                "• 7 streak: +200 | 10: +500\n\n"
                 "**🎖️ Attendance Roles**\n"
-                "5→Fallen Initiate | 15→Disciple\n"
-                "30→Warrior | 50→Slayer | 100→Immortal\n\n"
-                "**🔥 Streak Roles**\n"
-                "3→♰Shadow Initiate | 5→♰Rising Shadow\n"
-                "10→♰Relentless | 20→♰Undying | 50→♰Eternal"
+                "5 → Fallen Initiate\n"
+                "15 → Fallen Disciple\n"
+                "30 → Fallen Warrior\n"
+                "50 → Fallen Slayer\n"
+                "100 → Fallen Immortal\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`!log_training @members` - Log attendance\n"
+                "`!log_tryout @members` - Log attendance\n"
+                "`!quick_training <time>` - Quick announce\n"
+                "`!quick_tryout <time>` - Quick announce"
             )
         
         elif self.values[0] == "Polls":
             e.title="📊 Availability Polls"
             e.description=(
                 "**📋 What Are Polls?**\n"
-                "Staff can create polls to find the best\n"
+                "Staff create polls to find the best\n"
                 "times for trainings and tryouts!\n\n"
                 "**👤 How to Respond**\n"
                 "1️⃣ Click a **day button** (Mon-Sun)\n"
@@ -7982,20 +7854,16 @@ class HelpSelect(discord.ui.Select):
                 "3️⃣ Repeat for other days\n"
                 "4️⃣ Click **✅ Submit** when done!\n\n"
                 "**🔘 Poll Buttons**\n"
-                "• Day buttons (Mon-Sun) - Select times\n"
+                "• Day buttons - Select times\n"
                 "• ✅ Submit - Finalize response\n"
-                "• 👁️ My Times - View your selections\n"
+                "• 👁️ My Times - View selections\n"
                 "• 📊 Results - Staff only\n"
                 "• 🔒 Close - Staff only\n\n"
                 "**🛡️ Staff Commands**\n"
                 "`!poll training` - Create training poll\n"
                 "`!poll tryout` - Create tryout poll\n"
                 "`!poll list` - View active polls\n"
-                "`!poll results <id>` - View results\n\n"
-                "**📈 Results Show**\n"
-                "🏆 Best times ranked with medals\n"
-                "📊 Visual bar chart by day\n"
-                "👥 Total response count"
+                "`!poll results <id>` - View results"
             )
             
         elif self.values[0] == "Economy & Shop": 
@@ -8017,8 +7885,7 @@ class HelpSelect(discord.ui.Select):
                 "• Custom Role Color (1500)\n"
                 "• Hoisted Role (5000)\n"
                 "• Custom Level BG (3000)\n"
-                "• ELO Shield (1000)\n"
-                "• Streak Saver (1500)\n\n"
+                "• ELO Shield (1000)\n\n"
                 "**✨ Exclusive Shop**\n"
                 "`!exclusiveshop` - Role-locked items\n"
                 "`!buyexclusive <item>` - Purchase\n"
@@ -8072,67 +7939,67 @@ class HelpSelect(discord.ui.Select):
             e.title="🛡️ Staff Commands"
             e.description=(
                 "**⚠️ Warning System**\n"
-                "`!warn @user <category> [reason]` - Issue warning\n"
-                "`!strike @user <points> <reason>` - Custom strike\n"
-                "`!warnings @user` - View warnings (shows IDs)\n"
-                "`!removewarn @user <id>` - Remove warning\n"
-                "`!clearwarns @user` - Clear all (High Staff)\n"
-                "`!warnlog` - Recent server warnings\n"
-                "`!warnlist` - All categories\n"
-                "`!staffstats [days]` - Staff warning stats\n\n"
+                "`!warn @user <category> [reason]`\n"
+                "`!strike @user <points> <reason>`\n"
+                "`!warnings @user` - View warnings\n"
+                "`!removewarn @user <id>`\n"
+                "`!clearwarns @user` - Clear all\n"
+                "`!warnlog` - Recent warnings\n\n"
                 "**🔇 Moderation**\n"
-                "`!mute @user <time> [reason]` - Mute user\n"
-                "`!unmute @user` - Unmute user\n"
-                "`!softban @user [reason]` - Clear messages\n"
+                "`!mute @user <time> [reason]`\n"
+                "`!unmute @user`\n"
                 "`!purge <1-100>` - Delete messages\n"
-                "`!lock [reason]` - Lock channel\n"
-                "`!unlock` - Unlock channel\n"
-                "`!slowmode <seconds>` - Set slowmode\n\n"
-                "**😴 Inactivity System (Mainers)**\n"
-                "`!mainers` - View all Mainers & status\n"
-                "`!inactivity_check` - Run inactivity check\n"
-                "`!inactivity_strikes @user` - View strikes\n"
-                "`!inactive_list` - All striked members\n\n"
+                "`!lock` / `!unlock` - Channel lock\n"
+                "`!slowmode <seconds>`\n\n"
+                "**😴 Inactivity (Mainers)**\n"
+                "`!mainers` - View all Mainers\n"
+                "`!inactivity_check` - Run check\n"
+                "`!inactive_list` - Striked members\n\n"
                 "**👤 User Management**\n"
-                "`!userinfo @user` - Full user info\n"
                 "`!checklevel @user` - Check stats\n"
-                "`!addxp / !removexp` - Manage XP\n"
-                "`!addfcoins / !removefcoins` - Manage coins\n"
-                "`!setlevel @user <level>` - Set level\n\n"
-                "**🏆 Other**\n"
-                "`!tournament` - Tournament commands\n"
-                "`!activitycheck` - Activity check\n"
-                "`!giveaway` - Start giveaway"
+                "`!addxp` / `!removexp @user <amt>`\n"
+                "`!addfcoins` / `!removefcoins`\n"
+                "`!setlevel @user <level>`\n"
+                "`!userinfo @user` - Full info\n\n"
+                "**📋 Attendance**\n"
+                "`!log_training @members`\n"
+                "`!log_tryout @members`\n\n"
+                "**🎁 Other**\n"
+                "`!giveaway` - Start giveaway\n"
+                "`!activitycheck` - Activity check"
             )
             
         elif self.values[0] == "Admin":
             e.title="⚙️ Admin Commands"
             e.description=(
-                "**🔐 Command Permissions**\n"
-                "`!cmdperms list` - View all custom perms\n"
-                "`!cmdperms add <cmd> @Role` - Allow role\n"
-                "`!cmdperms remove <cmd> @Role` - Remove\n"
-                "`!cmdperms commands` - List available cmds\n\n"
-                "**🔒 Permission Setup**\n"
-                "`!setup_permissions confirm` - Fix all perms\n"
-                "`!fix_muted` - Fix Muted role everywhere\n"
-                "`!lockdown confirm` - Emergency lock\n"
-                "`!unlockdown confirm` - Remove lockdown\n\n"
                 "**📋 Setup Panels**\n"
-                "`!setup_verify` `!setup_tickets`\n"
-                "`!setup_shop` `!setup_transfer`\n"
-                "`!setup_practice` `!setup_attendance`\n"
-                "`!setup_staffpanel` `!setup_applications`\n"
-                "`!setup_tournament` `!setup_modlog`\n\n"
+                "`!setup_verify` - Verification\n"
+                "`!setup_shop` - Shop panel\n"
+                "`!setup_transfer` - Stage transfer\n"
+                "`!setup_practice` - Spar finder\n"
+                "`!setup_attendance` - Attendance\n"
+                "`!setup_tournament` - Tournament\n"
+                "`!setup_tickets` - Ticket system\n"
+                "`!setup_applications` - Applications\n"
+                "`!setup_staffpanel` - Staff panel\n"
+                "`!setup_modlog` - Mod log\n\n"
+                "**🏆 Leaderboards**\n"
+                "`!top10_setup` - Top 10 panel\n"
+                "`!top10_refresh` - Refresh image\n"
+                "`!setup_roster` - Clan roster\n\n"
+                "**🔒 Permissions**\n"
+                "`!setup_permissions confirm`\n"
+                "`!fix_muted` - Fix Muted role\n"
+                "`!lockdown` / `!unlockdown`\n\n"
                 "**📊 Management**\n"
-                "`!massrole add/remove @Role target`\n"
-                "`!archive_old_apps <days>`\n"
-                "`!db_status` - Database status\n\n"
+                "`!massrole add/remove @Role`\n"
+                "`!db_status` - Database status\n"
+                "`!announce` - Make announcement\n\n"
                 "**⚙️ Sync**\n"
-                "`!sync` `!clearsync`"
+                "`!sync` - Sync slash commands"
             )
         
-        e.set_footer(text="The Fallen Bot • / = slash • ! = prefix")
+        e.set_footer(text="✝ THE FALLEN ✝ • / = slash • ! = prefix")
         await interaction.response.edit_message(embed=e)
 
 class HelpView(discord.ui.View):
@@ -8869,155 +8736,314 @@ class ApplicationNoteModal(discord.ui.Modal, title="📝 Add Staff Note"):
 # SERVER INFO PANEL SYSTEM
 # ==========================================
 
+class ServerInfoSelect(discord.ui.Select):
+    """Dropdown for server info categories"""
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Stage Information", emoji="⚔️", description="Combat stages and ranking system"),
+            discord.SelectOption(label="Trials Information", emoji="🎯", description="How tryouts and trials work"),
+            discord.SelectOption(label="Raid Ranks", emoji="🔥", description="Raid division and roles"),
+            discord.SelectOption(label="Staff Roles", emoji="🛡️", description="Staff hierarchy and responsibilities"),
+            discord.SelectOption(label="Level Perks", emoji="📈", description="XP system and level rewards"),
+            discord.SelectOption(label="Booster Perks", emoji="💎", description="Server booster benefits"),
+            discord.SelectOption(label="Bot Commands", emoji="🤖", description="Bot features and commands"),
+            discord.SelectOption(label="Rules & Conduct", emoji="📜", description="Server rules and expectations"),
+        ]
+        super().__init__(placeholder="Select a category to learn more...", min_values=1, max_values=1, options=options, custom_id="server_info_select")
+    
+    async def callback(self, interaction: discord.Interaction):
+        selection = self.values[0]
+        
+        if selection == "Stage Information":
+            embed = discord.Embed(
+                title="༺ ♰ STAGE INFORMATION ♰ ༻",
+                description="**Combat ranks within The Fallen.**\nRanks are earned through tryouts and performance, not requested.",
+                color=0x8B0000
+            )
+            embed.add_field(
+                name="👑 Stage 0 — FALLEN DEITY",
+                value="The pinnacle of skill. Reserved for the absolute best.",
+                inline=False
+            )
+            embed.add_field(
+                name="⚔️ Stage 1 — FALLEN APEX",
+                value="Elite fighters. Top performers in wars and tournaments.",
+                inline=False
+            )
+            embed.add_field(
+                name="🔥 Stage 2 — FALLEN ASCENDANT",
+                value="Highly skilled. Consistent and reliable in combat.",
+                inline=False
+            )
+            embed.add_field(
+                name="💀 Stage 3 — FORSAKEN WARRIOR",
+                value="Solid skill level. Proven in tryouts and scrims.",
+                inline=False
+            )
+            embed.add_field(
+                name="🌑 Stage 4 — ABYSS-TOUCHED",
+                value="Developing fighter. Shows potential and improvement.",
+                inline=False
+            )
+            embed.add_field(
+                name="⬛ Stage 5 — BROKEN INITIATE",
+                value="New to competitive. Learning the basics.",
+                inline=False
+            )
+            embed.add_field(
+                name="📊 Rank Modifiers",
+                value="**Rank Level:** High / Mid / Low / Stable\n**Strength:** Strong / Moderate / Weak\n\n*Example: Stage 2 High Strong = Elite Ascendant*",
+                inline=False
+            )
+            embed.add_field(
+                name="📈 How to Rank Up",
+                value="• Attend tryouts\n• Perform well in wars/scrims\n• Show consistency\n• Stay active",
+                inline=False
+            )
+            
+        elif selection == "Trials Information":
+            embed = discord.Embed(
+                title="༺ ♰ TRIALS & TRYOUTS ♰ ༻",
+                description="**How to earn your rank in The Fallen.**",
+                color=0x8B0000
+            )
+            embed.add_field(
+                name="🎯 What Are Tryouts?",
+                value="Tryouts are competitive evaluations where staff assess your skill level to assign your Stage rank.",
+                inline=False
+            )
+            embed.add_field(
+                name="📋 Requirements",
+                value="• Must be a verified member\n• Active on Discord\n• Willing to improve\n• No toxicity",
+                inline=False
+            )
+            embed.add_field(
+                name="⚔️ What's Tested",
+                value="• **1v1 Combat** — Your dueling ability\n• **2H+ Skill** — Advanced techniques\n• **DM Skill** — Damage management\n• **Consistency** — Performing under pressure",
+                inline=False
+            )
+            embed.add_field(
+                name="📊 Evaluation Process",
+                value="1. Request a tryout or attend scheduled ones\n2. Fight against tryout hosts\n3. Receive your Stage, Rank, and Strength\n4. Get your roles assigned",
+                inline=False
+            )
+            embed.add_field(
+                name="🔄 Re-Tryouts",
+                value="Want to rank up? You can request a re-tryout after improving. Show us what you've learned!",
+                inline=False
+            )
+            embed.add_field(
+                name="📝 Stage Transfers",
+                value="Already ranked in TSBCC, VALHALLA, or TSBER?\nUse the Stage Transfer panel to import your rank with proof!",
+                inline=False
+            )
+            
+        elif selection == "Raid Ranks":
+            embed = discord.Embed(
+                title="༺ ♰ RAID RANKS ♰ ༻",
+                description="**Raid division hierarchy within The Fallen.**\nRaids are now 60% of our focus!",
+                color=0x8B0000
+            )
+            embed.add_field(
+                name="⚪ Raid Division 13〢The Raid Ping",
+                value="Standard raid ping for all members who want to participate.",
+                inline=False
+            )
+            embed.add_field(
+                name="🔴 Raid Priority",
+                value="Given to members who **consistently show up** and help in raids. You earn this by being active!",
+                inline=False
+            )
+            embed.add_field(
+                name="🔵 Reborn Division 4〢Elite Raid Division",
+                value="Reserved for the **best of the best** (2H Strong+). Called upon when extra firepower is needed.",
+                inline=False
+            )
+            embed.add_field(
+                name="🟣 The Raid Warden〢Raid Leader",
+                value="Can **host and lead raids** after creating a poll. Evaluates performance and recommends promotions.",
+                inline=False
+            )
+            embed.add_field(
+                name="🟡 The Abyssal Raid Marshal〢Raid Commander",
+                value="Highest raid authority. Can **host raids without polling**, override calls, and coordinate ally raids.",
+                inline=False
+            )
+            embed.add_field(
+                name="📈 How to Rank Up",
+                value="• Stay active in raids\n• Respond to backup calls\n• Perform well\n• Be consistent\n• Staff will notice",
+                inline=False
+            )
+            
+        elif selection == "Staff Roles":
+            embed = discord.Embed(
+                title="༺ ♰ STAFF HIERARCHY ♰ ༻",
+                description="**Leadership structure of The Fallen.**\nStaff roles are assigned by High Staff based on trust and contribution.",
+                color=0x8B0000
+            )
+            embed.add_field(
+                name="👑 The Fallen Sovereign〢Owner",
+                value="Supreme authority over The Fallen. Final say on all matters.",
+                inline=False
+            )
+            embed.add_field(
+                name="⚔️ The Fallen Right Hand〢Co-Owner",
+                value="Second in command. Manages high-level operations.",
+                inline=False
+            )
+            embed.add_field(
+                name="🛡️ The Fallen Marshal〢Head of Staff",
+                value="Oversees all staff. Handles promotions, demotions, and staff management.",
+                inline=False
+            )
+            embed.add_field(
+                name="📋 Staff Roles",
+                value="• **Tryout Host** — Evaluates new members\n• **Training Host** — Leads skill sessions\n• **War Manager** — Finds and schedules wars\n• **Moderator** — Maintains server order",
+                inline=False
+            )
+            embed.add_field(
+                name="⚠️ How to Become Staff",
+                value="• Be active and trusted\n• Apply when applications open\n• Show leadership qualities\n• **Never beg or ask**",
+                inline=False
+            )
+            
+        elif selection == "Level Perks":
+            embed = discord.Embed(
+                title="༺ ♰ LEVEL PERKS ♰ ༻",
+                description="**Activity fuels ascension.**\nAs you level up, you unlock rewards and recognition.",
+                color=0x8B0000
+            )
+            embed.add_field(
+                name="📊 How XP Works",
+                value="• **Chat:** 5-15 XP per message\n• **Voice:** 15-30 XP per 2 minutes\n• **Events:** Bonus XP for attending\n• **Daily/Weekly:** Claim rewards",
+                inline=False
+            )
+            embed.add_field(
+                name="🏆 Lower Levels (5-80)",
+                value="**Lvl 5** — Faint Emberling (50 coins)\n**Lvl 10** — Initiate of Shadows (100 coins)\n**Lvl 20** — Abysswalk Student (200 coins)\n**Lvl 30** — Twilight Disciple (400 coins)\n**Lvl 50** — Bearer of Abyssal Echo (1,000 coins)\n**Lvl 80** — Shadowborn Ascendant (2,500 coins)",
+                inline=False
+            )
+            embed.add_field(
+                name="👑 Higher Levels (100-200)",
+                value="**Lvl 100** — Abyssforged Warden (5,000 coins)\n**Lvl 120** — Eclipsed Oathbearer (7,500 coins)\n**Lvl 140** — Harbinger of Dusk (10,000 coins)\n**Lvl 160** — Ascended Dreadkeeper (15,000 coins)\n**Lvl 200** — Eternal Shadow Sovereign (50,000 coins)",
+                inline=False
+            )
+            embed.add_field(
+                name="✨ Benefits",
+                value="• Cosmetic roles & titles\n• Access to special channels\n• Increased recognition\n• Higher presence in the clan",
+                inline=False
+            )
+            
+        elif selection == "Booster Perks":
+            embed = discord.Embed(
+                title="༺ ♰ BOOSTER PERKS ♰ ༻",
+                description="**Support the legion and be rewarded.**\nBoost the server to unlock exclusive benefits!",
+                color=0xf47fff
+            )
+            embed.add_field(
+                name="🎭 Exclusive Role",
+                value="Special Booster role with unique color and recognition.",
+                inline=False
+            )
+            embed.add_field(
+                name="⚡ Priority Access",
+                value="• First pick for events & trainings\n• Priority in tryout queues\n• Access to booster-only events",
+                inline=False
+            )
+            embed.add_field(
+                name="💬 Special Channels",
+                value="• Booster lounge access\n• Behind-the-scenes chat\n• Direct line to staff",
+                inline=False
+            )
+            embed.add_field(
+                name="💰 Bonus Rewards",
+                value="• **2x daily coin bonus**\n• **+25% XP multiplier**\n• Exclusive shop items\n• Animated level card",
+                inline=False
+            )
+            embed.add_field(
+                name="📋 Faster Response",
+                value="• Applications reviewed first\n• Support tickets prioritized\n• Questions answered faster",
+                inline=False
+            )
+            
+        elif selection == "Bot Commands":
+            embed = discord.Embed(
+                title="༺ ♰ BOT GUIDE ♰ ༻",
+                description="**The Fallen Bot — Your clan companion.**\nUse `/help` or `!help` for the full command list!",
+                color=0x3498db
+            )
+            embed.add_field(
+                name="📊 Profile & Stats",
+                value="`/profile` — Full profile card\n`/level` — Level card\n`/rank` — Rank card\n`/stats` — Combat stats",
+                inline=True
+            )
+            embed.add_field(
+                name="💰 Economy",
+                value="`/daily` — Daily reward\n`/weekly` — Weekly bonus\n`/fcoins` — Check balance\n`/inventory` — Your items",
+                inline=True
+            )
+            embed.add_field(
+                name="🏆 Leaderboards",
+                value="`/leaderboard` — XP rankings\n`!elo_leaderboard` — ELO rankings\n`!voicetop` — Voice time",
+                inline=True
+            )
+            embed.add_field(
+                name="⚔️ Competitive",
+                value="`/duel @user` — 1v1 duel\n`/elo` — Check ELO\n`!duel_history` — Match history",
+                inline=True
+            )
+            embed.add_field(
+                name="📅 Events",
+                value="`/schedule` — Upcoming events\n`!backup` — Request backup",
+                inline=True
+            )
+            embed.add_field(
+                name="🎮 Other",
+                value="`!achievements` — Your badges\n`/perks` — View perks\n`!compare @user` — Compare stats",
+                inline=True
+            )
+            
+        elif selection == "Rules & Conduct":
+            embed = discord.Embed(
+                title="༺ ♰ RULES & CONDUCT ♰ ༻",
+                description="**Structure keeps us strong.**\nFollow these guidelines to maintain order.",
+                color=0x8B0000
+            )
+            embed.add_field(
+                name="📜 Core Rules",
+                value="• **Respect the hierarchy** — Structure is everything\n• **No toxicity** — We're competitive, not toxic\n• **Follow Discord TOS** — Always\n• **No drama** — Handle issues privately or with staff",
+                inline=False
+            )
+            embed.add_field(
+                name="⚠️ Activity Requirements",
+                value="• **Participation matters** — Inactivity leads to demotion/removal\n• **Mainers** must stay active or face strikes\n• Use inactivity notices if you'll be away",
+                inline=False
+            )
+            embed.add_field(
+                name="⚔️ Competitive Conduct",
+                value="• No cheating or exploiting\n• No targeting allies\n• Respect your opponents\n• Take losses gracefully",
+                inline=False
+            )
+            embed.add_field(
+                name="💬 Chat Behavior",
+                value="• No spam or excessive caps\n• Keep content appropriate\n• Use channels correctly\n• Report issues to staff",
+                inline=False
+            )
+            embed.add_field(
+                name="📌 Remember",
+                value="**Power is proven through consistency, not words.**\n**Strength is taken. Order is enforced.**",
+                inline=False
+            )
+        
+        embed.set_footer(text="✝ THE FALLEN ✝")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 class ServerInfoView(discord.ui.View):
-    """Main server info panel with category buttons"""
+    """Main server info panel with dropdown"""
     def __init__(self):
         super().__init__(timeout=None)
-    
-    @discord.ui.button(label="🎖️ High Ranks", style=discord.ButtonStyle.secondary, custom_id="info_high_ranks", row=0)
-    async def high_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="🎖️ ✦ HIGH RANKS ✦",
-            description="**The leadership of The Fallen.**",
-            color=0x8B0000
-        )
-        embed.add_field(
-            name="👑 Owner",
-            value="Supreme authority over The Fallen. Final say on all matters.",
-            inline=False
-        )
-        embed.add_field(
-            name="⚔️ Co-Owner",
-            value="Second in command. Manages high-level operations and staff.",
-            inline=False
-        )
-        embed.add_field(
-            name="🛡️ Head Staff",
-            value="Oversees all staff members. Handles promotions and demotions.",
-            inline=False
-        )
-        embed.add_field(
-            name="📋 Staff",
-            value="Moderates the server, hosts events, manages members.",
-            inline=False
-        )
-        embed.add_field(
-            name="🎯 Trial Staff",
-            value="Probationary staff. Proving their worth before full promotion.",
-            inline=False
-        )
-        embed.add_field(
-            name="⚠️ How to Become Staff",
-            value="• Be active and trusted\n• Apply when applications open\n• Show leadership qualities\n• No begging or asking",
-            inline=False
-        )
-        embed.set_footer(text="✝ The Fallen ✝ • Staff roles are earned through trust")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @discord.ui.button(label="💀 Low Ranks", style=discord.ButtonStyle.secondary, custom_id="info_low_ranks", row=0)
-    async def low_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="💀 ✦ MEMBER RANKS (STAGES) ✦",
-            description="**Combat ranks within The Fallen.**\nEarned through tryouts and performance.",
-            color=0x8B0000
-        )
-        embed.add_field(
-            name="⭐ Stage 5 — Elite",
-            value="The best of the best. Top performers.",
-            inline=False
-        )
-        embed.add_field(
-            name="⭐ Stage 4 — Veteran",
-            value="Highly skilled and proven in combat.",
-            inline=False
-        )
-        embed.add_field(
-            name="⭐ Stage 3 — Experienced",
-            value="Solid skill level, consistent performer.",
-            inline=False
-        )
-        embed.add_field(
-            name="⭐ Stage 2 — Intermediate",
-            value="Developing skills, shows potential.",
-            inline=False
-        )
-        embed.add_field(
-            name="⭐ Stage 1 — Beginner",
-            value="New to competitive play, learning.",
-            inline=False
-        )
-        embed.add_field(
-            name="⭐ Stage 0 — Unranked",
-            value="Just joined, needs to tryout.",
-            inline=False
-        )
-        embed.add_field(
-            name="🎮 Mainer",
-            value="Full member of The Fallen. Base rank for all members.",
-            inline=False
-        )
-        embed.add_field(
-            name="📈 How to Rank Up",
-            value="• Attend tryouts\n• Perform well in scrims/wars\n• Show consistency\n• Be active",
-            inline=False
-        )
-        embed.set_footer(text="✝ The Fallen ✝ • Ranks are earned, not requested")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @discord.ui.button(label="⚔️ Raid Ranks", style=discord.ButtonStyle.secondary, custom_id="info_raid_ranks", row=0)
-    async def raid_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="⚔️ ✦ RAID/WAR RANKS ✦",
-            description="**Performance-based roles for clan battles.**",
-            color=0x8B0000
-        )
-        embed.add_field(
-            name="🔥 Raid Leader",
-            value="Leads raids and coordinates attacks. Calls strats.",
-            inline=False
-        )
-        embed.add_field(
-            name="⚔️ War Veteran",
-            value="Experienced in clan wars. Reliable in battle.",
-            inline=False
-        )
-        embed.add_field(
-            name="🎯 Raider",
-            value="Active participant in raids and wars.",
-            inline=False
-        )
-        embed.add_field(
-            name="📊 How to Earn",
-            value="• Participate in clan wars\n• Show up consistently\n• Perform well in raids\n• Follow raid leader calls",
-            inline=False
-        )
-        embed.set_footer(text="✝ The Fallen ✝ • War roles are earned through battle")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @discord.ui.button(label="📊 Activity Ranks", style=discord.ButtonStyle.secondary, custom_id="info_activity_ranks", row=0)
-    async def activity_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="📊 ✦ ACTIVITY RANKS ✦",
-            description="**Level roles earned through activity.**\nGain XP by chatting, joining VC, and participating.",
-            color=0x8B0000
-        )
-        embed.add_field(
-            name="How XP Works",
-            value="• **Chat:** 15-25 XP per message (60s cooldown)\n• **Voice:** 10-20 XP per 2 minutes\n• **Events:** Bonus XP for attending\n• **Daily:** Claim daily rewards",
-            inline=False
-        )
-        embed.add_field(
-            name="Level Milestones",
-            value="• Level 5 → Faint Emberling\n• Level 10 → Initiate of Shadows\n• Level 20 → Abysswalk Student\n• Level 50 → Bearer of Abyssal Echo\n• Level 100 → Abyssforged Warden\n• Level 200 → Eternal Shadow Sovereign",
-            inline=False
-        )
-        embed.add_field(
-            name="Benefits",
-            value="• Higher levels = more recognition\n• Coin rewards at milestones\n• Special channel access\n• Flex on the leaderboard",
-            inline=False
-        )
-        embed.set_footer(text="✝ The Fallen ✝ • Check !level to see your progress")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        self.add_item(ServerInfoSelect())
 
 
 class ServerInfoLevelsView(discord.ui.View):
@@ -9077,7 +9103,7 @@ class ServerInfoLevelsView(discord.ui.View):
             value="💰 2,500 coins",
             inline=True
         )
-        embed.set_footer(text="✝ The Fallen ✝ • Keep grinding!")
+        embed.set_footer(text="✝ THE FALLEN ✝ • Keep grinding!")
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @discord.ui.button(label="Higher Levels (100 - 200)", style=discord.ButtonStyle.danger, custom_id="info_levels_high", row=0)
@@ -9117,7 +9143,7 @@ class ServerInfoLevelsView(discord.ui.View):
             value="• Stay consistently active\n• Attend all events\n• Use daily rewards\n• Chat in voice channels",
             inline=False
         )
-        embed.set_footer(text="✝ The Fallen ✝ • Only the dedicated reach 200")
+        embed.set_footer(text="✝ THE FALLEN ✝ • Only the dedicated reach 200")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -12815,8 +12841,6 @@ async def inventory_cmd(ctx):
     effects = []
     if user_data.get("elo_shield_active"):
         effects.append("🛡️ ELO Shield (Active)")
-    if user_data.get("streak_saver_active"):
-        effects.append("🔥 Streak Saver (Active)")
     if user_data.get("training_reserved"):
         effects.append("📋 Training Reserved")
     if user_data.get("custom_level_bg"):
@@ -14479,60 +14503,6 @@ async def backup_slash(interaction: discord.Interaction):
     await interaction.response.send_modal(modal)
 
 
-# ==========================================
-@bot.hybrid_command(name="attendance_streak", description="Check your attendance streak")
-async def attendance_streak(ctx, member: discord.Member = None):
-    """Check attendance streak"""
-    target = member or ctx.author
-    
-    streak = get_attendance_streak(target.id)
-    user_data = get_user_data(target.id)
-    
-    training_count = user_data.get("training_attendance", 0)
-    tryout_count = user_data.get("tryout_attendance", 0)
-    events_hosted = user_data.get("events_hosted", 0)
-    
-    embed = discord.Embed(
-        title=f"🔥 {target.display_name}'s Attendance",
-        color=0xff6b6b
-    )
-    
-    # Current streak
-    current = streak.get("current", 0)
-    best = streak.get("best", 0)
-    
-    streak_bar = "🔥" * min(current, 10) + "⬜" * max(0, 10 - current)
-    
-    embed.add_field(
-        name="📊 Current Streak",
-        value=f"{streak_bar}\n**{current}** events in a row\n(Best: {best})",
-        inline=False
-    )
-    
-    # Next bonus
-    next_bonus = None
-    for milestone in sorted(STREAK_BONUSES.keys()):
-        if current < milestone:
-            next_bonus = (milestone, STREAK_BONUSES[milestone])
-            break
-    
-    if next_bonus:
-        embed.add_field(
-            name="🎁 Next Bonus",
-            value=f"{next_bonus[1]} coins at {next_bonus[0]} streak ({next_bonus[0] - current} more!)",
-            inline=True
-        )
-    
-    # Total attendance
-    embed.add_field(
-        name="📋 Total Attendance",
-        value=f"📚 Trainings: **{training_count}**\n🎯 Tryouts: **{tryout_count}**\n👑 Hosted: **{events_hosted}**",
-        inline=True
-    )
-    
-    embed.set_thumbnail(url=target.display_avatar.url)
-    await ctx.send(embed=embed)
-
 @bot.command(name="quick_training", description="Staff: Quick announce training (no RSVP)")
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def quick_training(ctx, time: str, *, description: str = ""):
@@ -14549,7 +14519,7 @@ async def quick_training(ctx, time: str, *, description: str = ""):
         ),
         color=0x3498db
     )
-    embed.set_footer(text="Be there or break your streak!")
+    embed.set_footer(text="✝ THE FALLEN ✝")
     
     ping_text = ping_role.mention if ping_role else ""
     await ctx.send(content=ping_text, embed=embed)
@@ -14629,7 +14599,6 @@ async def log_training(ctx,
     await ctx.defer()  # May take a while with many members
     
     rewards = ATTENDANCE_REWARDS["training"]
-    streak_bonuses = []
     role_rewards = []
     
     for m in members:
@@ -14640,21 +14609,10 @@ async def log_training(ctx,
         # Reset activity timestamp - prevents inactivity strikes
         reset_member_activity(m.id)
         
-        streak = update_attendance_streak(m.id)
-        bonus = get_streak_bonus(streak)
-        if bonus > 0:
-            add_user_stat(m.id, "coins", bonus)
-            streak_bonuses.append(f"🔥 {m.display_name}: {streak} streak (+{bonus})")
-        
         # Check for attendance role rewards
         new_roles = await check_attendance_roles(m, ctx.guild)
         if new_roles:
             role_rewards.append(f"🎖️ {m.display_name}: **{new_roles[0]}**")
-        
-        # Check for streak role rewards
-        streak_roles = await check_streak_roles(m, ctx.guild, streak)
-        if streak_roles:
-            role_rewards.append(f"🔥 {m.display_name}: **{streak_roles[0]}**")
         
         await check_level_up(m.id, ctx.guild)
         await asyncio.sleep(0.3)
@@ -14680,9 +14638,6 @@ async def log_training(ctx,
     embed.add_field(name="👥 Attendees", value=attendee_list, inline=False)
     embed.add_field(name="💰 Each Received", value=f"{rewards['coins']} coins + {rewards['xp']} XP", inline=True)
     embed.add_field(name="👑 Host Received", value=f"{host_rewards['coins']} coins + {host_rewards['xp']} XP", inline=True)
-    
-    if streak_bonuses:
-        embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_bonuses[:5]), inline=False)
     
     if role_rewards:
         embed.add_field(name="🎉 Role Rewards Earned!", value="\n".join(role_rewards[:5]), inline=False)
@@ -14743,7 +14698,6 @@ async def log_tryout(ctx,
     await ctx.defer()  # May take a while with many members
     
     rewards = ATTENDANCE_REWARDS["tryout"]
-    streak_bonuses = []
     role_rewards = []
     
     for m in members:
@@ -14754,21 +14708,10 @@ async def log_tryout(ctx,
         # Reset activity timestamp - prevents inactivity strikes
         reset_member_activity(m.id)
         
-        streak = update_attendance_streak(m.id)
-        bonus = get_streak_bonus(streak)
-        if bonus > 0:
-            add_user_stat(m.id, "coins", bonus)
-            streak_bonuses.append(f"🔥 {m.display_name}: {streak} streak (+{bonus})")
-        
         # Check for attendance role rewards
         new_roles = await check_attendance_roles(m, ctx.guild)
         if new_roles:
             role_rewards.append(f"🎖️ {m.display_name}: **{new_roles[0]}**")
-        
-        # Check for streak role rewards
-        streak_roles = await check_streak_roles(m, ctx.guild, streak)
-        if streak_roles:
-            role_rewards.append(f"🔥 {m.display_name}: **{streak_roles[0]}**")
         
         await check_level_up(m.id, ctx.guild)
         await asyncio.sleep(0.3)
@@ -14794,9 +14737,6 @@ async def log_tryout(ctx,
     embed.add_field(name="👥 Attendees", value=attendee_list, inline=False)
     embed.add_field(name="💰 Each Received", value=f"{rewards['coins']} coins + {rewards['xp']} XP", inline=True)
     embed.add_field(name="👑 Host Received", value=f"{host_rewards['coins']} coins + {host_rewards['xp']} XP", inline=True)
-    
-    if streak_bonuses:
-        embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_bonuses[:5]), inline=False)
     
     if role_rewards:
         embed.add_field(name="🎉 Role Rewards Earned!", value="\n".join(role_rewards[:5]), inline=False)
@@ -19701,12 +19641,6 @@ class AttendanceLoggingView(discord.ui.View):
         embed.add_field(name="🎯 Tryout Reward", value="150 coins + 75 XP", inline=True)
         embed.add_field(name="👑 Host Reward", value="300 coins + 100 XP", inline=True)
         
-        embed.add_field(
-            name="🔥 Streak Bonuses",
-            value="3: +50 | 5: +100 | 7: +200 | 10: +500",
-            inline=False
-        )
-        
         embed.set_footer(text="Use the buttons above to log attendance!")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -19784,7 +19718,6 @@ async def process_attendance_batch(interaction, members: list, event_type: str, 
     """Process attendance for a batch of members with rate limiting"""
     rewards = ATTENDANCE_REWARDS.get(event_type, ATTENDANCE_REWARDS["training"])
     
-    streak_bonuses = []
     role_rewards = []
     processed = 0
     
@@ -19809,28 +19742,12 @@ async def process_attendance_batch(interaction, members: list, event_type: str, 
             # Reset activity
             reset_member_activity(m.id)
             
-            # Update streak
-            streak = update_attendance_streak(m.id)
-            bonus = get_streak_bonus(streak)
-            if bonus > 0:
-                add_user_stat(m.id, "coins", bonus)
-                if len(streak_bonuses) < 5:
-                    streak_bonuses.append(f"🔥 {m.display_name}: {streak} streak (+{bonus})")
-            
             # Check for attendance role rewards (with rate limiting)
             try:
                 new_roles = await check_attendance_roles(m, interaction.guild)
                 if new_roles and len(role_rewards) < 5:
                     role_rewards.append(f"🎖️ {m.display_name}: **{new_roles[0]}**")
                 await asyncio.sleep(0.3)  # Rate limit protection for role changes
-            except:
-                pass
-            
-            # Check for streak role rewards
-            try:
-                streak_roles = await check_streak_roles(m, interaction.guild, streak)
-                if streak_roles and len(role_rewards) < 5:
-                    role_rewards.append(f"🔥 {m.display_name}: **{streak_roles[0]}**")
             except:
                 pass
             
@@ -19867,9 +19784,6 @@ async def process_attendance_batch(interaction, members: list, event_type: str, 
     embed.add_field(name="💰 Each Received", value=f"{rewards['coins']} coins + {rewards['xp']} XP", inline=True)
     embed.add_field(name="👑 Host Received", value=f"{host_rewards['coins']} coins + {host_rewards['xp']} XP", inline=True)
     
-    if streak_bonuses:
-        embed.add_field(name="🔥 Streak Bonuses", value="\n".join(streak_bonuses), inline=False)
-    
     if role_rewards:
         embed.add_field(name="🎉 Role Rewards Earned!", value="\n".join(role_rewards), inline=False)
     
@@ -19899,8 +19813,7 @@ async def setup_attendance_panel(ctx):
             "**Rewards:**\n"
             "• 📚 Training: 100 coins + 50 XP\n"
             "• 🎯 Tryout: 150 coins + 75 XP\n"
-            "• 👑 Host: 300 coins + 100 XP\n\n"
-            "**Streak Bonuses:** 3→+50 | 5→+100 | 7→+200 | 10→+500"
+            "• 👑 Host: 300 coins + 100 XP"
         ),
         color=0x8B0000
     )
@@ -21160,95 +21073,84 @@ def has_custom_perms(command_name):
 @commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
 async def server_info_panel(ctx):
     """
-    Post the server info panel with all interactive buttons.
+    Post the server info panel with dropdown menu.
     Usage: !serverinfo
     """
     await ctx.message.delete()
     
-    # Main header embed
-    embed1 = discord.Embed(
-        title="༺✦ THE FALLEN — SERVER INFO ✦༻",
+    # Main embed with all info
+    embed = discord.Embed(
+        title="༺ ♰ THE FALLEN — SERVER INFO ♰ ༻",
         description="*Order forged in shadow. Power earned through action.*",
         color=0x8B0000
     )
-    await ctx.send(embed=embed1)
     
-    # Role Information section
-    embed2 = discord.Embed(
-        title="༺✦ ROLE INFORMATION ✦༻",
-        description=(
-            "• Ranks and roles within The Fallen are **earned, not requested.**\n"
-            "• Combat ranks are obtained through tryouts and performance, while staff and activity roles are granted based on trust, consistency, and contribution.\n"
-            "• Staff Roles: Assigned by High Staff only\n"
-            "• Activity / War / Raid Roles: Performance-based"
+    embed.add_field(
+        name="༺ ♰ ROLE INFORMATION ♰ ༻",
+        value=(
+            "• Ranks and roles are **earned, not requested**\n"
+            "• Combat ranks: Tryouts and performance\n"
+            "• Staff roles: Assigned by High Staff only\n"
+            "• Activity / War / Raid roles: Performance-based"
         ),
-        color=0x8B0000
+        inline=False
     )
-    await ctx.send(embed=embed2, view=ServerInfoView())
     
-    # Level Perks section
-    embed3 = discord.Embed(
-        title="༺✦ LEVEL PERKS ✦༻",
-        description=(
-            "**Activity fuels ascension.**\n\n"
-            "As you level up, you unlock:\n"
+    embed.add_field(
+        name="༺ ♰ LEVEL PERKS ♰ ༻",
+        value=(
+            "**Activity fuels ascension.**\n"
             "• Cosmetic roles & titles\n"
             "• Access to special channels\n"
             "• Event priority\n"
-            "• Increased recognition within the clan\n\n"
+            "• Increased recognition\n\n"
             "**Higher levels = greater presence within The Fallen.**"
         ),
-        color=0x8B0000
+        inline=False
     )
-    await ctx.send(embed=embed3, view=ServerInfoLevelsView())
     
-    # Booster Perks section
-    embed4 = discord.Embed(
-        title="༺✦ BOOSTER PERKS ✦༻",
-        description=(
-            "**Support the legion and be rewarded.**\n\n"
+    embed.add_field(
+        name="༺ ♰ BOOSTER PERKS ♰ ༻",
+        value=(
+            "**Support the legion and be rewarded.**\n"
             "• Exclusive Booster role\n"
-            "• Priority access to select events & trainings\n"
+            "• Priority access to events & trainings\n"
             "• Special chat access\n"
-            "• Recognition within the server\n"
-            "• Faster response on applications & support"
+            "• Recognition & faster support"
         ),
-        color=0x8B0000
+        inline=False
     )
-    await ctx.send(embed=embed4, view=ServerInfoBoosterView())
     
-    # Important Notes section
-    embed5 = discord.Embed(
-        title="༺✦ IMPORTANT NOTES ✦༻",
-        description=(
+    embed.add_field(
+        name="༺ ♰ IMPORTANT NOTES ♰ ༻",
+        value=(
             "• Respect the hierarchy — structure keeps us strong\n"
             "• Follow the Code of Conduct at all times\n"
             "• Participation matters — inactivity leads to replacement\n"
             "• Power is proven through consistency, not words"
         ),
-        color=0x8B0000
+        inline=False
     )
-    await ctx.send(embed=embed5)
     
-    # Bot Guide section
-    embed6 = discord.Embed(
-        title="༺✦ BOT GUIDE ✦༻",
-        description="Press the button below for bot info.",
-        color=0x8B0000
+    embed.add_field(
+        name="༺ ♰ LEARN MORE ♰ ༻",
+        value="**Use the dropdown below to explore:**\n⚔️ Stages • 🎯 Trials • 🔥 Raid Ranks • 🛡️ Staff • 📈 Levels • 💎 Boosters • 🤖 Bot • 📜 Rules",
+        inline=False
     )
-    await ctx.send(embed=embed6, view=ServerInfoBotView())
     
-    # Welcome section
-    embed7 = discord.Embed(
-        title="༺✦ WELCOME TO THE FALLEN ✦༻",
-        description=(
+    embed.add_field(
+        name="༺ ♰ WELCOME TO THE FALLEN ♰ ༻",
+        value=(
             "**If you are here to grow, fight, and rise —**\n"
             "**you are in the right place.**\n\n"
             "*Strength is taken. Order is enforced.*"
         ),
-        color=0x8B0000
+        inline=False
     )
-    await ctx.send(embed=embed7)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    
+    await ctx.send(embed=embed, view=ServerInfoView())
 
 
 # ==========================================
