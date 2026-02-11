@@ -10,6 +10,14 @@ import re
 from io import BytesIO
 import aiohttp
 
+# === NEW: Import enhanced database module ===
+try:
+    from database import db as fallen_db
+    ENHANCED_DB_AVAILABLE = True
+except ImportError:
+    ENHANCED_DB_AVAILABLE = False
+    print("⚠️ Enhanced database module not found - new raid/recruitment features disabled")
+
 # Try to import PIL for level cards (optional)
 try:
     from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -10025,6 +10033,17 @@ class PersistentBot(commands.Bot):
         self.add_view(ServerInfoStrikeView())
         self.add_view(ServerInfoStageView())
         
+        # === NEW: Register raid & recruitment persistent views ===
+        try:
+            from cogs.raids import RaidJoinView, RaidStaffControlView
+            from cogs.recruitment import RecruitmentBoardView
+            self.add_view(RaidJoinView(0))
+            self.add_view(RaidStaffControlView(0))
+            self.add_view(RecruitmentBoardView())
+            print("✅ Raid & Recruitment persistent views registered!")
+        except Exception as e:
+            print(f"⚠️ New persistent views not loaded (non-fatal): {e}")
+        
         # Start background task
         self.bg_voice_xp.start()
         print("Bot setup complete!")
@@ -10052,6 +10071,124 @@ class PersistentBot(commands.Bot):
         await asyncio.sleep(30)  # Wait 30 seconds after ready before starting
 
 bot = PersistentBot()
+
+# ==========================================
+# NEW: DATABASE MIGRATION & COG MANAGEMENT
+# ==========================================
+
+@bot.command(name="migrate_db")
+@commands.has_permissions(administrator=True)
+async def migrate_db_command(ctx):
+    """One-time migration of JSON data to PostgreSQL. Admin only."""
+    if not ENHANCED_DB_AVAILABLE or not fallen_db.using_postgres:
+        return await ctx.send("❌ PostgreSQL not connected! Make sure DATABASE_URL is set in Render.")
+    
+    msg = await ctx.send("🔄 Starting data migration... This may take a moment.")
+    
+    try:
+        # Migrate users from leaderboard.json
+        count = 0
+        if os.path.exists("leaderboard.json"):
+            with open("leaderboard.json", "r") as f:
+                lb_data = json.load(f)
+            
+            users = lb_data.get("users", {})
+            for uid_str, udata in users.items():
+                try:
+                    uid = int(uid_str)
+                    await fallen_db.ensure_user(uid)
+                    await fallen_db.update_user(uid,
+                        xp=udata.get("xp", 0),
+                        level=udata.get("level", 0),
+                        coins=udata.get("coins", 0),
+                        wins=udata.get("wins", 0),
+                        losses=udata.get("losses", 0),
+                        raid_wins=udata.get("raid_wins", 0),
+                        raid_losses=udata.get("raid_losses", 0),
+                        raid_participation=udata.get("raid_participation", 0),
+                        daily_streak=udata.get("daily_streak", 0),
+                        weekly_xp=udata.get("weekly_xp", 0),
+                        monthly_xp=udata.get("monthly_xp", 0),
+                        voice_time=udata.get("voice_time", 0),
+                    )
+                    count += 1
+                except Exception:
+                    continue
+            
+            await msg.edit(content=f"🔄 Migrated {count} users... Processing remaining data...")
+            await fallen_db.save_json_blob("main_data", lb_data)
+        
+        # Migrate other JSON files as backup blobs
+        blob_files = {
+            "duels_data": "duels_data.json",
+            "events": "events_data.json",
+            "inactivity": "inactivity_data.json",
+            "recurring": "recurring_events.json",
+        }
+        for key, filepath in blob_files.items():
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, "r") as f:
+                        await fallen_db.save_json_blob(key, json.load(f))
+                except Exception:
+                    pass
+        
+        await msg.edit(content=f"✅ Migration complete! **{count}** users and all JSON data migrated to PostgreSQL.\n\nYour existing JSON files are untouched and still work as fallback.")
+        
+    except Exception as e:
+        await msg.edit(content=f"❌ Migration error: {e}")
+
+@bot.command(name="loadcog")
+@commands.has_permissions(administrator=True)
+async def load_cog_cmd(ctx, cog_name: str):
+    """Load a cog extension. Admin only. Usage: !loadcog raids"""
+    try:
+        await bot.load_extension(f"cogs.{cog_name}")
+        await ctx.send(f"✅ Loaded `cogs.{cog_name}`")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+
+@bot.command(name="unloadcog")
+@commands.has_permissions(administrator=True)
+async def unload_cog_cmd(ctx, cog_name: str):
+    """Unload a cog extension. Admin only. Usage: !unloadcog raids"""
+    try:
+        await bot.unload_extension(f"cogs.{cog_name}")
+        await ctx.send(f"✅ Unloaded `cogs.{cog_name}`")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+
+@bot.command(name="reloadcog")
+@commands.has_permissions(administrator=True)
+async def reload_cog_cmd(ctx, cog_name: str):
+    """Reload a cog extension. Admin only. Usage: !reloadcog raids"""
+    try:
+        await bot.reload_extension(f"cogs.{cog_name}")
+        await ctx.send(f"✅ Reloaded `cogs.{cog_name}`")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+
+@bot.command(name="dbstatus")
+@commands.has_permissions(administrator=True)
+async def db_status_cmd(ctx):
+    """Check database connection status. Admin only."""
+    embed = discord.Embed(title="📊 Database Status", color=0x8B0000)
+    
+    embed.add_field(name="PostgreSQL (Legacy)", 
+                    value="✅ Connected" if db_pool else "❌ Not connected", inline=True)
+    
+    if ENHANCED_DB_AVAILABLE:
+        embed.add_field(name="Enhanced DB", 
+                        value="✅ Connected" if fallen_db.using_postgres else "📁 JSON fallback", inline=True)
+    else:
+        embed.add_field(name="Enhanced DB", value="⚠️ Module not loaded", inline=True)
+    
+    # Count loaded cogs
+    cog_list = [name for name in bot.extensions]
+    embed.add_field(name="Loaded Extensions", value="\n".join(cog_list) if cog_list else "None", inline=False)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝")
+    await ctx.send(embed=embed)
 
 # ==========================================
 # WARNING SYSTEM COMMANDS
@@ -11783,6 +11920,19 @@ async def setup_cogs():
             await bot.add_cog(cog)
         except Exception as e:
             print(f"Cog already registered or error: {e}")
+    
+    # === NEW: Load file-based cogs (raids, recruitment) ===
+    new_cog_extensions = [
+        "cogs.raids",
+        "cogs.recruitment",
+    ]
+    for ext_path in new_cog_extensions:
+        try:
+            if ext_path not in [e for e in bot.extensions]:
+                await bot.load_extension(ext_path)
+                print(f"✅ Loaded {ext_path}")
+        except Exception as e:
+            print(f"⚠️ Could not load {ext_path} (non-fatal): {e}")
 
 @bot.event
 async def on_ready():
@@ -11832,6 +11982,15 @@ async def on_ready():
                 print("✅ Inactivity data synced from PostgreSQL!")
     else:
         print("📁 Using JSON file storage (no PostgreSQL)")
+    
+    # === NEW: Initialize enhanced database module ===
+    if ENHANCED_DB_AVAILABLE:
+        print("📡 Initializing enhanced database (raids, recruitment)...")
+        try:
+            await fallen_db.init()
+            print("✅ Enhanced database module ready!")
+        except Exception as e:
+            print(f"⚠️ Enhanced database init error (non-fatal): {e}")
     
     # Check database health
     print("Checking database health...")
