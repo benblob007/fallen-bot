@@ -24224,46 +24224,68 @@ if __name__ == "__main__":
     
     # Check if we should wait (rate limit cooldown file)
     cooldown_file = "/tmp/bot_cooldown"
-    startup_delay = 5  # Base delay before connecting
     
+    # Check for existing cooldown
     if os.path.exists(cooldown_file):
         try:
             with open(cooldown_file, "r") as f:
                 last_crash = float(f.read().strip())
             time_since_crash = time.time() - last_crash
-            if time_since_crash < 300:  # 5 minute cooldown window
-                wait_time = int(300 - time_since_crash)
+            if time_since_crash < 600:  # 10 minute cooldown window
+                wait_time = int(600 - time_since_crash)
                 print(f"⏳ Rate limit cooldown active. Waiting {wait_time}s...")
-                time.sleep(wait_time)
-        except:
+                print(f"⏳ This is normal after rate limits - please wait...")
+                # Use a loop to show progress
+                while wait_time > 0:
+                    print(f"⏳ {wait_time}s remaining...")
+                    sleep_chunk = min(wait_time, 60)
+                    time.sleep(sleep_chunk)
+                    wait_time -= sleep_chunk
+                print("✅ Cooldown complete, attempting to connect...")
+        except Exception as e:
+            print(f"Cooldown file error: {e}")
             pass
     
-    # Always wait a bit before connecting to avoid rapid reconnects
-    print(f"⏳ Startup delay: {startup_delay}s...")
-    time.sleep(startup_delay)
+    # Always wait before connecting
+    print("⏳ Startup delay: 10s...")
+    time.sleep(10)
     
     try:
+        print("🔌 Connecting to Discord...")
         bot.run(TOKEN)
     except discord.errors.HTTPException as e:
         if e.status == 429:
-            retry_after = getattr(e, 'retry_after', 300)
-            print(f"⚠️ Rate limited by Discord! Retry after: {retry_after}s")
-            print("Writing cooldown file for next restart...")
-            # Write cooldown file so next restart knows to wait
+            retry_after = getattr(e, 'retry_after', 600)
+            print(f"⚠️ Rate limited by Discord!")
+            print(f"⚠️ Discord says wait: {retry_after}s")
+            
+            # Write cooldown file
             with open(cooldown_file, "w") as f:
                 f.write(str(time.time()))
-            # Wait the full retry time before exiting
-            wait_time = min(retry_after + 60, 600)  # Add buffer, max 10 min
-            print(f"⏳ Waiting {wait_time}s before exit...")
-            time.sleep(wait_time)
-            sys.exit(1)  # Exit with error so Render restarts
+            
+            # Calculate wait time (at least 10 minutes)
+            wait_time = max(int(retry_after) + 120, 600)
+            print(f"⏳ Waiting {wait_time}s before allowing restart...")
+            print(f"⏳ This prevents Render from rapid-restarting into more rate limits")
+            
+            # Wait in chunks so logs show progress
+            while wait_time > 0:
+                print(f"⏳ {wait_time}s remaining until restart allowed...")
+                sleep_chunk = min(wait_time, 60)
+                time.sleep(sleep_chunk)
+                wait_time -= sleep_chunk
+            
+            print("✅ Wait complete, exiting for restart...")
+            sys.exit(1)
         else:
             print(f"❌ HTTP error: {e}")
             with open(cooldown_file, "w") as f:
                 f.write(str(time.time()))
+            time.sleep(60)
             sys.exit(1)
     except discord.errors.LoginFailure as e:
         print(f"❌ Login failed - check your token: {e}")
+        time.sleep(60)
         sys.exit(1)
     except KeyboardInterrupt:
         print("Bot stopped by user.")
@@ -24271,11 +24293,9 @@ if __name__ == "__main__":
         print(f"❌ Bot error: {e}")
         import traceback
         traceback.print_exc()
-        # Write cooldown file for unexpected errors too
         with open(cooldown_file, "w") as f:
             f.write(str(time.time()))
-        time.sleep(30)  # Wait before crash to reduce restart spam
+        time.sleep(60)
         sys.exit(1)
     finally:
-        # Clean exit
         print("Bot stopped.")
