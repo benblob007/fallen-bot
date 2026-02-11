@@ -9158,110 +9158,6 @@ class ServerInfoStageView(discord.ui.View):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-# ==========================================
-# SERVER INFO SETUP COMMAND
-# ==========================================
-
-@bot.command(name="setup_serverinfo")
-@commands.has_permissions(administrator=True)
-async def setup_serverinfo(ctx):
-    """
-    Setup the server info panel with all buttons.
-    Usage: !setup_serverinfo
-    """
-    await ctx.message.delete()
-    
-    # Embed 1: Main Header + Role Info
-    embed1 = discord.Embed(
-        title="༺ ♰ THE FALLEN — SERVER INFO ♰ ༻",
-        description="*Order forged in shadow. Power earned through action.*",
-        color=0x8B0000
-    )
-    embed1.add_field(
-        name="༺ ♰ ROLE INFORMATION ♰ ༻",
-        value=(
-            "• Ranks and roles within The Fallen are **earned, not requested.**\n"
-            "• Combat ranks are obtained through tryouts and performance, while staff and activity roles are granted based on trust, consistency, and contribution.\n"
-            "• **Staff Roles:** Assigned by High Staff only\n"
-            "• **Activity / War / Raid Roles:** Performance-based"
-        ),
-        inline=False
-    )
-    await ctx.send(embed=embed1, view=ServerInfoView())
-    
-    # Embed 2: Level Perks
-    embed2 = discord.Embed(
-        title="༺ ♰ LEVEL PERKS ♰ ༻",
-        description=(
-            "**Activity fuels ascension.**\n\n"
-            "As you level up, you unlock:\n"
-            "• Cosmetic roles & titles\n"
-            "• Access to special channels\n"
-            "• Event priority\n"
-            "• Increased recognition within the clan\n\n"
-            "**Higher levels = greater presence within The Fallen.**"
-        ),
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed2, view=ServerInfoLevelsView())
-    
-    # Embed 3: Booster Perks
-    embed3 = discord.Embed(
-        title="༺ ♰ BOOSTER PERKS ♰ ༻",
-        description=(
-            "**Support the legion and be rewarded.**\n\n"
-            "• Exclusive Booster role\n"
-            "• Priority access to select events & trainings\n"
-            "• Special chat access\n"
-            "• Recognition within the server\n"
-            "• Faster response on applications & support"
-        ),
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed3, view=ServerInfoBoosterView())
-    
-    # Embed 4: Important Notes
-    embed4 = discord.Embed(
-        title="༺ ♰ IMPORTANT NOTES ♰ ༻",
-        description=(
-            "• Respect the hierarchy — structure keeps us strong\n"
-            "• Follow the Code of Conduct at all times\n"
-            "• Participation matters — inactivity leads to replacement\n"
-            "• Power is proven through consistency, not words"
-        ),
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed4, view=ServerInfoStrikeView())
-    
-    # Embed 5: Bot Guide
-    embed5 = discord.Embed(
-        title="༺ ♰ BOT GUIDE ♰ ༻",
-        description="Press the button below for bot info.",
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed5, view=ServerInfoBotView())
-    
-    # Embed 6: Stage Info
-    embed6 = discord.Embed(
-        title="༺ ♰ COMBAT RANKS ♰ ༻",
-        description="Press the button below to view the complete stage/rank system.",
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed6, view=ServerInfoStageView())
-    
-    # Embed 7: Welcome
-    embed7 = discord.Embed(
-        title="༺ ♰ WELCOME TO THE FALLEN ♰ ༻",
-        description=(
-            "**If you are here to grow, fight, and rise —**\n"
-            "**you are in the right place.**\n\n"
-            "*Strength is taken. Order is enforced.*"
-        ),
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed7)
-
-
 class ApplicationStartView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -19846,6 +19742,111 @@ async def setup_attendance_panel(ctx):
     
     await ctx.send(embed=embed, view=AttendanceLoggingView())
     await ctx.message.delete()
+
+
+# ==========================================
+# SERVER INFO SETUP COMMAND
+# ==========================================
+
+@bot.command(name="setup_serverinfo")
+@commands.has_permissions(administrator=True)
+async def setup_serverinfo(ctx):
+    """
+    Setup the server info panel with all buttons.
+    Usage: !setup_serverinfo
+    """
+    await ctx.message.delete()
+    
+    # Embed 1: Main Header + Role Info
+    embed1 = discord.Embed(
+        title="༺ ♰ THE FALLEN — SERVER INFO ♰ ༻",
+        description="*Order forged in shadow. Power earned through action.*",
+        color=0x8B0000
+    )
+    embed1.add_field(
+        name="༺ ♰ ROLE INFORMATION ♰ ༻",
+        value=(
+            "• Ranks and roles within The Fallen are **earned, not requested.**\n"
+            "• Combat ranks are obtained through tryouts and performance, while staff and activity roles are granted based on trust, consistency, and contribution.\n"
+            "• **Staff Roles:** Assigned by High Staff only\n"
+            "• **Activity / War / Raid Roles:** Performance-based"
+        ),
+        inline=False
+    )
+    await ctx.send(embed=embed1, view=ServerInfoView())
+    
+    # Embed 2: Level Perks
+    embed2 = discord.Embed(
+        title="༺ ♰ LEVEL PERKS ♰ ༻",
+        description=(
+            "**Activity fuels ascension.**\n\n"
+            "As you level up, you unlock:\n"
+            "• Cosmetic roles & titles\n"
+            "• Access to special channels\n"
+            "• Event priority\n"
+            "• Increased recognition within the clan\n\n"
+            "**Higher levels = greater presence within The Fallen.**"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed2, view=ServerInfoLevelsView())
+    
+    # Embed 3: Booster Perks
+    embed3 = discord.Embed(
+        title="༺ ♰ BOOSTER PERKS ♰ ༻",
+        description=(
+            "**Support the legion and be rewarded.**\n\n"
+            "• Exclusive Booster role\n"
+            "• Priority access to select events & trainings\n"
+            "• Special chat access\n"
+            "• Recognition within the server\n"
+            "• Faster response on applications & support"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed3, view=ServerInfoBoosterView())
+    
+    # Embed 4: Important Notes
+    embed4 = discord.Embed(
+        title="༺ ♰ IMPORTANT NOTES ♰ ༻",
+        description=(
+            "• Respect the hierarchy — structure keeps us strong\n"
+            "• Follow the Code of Conduct at all times\n"
+            "• Participation matters — inactivity leads to replacement\n"
+            "• Power is proven through consistency, not words"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed4, view=ServerInfoStrikeView())
+    
+    # Embed 5: Bot Guide
+    embed5 = discord.Embed(
+        title="༺ ♰ BOT GUIDE ♰ ༻",
+        description="Press the button below for bot info.",
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed5, view=ServerInfoBotView())
+    
+    # Embed 6: Stage Info
+    embed6 = discord.Embed(
+        title="༺ ♰ COMBAT RANKS ♰ ༻",
+        description="Press the button below to view the complete stage/rank system.",
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed6, view=ServerInfoStageView())
+    
+    # Embed 7: Welcome
+    embed7 = discord.Embed(
+        title="༺ ♰ WELCOME TO THE FALLEN ♰ ༻",
+        description=(
+            "**If you are here to grow, fight, and rise —**\n"
+            "**you are in the right place.**\n\n"
+            "*Strength is taken. Order is enforced.*"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed7)
+
 
 # STAFF QUICK ACTIONS PANEL
 # ==========================================
