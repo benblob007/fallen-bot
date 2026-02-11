@@ -8736,411 +8736,223 @@ class ApplicationNoteModal(discord.ui.Modal, title="📝 Add Staff Note"):
 # SERVER INFO PANEL SYSTEM
 # ==========================================
 
-class ServerInfoSelect(discord.ui.Select):
-    """Dropdown for server info categories"""
+class ServerInfoView(discord.ui.View):
+    """Server info buttons - works with Discohook"""
     def __init__(self):
-        options = [
-            discord.SelectOption(label="Stage Information", emoji="⚔️", description="Combat stages and ranking system"),
-            discord.SelectOption(label="Trials Information", emoji="🎯", description="How tryouts and trials work"),
-            discord.SelectOption(label="Raid Ranks", emoji="🔥", description="Raid division and roles"),
-            discord.SelectOption(label="Staff Roles", emoji="🛡️", description="Staff hierarchy and responsibilities"),
-            discord.SelectOption(label="Level Perks", emoji="📈", description="XP system and level rewards"),
-            discord.SelectOption(label="Booster Perks", emoji="💎", description="Server booster benefits"),
-            discord.SelectOption(label="Bot Commands", emoji="🤖", description="Bot features and commands"),
-            discord.SelectOption(label="Rules & Conduct", emoji="📜", description="Server rules and expectations"),
-        ]
-        super().__init__(placeholder="Select a category to learn more...", min_values=1, max_values=1, options=options, custom_id="server_info_select")
+        super().__init__(timeout=None)
     
-    async def callback(self, interaction: discord.Interaction):
-        selection = self.values[0]
-        
-        if selection == "Stage Information":
-            embed = discord.Embed(
-                title="༺ ♰ STAGE INFORMATION ♰ ༻",
-                description="**Combat ranks within The Fallen.**\nRanks are earned through tryouts and performance, not requested.",
-                color=0x8B0000
-            )
-            embed.add_field(
-                name="👑 Stage 0 — FALLEN DEITY",
-                value="The pinnacle of skill. Reserved for the absolute best.",
-                inline=False
-            )
-            embed.add_field(
-                name="⚔️ Stage 1 — FALLEN APEX",
-                value="Elite fighters. Top performers in wars and tournaments.",
-                inline=False
-            )
-            embed.add_field(
-                name="🔥 Stage 2 — FALLEN ASCENDANT",
-                value="Highly skilled. Consistent and reliable in combat.",
-                inline=False
-            )
-            embed.add_field(
-                name="💀 Stage 3 — FORSAKEN WARRIOR",
-                value="Solid skill level. Proven in tryouts and scrims.",
-                inline=False
-            )
-            embed.add_field(
-                name="🌑 Stage 4 — ABYSS-TOUCHED",
-                value="Developing fighter. Shows potential and improvement.",
-                inline=False
-            )
-            embed.add_field(
-                name="⬛ Stage 5 — BROKEN INITIATE",
-                value="New to competitive. Learning the basics.",
-                inline=False
-            )
-            embed.add_field(
-                name="📊 Rank Modifiers",
-                value="**Rank Level:** High / Mid / Low / Stable\n**Strength:** Strong / Moderate / Weak\n\n*Example: Stage 2 High Strong = Elite Ascendant*",
-                inline=False
-            )
-            embed.add_field(
-                name="📈 How to Rank Up",
-                value="• Attend tryouts\n• Perform well in wars/scrims\n• Show consistency\n• Stay active",
-                inline=False
-            )
-            
-        elif selection == "Trials Information":
-            embed = discord.Embed(
-                title="༺ ♰ TRIALS & TRYOUTS ♰ ༻",
-                description="**How to earn your rank in The Fallen.**",
-                color=0x8B0000
-            )
-            embed.add_field(
-                name="🎯 What Are Tryouts?",
-                value="Tryouts are competitive evaluations where staff assess your skill level to assign your Stage rank.",
-                inline=False
-            )
-            embed.add_field(
-                name="📋 Requirements",
-                value="• Must be a verified member\n• Active on Discord\n• Willing to improve\n• No toxicity",
-                inline=False
-            )
-            embed.add_field(
-                name="⚔️ What's Tested",
-                value="• **1v1 Combat** — Your dueling ability\n• **2H+ Skill** — Advanced techniques\n• **DM Skill** — Damage management\n• **Consistency** — Performing under pressure",
-                inline=False
-            )
-            embed.add_field(
-                name="📊 Evaluation Process",
-                value="1. Request a tryout or attend scheduled ones\n2. Fight against tryout hosts\n3. Receive your Stage, Rank, and Strength\n4. Get your roles assigned",
-                inline=False
-            )
-            embed.add_field(
-                name="🔄 Re-Tryouts",
-                value="Want to rank up? You can request a re-tryout after improving. Show us what you've learned!",
-                inline=False
-            )
-            embed.add_field(
-                name="📝 Stage Transfers",
-                value="Already ranked in TSBCC, VALHALLA, or TSBER?\nUse the Stage Transfer panel to import your rank with proof!",
-                inline=False
-            )
-            
-        elif selection == "Raid Ranks":
-            embed = discord.Embed(
-                title="༺ ♰ RAID RANKS ♰ ༻",
-                description="**Raid division hierarchy within The Fallen.**\nRaids are now 60% of our focus!",
-                color=0x8B0000
-            )
-            embed.add_field(
-                name="⚪ Raid Division 13〢The Raid Ping",
-                value="Standard raid ping for all members who want to participate.",
-                inline=False
-            )
-            embed.add_field(
-                name="🔴 Raid Priority",
-                value="Given to members who **consistently show up** and help in raids. You earn this by being active!",
-                inline=False
-            )
-            embed.add_field(
-                name="🔵 Reborn Division 4〢Elite Raid Division",
-                value="Reserved for the **best of the best** (2H Strong+). Called upon when extra firepower is needed.",
-                inline=False
-            )
-            embed.add_field(
-                name="🟣 The Raid Warden〢Raid Leader",
-                value="Can **host and lead raids** after creating a poll. Evaluates performance and recommends promotions.",
-                inline=False
-            )
-            embed.add_field(
-                name="🟡 The Abyssal Raid Marshal〢Raid Commander",
-                value="Highest raid authority. Can **host raids without polling**, override calls, and coordinate ally raids.",
-                inline=False
-            )
-            embed.add_field(
-                name="📈 How to Rank Up",
-                value="• Stay active in raids\n• Respond to backup calls\n• Perform well\n• Be consistent\n• Staff will notice",
-                inline=False
-            )
-            
-        elif selection == "Staff Roles":
-            embed = discord.Embed(
-                title="༺ ♰ STAFF HIERARCHY ♰ ༻",
-                description="**Leadership structure of The Fallen.**\nStaff roles are assigned by High Staff based on trust and contribution.",
-                color=0x8B0000
-            )
-            embed.add_field(
-                name="👑 The Fallen Sovereign〢Owner",
-                value="Supreme authority over The Fallen. Final say on all matters.",
-                inline=False
-            )
-            embed.add_field(
-                name="⚔️ The Fallen Right Hand〢Co-Owner",
-                value="Second in command. Manages high-level operations.",
-                inline=False
-            )
-            embed.add_field(
-                name="🛡️ The Fallen Marshal〢Head of Staff",
-                value="Oversees all staff. Handles promotions, demotions, and staff management.",
-                inline=False
-            )
-            embed.add_field(
-                name="📋 Staff Roles",
-                value="• **Tryout Host** — Evaluates new members\n• **Training Host** — Leads skill sessions\n• **War Manager** — Finds and schedules wars\n• **Moderator** — Maintains server order",
-                inline=False
-            )
-            embed.add_field(
-                name="⚠️ How to Become Staff",
-                value="• Be active and trusted\n• Apply when applications open\n• Show leadership qualities\n• **Never beg or ask**",
-                inline=False
-            )
-            
-        elif selection == "Level Perks":
-            embed = discord.Embed(
-                title="༺ ♰ LEVEL PERKS ♰ ༻",
-                description="**Activity fuels ascension.**\nAs you level up, you unlock rewards and recognition.",
-                color=0x8B0000
-            )
-            embed.add_field(
-                name="📊 How XP Works",
-                value="• **Chat:** 5-15 XP per message\n• **Voice:** 15-30 XP per 2 minutes\n• **Events:** Bonus XP for attending\n• **Daily/Weekly:** Claim rewards",
-                inline=False
-            )
-            embed.add_field(
-                name="🏆 Lower Levels (5-80)",
-                value="**Lvl 5** — Faint Emberling (50 coins)\n**Lvl 10** — Initiate of Shadows (100 coins)\n**Lvl 20** — Abysswalk Student (200 coins)\n**Lvl 30** — Twilight Disciple (400 coins)\n**Lvl 50** — Bearer of Abyssal Echo (1,000 coins)\n**Lvl 80** — Shadowborn Ascendant (2,500 coins)",
-                inline=False
-            )
-            embed.add_field(
-                name="👑 Higher Levels (100-200)",
-                value="**Lvl 100** — Abyssforged Warden (5,000 coins)\n**Lvl 120** — Eclipsed Oathbearer (7,500 coins)\n**Lvl 140** — Harbinger of Dusk (10,000 coins)\n**Lvl 160** — Ascended Dreadkeeper (15,000 coins)\n**Lvl 200** — Eternal Shadow Sovereign (50,000 coins)",
-                inline=False
-            )
-            embed.add_field(
-                name="✨ Benefits",
-                value="• Cosmetic roles & titles\n• Access to special channels\n• Increased recognition\n• Higher presence in the clan",
-                inline=False
-            )
-            
-        elif selection == "Booster Perks":
-            embed = discord.Embed(
-                title="༺ ♰ BOOSTER PERKS ♰ ༻",
-                description="**Support the legion and be rewarded.**\nBoost the server to unlock exclusive benefits!",
-                color=0xf47fff
-            )
-            embed.add_field(
-                name="🎭 Exclusive Role",
-                value="Special Booster role with unique color and recognition.",
-                inline=False
-            )
-            embed.add_field(
-                name="⚡ Priority Access",
-                value="• First pick for events & trainings\n• Priority in tryout queues\n• Access to booster-only events",
-                inline=False
-            )
-            embed.add_field(
-                name="💬 Special Channels",
-                value="• Booster lounge access\n• Behind-the-scenes chat\n• Direct line to staff",
-                inline=False
-            )
-            embed.add_field(
-                name="💰 Bonus Rewards",
-                value="• **2x daily coin bonus**\n• **+25% XP multiplier**\n• Exclusive shop items\n• Animated level card",
-                inline=False
-            )
-            embed.add_field(
-                name="📋 Faster Response",
-                value="• Applications reviewed first\n• Support tickets prioritized\n• Questions answered faster",
-                inline=False
-            )
-            
-        elif selection == "Bot Commands":
-            embed = discord.Embed(
-                title="༺ ♰ BOT GUIDE ♰ ༻",
-                description="**The Fallen Bot — Your clan companion.**\nUse `/help` or `!help` for the full command list!",
-                color=0x3498db
-            )
-            embed.add_field(
-                name="📊 Profile & Stats",
-                value="`/profile` — Full profile card\n`/level` — Level card\n`/rank` — Rank card\n`/stats` — Combat stats",
-                inline=True
-            )
-            embed.add_field(
-                name="💰 Economy",
-                value="`/daily` — Daily reward\n`/weekly` — Weekly bonus\n`/fcoins` — Check balance\n`/inventory` — Your items",
-                inline=True
-            )
-            embed.add_field(
-                name="🏆 Leaderboards",
-                value="`/leaderboard` — XP rankings\n`!elo_leaderboard` — ELO rankings\n`!voicetop` — Voice time",
-                inline=True
-            )
-            embed.add_field(
-                name="⚔️ Competitive",
-                value="`/duel @user` — 1v1 duel\n`/elo` — Check ELO\n`!duel_history` — Match history",
-                inline=True
-            )
-            embed.add_field(
-                name="📅 Events",
-                value="`/schedule` — Upcoming events\n`!backup` — Request backup",
-                inline=True
-            )
-            embed.add_field(
-                name="🎮 Other",
-                value="`!achievements` — Your badges\n`/perks` — View perks\n`!compare @user` — Compare stats",
-                inline=True
-            )
-            
-        elif selection == "Rules & Conduct":
-            embed = discord.Embed(
-                title="༺ ♰ RULES & CONDUCT ♰ ༻",
-                description="**Structure keeps us strong.**\nFollow these guidelines to maintain order.",
-                color=0x8B0000
-            )
-            embed.add_field(
-                name="📜 Core Rules",
-                value="• **Respect the hierarchy** — Structure is everything\n• **No toxicity** — We're competitive, not toxic\n• **Follow Discord TOS** — Always\n• **No drama** — Handle issues privately or with staff",
-                inline=False
-            )
-            embed.add_field(
-                name="⚠️ Activity Requirements",
-                value="• **Participation matters** — Inactivity leads to demotion/removal\n• **Mainers** must stay active or face strikes\n• Use inactivity notices if you'll be away",
-                inline=False
-            )
-            embed.add_field(
-                name="⚔️ Competitive Conduct",
-                value="• No cheating or exploiting\n• No targeting allies\n• Respect your opponents\n• Take losses gracefully",
-                inline=False
-            )
-            embed.add_field(
-                name="💬 Chat Behavior",
-                value="• No spam or excessive caps\n• Keep content appropriate\n• Use channels correctly\n• Report issues to staff",
-                inline=False
-            )
-            embed.add_field(
-                name="📌 Remember",
-                value="**Power is proven through consistency, not words.**\n**Strength is taken. Order is enforced.**",
-                inline=False
-            )
-        
+    @discord.ui.button(label="High Ranks", style=discord.ButtonStyle.secondary, custom_id="info_high_ranks", row=0)
+    async def high_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="༺ ♰ HIGH STAFF RANKS — The Throne of Shadows ♰ ༻",
+            description="*Those who sit atop The Fallen command both fear and loyalty. Their word shapes the clan's path and carves its legacy within the battlegrounds.*",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="👑 The Fallen Sovereign〢Owner",
+            value="The absolute ruler of the abyss. Commands the entire clan, forges its laws, shapes its future, and leads with unquestioned authority. All power flows from this throne.",
+            inline=False
+        )
+        embed.add_field(
+            name="⚔️ The Fallen Right Hand〢Co-Owner",
+            value="The Sovereign's chosen enforcer. Acts as the ruler's executor and advisor, guiding the clan when the Sovereign is absent and ensuring their will is upheld.",
+            inline=False
+        )
+        embed.add_field(
+            name="🏰 The Fallen King",
+            value="A crowned sentinel of leadership. Supports the Sovereign and Right Hand in overseeing the clan's internal balance, leading major sectors and ensuring the Fallen's order never wavers.",
+            inline=False
+        )
+        embed.add_field(
+            name="🛡️ The Fallen Marshal〢Head of Staff",
+            value="Commander of the inner court. Oversees the entire staff legion, maintains discipline, settles disputes, and ensures the clan's systems remain unbroken.",
+            inline=False
+        )
+        embed.set_footer(text="✝ THE FALLEN ✝")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Low Ranks", style=discord.ButtonStyle.secondary, custom_id="info_low_ranks", row=0)
+    async def low_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="༺ ♰ STAFF RANKS — The Abyssal Council ♰ ༻",
+            description="*The guardians of order, entrusted with protecting the realm of The Fallen and upholding its laws.*",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="💻 The Void Architect〢Developer",
+            value="Weaver of systems and code. Crafts the clan's technological backbone—bots, scripts, and infrastructure—the silent engine behind the Fallen.",
+            inline=False
+        )
+        embed.add_field(
+            name="🔱 The Abyss Sentinel〢Administrator",
+            value="High guardian of the server. Commands major moderation actions, supports High Staff, and ensures shadows remain controlled.",
+            inline=False
+        )
+        embed.add_field(
+            name="⚔️ The Nightblade Overseer〢Senior Moderator",
+            value="Elite enforcers of the night. Veteran moderators who mentor lower staff and handle the darkest, most complex disputes.",
+            inline=False
+        )
+        embed.add_field(
+            name="👁️ The Abyss Watcher〢Moderator",
+            value="Patrollers of the deep. Keep the community safe, enforce the Sovereign's laws, and maintain peace amidst chaos.",
+            inline=False
+        )
+        embed.add_field(
+            name="📋 The Abyss Trainee〢Trial Moderator",
+            value="Initiates seeking ascension. Learn the arts of moderation while proving their worth to the Abyssal Council.",
+            inline=False
+        )
+        embed.set_footer(text="✝ THE FALLEN ✝")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Raid Ranks", style=discord.ButtonStyle.secondary, custom_id="info_raid_ranks", row=0)
+    async def raid_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="༺ ♰ RAID & WAR RANKS — The Legion of Crimson Conquest ♰ ༻",
+            description="*Forged for battle, these ranks awaken when war calls. Each role plays a critical part in raids and organized combat.*",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="⚔️ The Abyssal Warmarshal〢War Manager",
+            value="Master of war. Strategizes battles, commands war divisions, and leads the clan's campaigns.",
+            inline=False
+        )
+        embed.add_field(
+            name="🗡️ The Abyssal Warriors〢Warriors",
+            value="The clan's core fighting force. Loyal fighters who respond to every call to arms.",
+            inline=False
+        )
+        embed.add_field(
+            name="🔥 The Abyssal Raid Marshal〢Raid Commander",
+            value="Tactical warlord. Leads active raids, issues commands, and ensures the clan dominates enemy territory.",
+            inline=False
+        )
+        embed.add_field(
+            name="🛡️ The Raid Warden〢Raid Leader",
+            value="Squad general. Directly commands smaller teams in coordinated attacks.",
+            inline=False
+        )
+        embed.add_field(
+            name="💀 Reborn Division 4〢Elite Raid Division",
+            value="The Fallen's chosen elite. The most skilled fighters—unmatched in strength, precision, and loyalty.",
+            inline=False
+        )
+        embed.set_footer(text="✝ THE FALLEN ✝")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Activity Ranks", style=discord.ButtonStyle.secondary, custom_id="info_activity_ranks", row=0)
+    async def activity_ranks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # This button is kept for backwards compatibility but redirects to levels
+        embed = discord.Embed(
+            title="༺ ♰ ACTIVITY RANKS ♰ ༻",
+            description="*Activity fuels ascension.*\n\nUse the **Lower Levels** or **Higher Levels** buttons for detailed level perks!",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="📊 How XP Works",
+            value="• **Chat:** 5-15 XP per message\n• **Voice:** 15-30 XP per 2 minutes\n• **Events:** Bonus XP for attending\n• **Daily/Weekly:** Claim rewards",
+            inline=False
+        )
+        embed.add_field(
+            name="🎖️ Level Milestones",
+            value="5 → 10 → 20 → 30 → 40 → 50 → 60 → 70 → 80 → 100 → 120 → 140 → 160 → 200",
+            inline=False
+        )
         embed.set_footer(text="✝ THE FALLEN ✝")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-class ServerInfoView(discord.ui.View):
-    """Main server info panel with dropdown"""
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(ServerInfoSelect())
-
-
 class ServerInfoLevelsView(discord.ui.View):
-    """Level perks buttons"""
+    """Level perks buttons - works with Discohook"""
     def __init__(self):
         super().__init__(timeout=None)
     
     @discord.ui.button(label="Lower Levels (5 - 80)", style=discord.ButtonStyle.success, custom_id="info_levels_low", row=0)
     async def lower_levels(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
-            title="📈 ✦ LOWER LEVELS (5 - 80) ✦",
-            description="**Early level rewards and roles.**",
+            title="༺ ♰ LOWER LEVELS (5 – 80) ♰ ༻",
+            description="*Progression steps: 5 → 10 → 20 → 30 → 40 → 50 → 60 → 70 → 80*",
             color=0x2ecc71
         )
         embed.add_field(
             name="Level 5 — Faint Emberling",
-            value="💰 50 coins",
-            inline=True
+            value="• Unlocks basic Fallen-themed reaction roles\n• Gain 1 minor cosmetic badge",
+            inline=False
         )
         embed.add_field(
             name="Level 10 — Initiate of Shadows",
-            value="💰 100 coins",
-            inline=True
+            value="• Ability to request 1 simple decorative nickname\n• Unlocks minor Fallen lore snippets",
+            inline=False
         )
         embed.add_field(
             name="Level 20 — Abysswalk Student",
-            value="💰 200 coins",
-            inline=True
+            value="• Access to rotating special emojis/stickers\n• Unlocks \"Shadow Pulse\" mini-event tag",
+            inline=False
         )
         embed.add_field(
             name="Level 30 — Twilight Disciple",
-            value="💰 400 coins",
-            inline=True
+            value="• Unlocks custom profile flair options\n• Access to monthly small cosmetic reward pool",
+            inline=False
         )
         embed.add_field(
             name="Level 40 — Duskforged Aspirant",
-            value="💰 600 coins",
-            inline=True
+            value="• Ability to request a temporary themed title\n• Unlocks Fallen-exclusive chat decoration pack",
+            inline=False
         )
         embed.add_field(
             name="Level 50 — Bearer of Abyssal Echo",
-            value="💰 1,000 coins",
-            inline=True
+            value="• Gain a medium-tier cosmetic badge\n• Access to special role icons",
+            inline=False
         )
         embed.add_field(
             name="Level 60 — Nightwoven Adept",
-            value="💰 1,500 coins",
-            inline=True
+            value="• Eligible for clan-side challenges (non-combat)\n• Unlocks exclusive profile banners",
+            inline=False
         )
         embed.add_field(
             name="Level 70 — Veilmarked Veteran",
-            value="💰 2,000 coins",
-            inline=True
+            value="• Unlocks a rare cosmetic title\n• Can request 1 themed emoji for server",
+            inline=False
         )
         embed.add_field(
             name="Level 80 — Shadowborn Ascendant",
-            value="💰 2,500 coins",
-            inline=True
+            value="• Highest low-tier honor; prestige cosmetic frame\n• Early access to lore previews & worldbuilding",
+            inline=False
         )
-        embed.set_footer(text="✝ THE FALLEN ✝ • Keep grinding!")
+        embed.set_footer(text="✝ THE FALLEN ✝")
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @discord.ui.button(label="Higher Levels (100 - 200)", style=discord.ButtonStyle.danger, custom_id="info_levels_high", row=0)
     async def higher_levels(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
-            title="🔥 ✦ HIGHER LEVELS (100 - 200) ✦",
-            description="**Elite level rewards and roles.**",
+            title="༺ ♰ HIGH LEVELS (100 – 200) ♰ ༻",
+            description="*Milestones for the strongest, most loyal members.*\n*Steps: 100 → 120 → 140 → 160 → 200*",
             color=0xe74c3c
         )
         embed.add_field(
             name="Level 100 — Abyssforged Warden",
-            value="💰 5,000 coins\n⭐ Elite recognition",
-            inline=True
-        )
-        embed.add_field(
-            name="Level 120 — Eclipsed Oathbearer",
-            value="💰 7,500 coins\n⭐ Veteran status",
-            inline=True
-        )
-        embed.add_field(
-            name="Level 140 — Harbinger of Dusk",
-            value="💰 10,000 coins\n⭐ Respected member",
-            inline=True
-        )
-        embed.add_field(
-            name="Level 160 — Ascended Dreadkeeper",
-            value="💰 15,000 coins\n⭐ Top tier",
-            inline=True
-        )
-        embed.add_field(
-            name="Level 200 — Eternal Shadow Sovereign",
-            value="💰 50,000 coins\n👑 Maximum prestige\n🏆 The highest honor",
+            value="• Access to elite training circles\n• Special high-tier cosmetic title",
             inline=False
         )
         embed.add_field(
-            name="💡 Tips for High Levels",
-            value="• Stay consistently active\n• Attend all events\n• Use daily rewards\n• Chat in voice channels",
+            name="Level 120 — Eclipsed Oathbearer",
+            value="• Access to hidden faction chambers\n• +5 bonus event entries",
+            inline=False
+        )
+        embed.add_field(
+            name="Level 140 — Harbinger of Dusk",
+            value="• Eligible for personalized title (theme-approved)\n• Priority entry into elite tournaments",
+            inline=False
+        )
+        embed.add_field(
+            name="Level 160 — Ascended Dreadkeeper",
+            value="• Access to unreleased event concepts\n• Custom temporary voice channel",
+            inline=False
+        )
+        embed.add_field(
+            name="Level 200 — Eternal Shadow Sovereign",
+            value="• **Highest standard honor within The Fallen**\n• Permanent recognition in the Clan Hall of Legends\n• Elite cosmetic badge/title",
             inline=False
         )
         embed.set_footer(text="✝ THE FALLEN ✝ • Only the dedicated reach 200")
@@ -9148,95 +8960,306 @@ class ServerInfoLevelsView(discord.ui.View):
 
 
 class ServerInfoBoosterView(discord.ui.View):
-    """Booster info button"""
+    """Booster info button - works with Discohook"""
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="💎 Booster Info", style=discord.ButtonStyle.secondary, custom_id="info_booster", row=0)
+    @discord.ui.button(label="Booster Info", style=discord.ButtonStyle.secondary, custom_id="info_booster", row=0)
     async def booster_info(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
-            title="💎 ✦ BOOSTER PERKS ✦",
-            description="**Support The Fallen and be rewarded.**\nBoost the server to unlock exclusive benefits.",
+            title="༺ ♰ Server Booster Perk System — Blessings of the Fallen ♰ ༻",
+            description="*Those who empower the realm of The Fallen by boosting the server are granted exclusive abyss-forged benefits. Boosters are recognized as valued pillars of the clan.*",
             color=0xf47fff
         )
         embed.add_field(
-            name="🎭 Exclusive Role",
-            value="Special Booster role with unique color",
+            name="I. Titles & Recognition",
+            value="✦ **Exclusive Booster Role:** \"Fallen Ascendant\"\n✦ **Name Highlighting:** Unique color among the shadows",
             inline=False
         )
         embed.add_field(
-            name="⚡ Priority Access",
-            value="• First pick for events & trainings\n• Priority in tryout queues\n• Access to booster-only events",
+            name="II. Utility Perks",
+            value="✦ **Priority Support:** Tickets handled first\n✦ **Custom Nickname Access:** Request themed nicknames\n✦ **Media Upload Boost:** Higher upload limits",
             inline=False
         )
         embed.add_field(
-            name="💬 Special Channels",
-            value="• Booster lounge access\n• Behind-the-scenes chat\n• Direct line to staff",
+            name="III. Cosmetic & Fun Perks",
+            value="✦ **Custom Emoji Requests:** Request emojis/stickers for the server",
             inline=False
         )
         embed.add_field(
-            name="🏆 Recognition",
-            value="• Special mention in announcements\n• Booster badge on profile\n• Appreciation from the clan",
+            name="IV. Clan-Related Perks",
+            value="✦ **Priority Tryout Access:** Early entry/priority scheduling\n✦ **Training Favor:** Personal training requests prioritized",
             inline=False
         )
         embed.add_field(
-            name="📋 Faster Response",
-            value="• Applications reviewed first\n• Support tickets prioritized\n• Questions answered faster",
+            name="V. Special Privileges",
+            value="✦ **Custom VC Creation:** Request temporary personal voice channel\n✦ **Personalized Titles:** Once per boost cycle (theme-approved)\n✦ **Sneak Peeks & Early Access:** Early previews of events, lore, announcements",
             inline=False
         )
-        embed.add_field(
-            name="💰 Bonus Rewards",
-            value="• 2x daily coin bonus\n• Extra XP multiplier\n• Exclusive shop items",
-            inline=False
-        )
-        embed.set_footer(text="✝ The Fallen ✝ • Thank you for supporting us!")
+        embed.set_footer(text="✝ THE FALLEN ✝ • Thank you for supporting us!")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class ServerInfoBotView(discord.ui.View):
-    """Bot info button"""
+    """Bot info button - works with Discohook"""
     def __init__(self):
         super().__init__(timeout=None)
     
-    @discord.ui.button(label="🤖 Bot Info", style=discord.ButtonStyle.secondary, custom_id="info_bot", row=0)
+    @discord.ui.button(label="Bot Info", style=discord.ButtonStyle.secondary, custom_id="info_bot", row=0)
     async def bot_info(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
-            title="🤖 ✦ BOT COMMANDS ✦",
-            description="**The Fallen Bot — Your clan companion.**",
+            title="༺ ♰ BOT GUIDE ♰ ༻",
+            description="*Use our systems correctly — ignorance is not an excuse.*",
             color=0x3498db
         )
         embed.add_field(
-            name="📊 Profile & Stats",
-            value="`!profile` — View your profile\n`!level` — Check your level\n`!rank` — See leaderboard position\n`!stats` — Detailed statistics",
-            inline=False
+            name="📊 Arcane-Chan",
+            value="Leveling system",
+            inline=True
         )
         embed.add_field(
-            name="💰 Economy",
-            value="`!daily` — Claim daily reward\n`!balance` — Check coins\n`!shop` — Buy items\n`!inventory` — View owned items",
-            inline=False
+            name="🔗 Bloxlink",
+            value="Verify Roblox to Discord",
+            inline=True
         )
         embed.add_field(
-            name="🏆 Leaderboards",
-            value="`!leaderboard` — XP rankings\n`!top10` — Combat top 10\n`!elolb` — ELO rankings\n`!coinlb` — Richest members",
-            inline=False
+            name="🤖 Carl-bot",
+            value="Automatic role assignment",
+            inline=True
         )
         embed.add_field(
-            name="⚔️ Competitive",
-            value="`!duel @user` — 1v1 duel\n`!elo` — Check ELO rating\n`!record` — Win/loss record",
-            inline=False
+            name="📝 Dyno",
+            value="Logging + minor joke warns",
+            inline=True
         )
         embed.add_field(
-            name="🎮 Fun",
-            value="`!achievements` — View badges\n`!coinflip` — Gamble coins\n`!train` — Training mode",
-            inline=False
+            name="🛡️ Wick",
+            value="Primary moderation bot\nWarns, mutes, kicks, bans, anti-raid & anti-nuke",
+            inline=True
         )
         embed.add_field(
-            name="📋 Info",
-            value="`!help` — Full command list\n`!roster` — Clan roster\n`!events` — Upcoming events",
-            inline=False
+            name="👋 Welcomer",
+            value="Greets new members",
+            inline=True
         )
-        embed.set_footer(text="✝ The Fallen ✝ • Use !help for full command list")
+        embed.add_field(
+            name="📩 Invite Tracker",
+            value="Tracks invites",
+            inline=True
+        )
+        embed.add_field(
+            name="🎫 Ticket Tool",
+            value="Support tickets",
+            inline=True
+        )
+        embed.add_field(
+            name="🎮 Nekotina",
+            value="Fun commands (/ship, /interact)",
+            inline=True
+        )
+        embed.add_field(
+            name="🖼️ esmBot",
+            value="GIF creation\nUse `/gif` and upload an image",
+            inline=True
+        )
+        embed.set_footer(text="✝ THE FALLEN ✝")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class ServerInfoStrikeView(discord.ui.View):
+    """Strike system info button - works with Discohook"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Strike System", style=discord.ButtonStyle.danger, custom_id="info_strikes", row=0)
+    async def strike_info(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="༺ ♰ STRIKE SYSTEM ♰ ༻",
+            description="*Strike points depend on the severity of the offense.*",
+            color=0xe74c3c
+        )
+        embed.add_field(
+            name="🚫 EXTREME STUFF - INSTANT BAN",
+            value="• Nazism/extreme hate speech\n• Anything defending pedophilia\n• 🍇 jokes/threats\n• Genuine death threats\n• Extreme racism (hard r)\n• Pure NSFW content\n• Doxx jokes/threats\n• Alt accounts\n• Nuking/Raiding",
+            inline=False
+        )
+        embed.add_field(
+            name="📕 BAD STUFF (3-5 Points)",
+            value="**3-4 Points:**\n• Slight NSFW\n• Religion disrespect\n• Fighting after mute\n• Impersonating staff\n• Slight racism\n\n**5 Points:**\n• Severe versions of above\n• Borderline blacklistable",
+            inline=False
+        )
+        embed.add_field(
+            name="📗 LITTLE STUFF (1-2 Points)",
+            value="• Spamming — 1 point\n• Arguing with members — 2 points\n• Disrespect to members/staff — 2 points",
+            inline=False
+        )
+        embed.add_field(
+            name="📊 PUNISHMENT THRESHOLDS",
+            value="• **3 Points** → 🔇 Muted 1 hour\n• **5 Points** → 🔇 Muted 24 hours\n• **7 Points** → 👢 Kicked from server\n• **10 Points** → 🔨 Permanently Banned",
+            inline=False
+        )
+        embed.add_field(
+            name="❓ Check Your Warnings",
+            value="Use `!warnings` to see your current points and history.",
+            inline=False
+        )
+        embed.set_footer(text="✝ THE FALLEN ✝ • Staff have final say")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class ServerInfoStageView(discord.ui.View):
+    """Stage info button - works with Discohook"""
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Stage Info", style=discord.ButtonStyle.primary, custom_id="info_stages", row=0)
+    async def stage_info(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="༺ ♰ THE FALLEN — COMPLETE RANK SYSTEM ♰ ༻",
+            description="*Combat ranks earned through tryouts and performance.*",
+            color=0x8B0000
+        )
+        embed.add_field(
+            name="👑 RANK 0 — FALLEN DEITY",
+            value="**Legendary / God-Tier**\nThe pinnacle. The strongest fighters in the clan.\n*Titles: Abyssborne King → Eclipsed Monarch → The Fallen One*",
+            inline=False
+        )
+        embed.add_field(
+            name="⚔️ RANK 1 — FALLEN APEX",
+            value="**Elite Skill**\nApex warriors who dominate nearly every fight.\n*Titles: Crimson Sovereign → Nightfall Harbinger → Eclipse Tyrant*",
+            inline=False
+        )
+        embed.add_field(
+            name="🔥 RANK 2 — FALLEN ASCENDANT",
+            value="**High Skill**\nElite rising warriors with refined mechanics and strong reads.\n*Titles: Ascended Fang → Abyssal Talon → Voidreaper*",
+            inline=False
+        )
+        embed.add_field(
+            name="💀 RANK 3 — FORSAKEN WARRIOR",
+            value="**Mid Skill**\nA developed, reliable fighter with growing mastery.\n*Titles: Forsaken Soul → Grim Wielder → Dread-Bound*",
+            inline=False
+        )
+        embed.add_field(
+            name="🌑 RANK 4 — ABYSS-TOUCHED",
+            value="**Low Skill**\nTouched by the abyss, beginning to develop consistency.\n*Titles: Tainted Spark → Void-Kissed → Fading Ember*",
+            inline=False
+        )
+        embed.add_field(
+            name="⬛ RANK 5 — BROKEN INITIATE",
+            value="**Very Low Skill**\nThe newly fallen — raw, unrefined, learning fundamentals.\n*Titles: Lost Fragment → Worn Husk → Awoken Shard*",
+            inline=False
+        )
+        embed.add_field(
+            name="📊 Rank Modifiers",
+            value="**Level:** Low / Mid / High\n**Strength:** Weak / Stable / Strong\n\n*Example: Rank 2 High Strong = Elite Voidreaper*",
+            inline=False
+        )
+        embed.set_footer(text="✝ THE FALLEN ✝ • Ranks are earned, not requested")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ==========================================
+# SERVER INFO SETUP COMMAND
+# ==========================================
+
+@bot.command(name="setup_serverinfo")
+@commands.has_permissions(administrator=True)
+async def setup_serverinfo(ctx):
+    """
+    Setup the server info panel with all buttons.
+    Usage: !setup_serverinfo
+    """
+    await ctx.message.delete()
+    
+    # Embed 1: Main Header + Role Info
+    embed1 = discord.Embed(
+        title="༺ ♰ THE FALLEN — SERVER INFO ♰ ༻",
+        description="*Order forged in shadow. Power earned through action.*",
+        color=0x8B0000
+    )
+    embed1.add_field(
+        name="༺ ♰ ROLE INFORMATION ♰ ༻",
+        value=(
+            "• Ranks and roles within The Fallen are **earned, not requested.**\n"
+            "• Combat ranks are obtained through tryouts and performance, while staff and activity roles are granted based on trust, consistency, and contribution.\n"
+            "• **Staff Roles:** Assigned by High Staff only\n"
+            "• **Activity / War / Raid Roles:** Performance-based"
+        ),
+        inline=False
+    )
+    await ctx.send(embed=embed1, view=ServerInfoView())
+    
+    # Embed 2: Level Perks
+    embed2 = discord.Embed(
+        title="༺ ♰ LEVEL PERKS ♰ ༻",
+        description=(
+            "**Activity fuels ascension.**\n\n"
+            "As you level up, you unlock:\n"
+            "• Cosmetic roles & titles\n"
+            "• Access to special channels\n"
+            "• Event priority\n"
+            "• Increased recognition within the clan\n\n"
+            "**Higher levels = greater presence within The Fallen.**"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed2, view=ServerInfoLevelsView())
+    
+    # Embed 3: Booster Perks
+    embed3 = discord.Embed(
+        title="༺ ♰ BOOSTER PERKS ♰ ༻",
+        description=(
+            "**Support the legion and be rewarded.**\n\n"
+            "• Exclusive Booster role\n"
+            "• Priority access to select events & trainings\n"
+            "• Special chat access\n"
+            "• Recognition within the server\n"
+            "• Faster response on applications & support"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed3, view=ServerInfoBoosterView())
+    
+    # Embed 4: Important Notes
+    embed4 = discord.Embed(
+        title="༺ ♰ IMPORTANT NOTES ♰ ༻",
+        description=(
+            "• Respect the hierarchy — structure keeps us strong\n"
+            "• Follow the Code of Conduct at all times\n"
+            "• Participation matters — inactivity leads to replacement\n"
+            "• Power is proven through consistency, not words"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed4, view=ServerInfoStrikeView())
+    
+    # Embed 5: Bot Guide
+    embed5 = discord.Embed(
+        title="༺ ♰ BOT GUIDE ♰ ༻",
+        description="Press the button below for bot info.",
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed5, view=ServerInfoBotView())
+    
+    # Embed 6: Stage Info
+    embed6 = discord.Embed(
+        title="༺ ♰ COMBAT RANKS ♰ ༻",
+        description="Press the button below to view the complete stage/rank system.",
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed6, view=ServerInfoStageView())
+    
+    # Embed 7: Welcome
+    embed7 = discord.Embed(
+        title="༺ ♰ WELCOME TO THE FALLEN ♰ ༻",
+        description=(
+            "**If you are here to grow, fight, and rise —**\n"
+            "**you are in the right place.**\n\n"
+            "*Strength is taken. Order is enforced.*"
+        ),
+        color=0x8B0000
+    )
+    await ctx.send(embed=embed7)
 
 
 class ApplicationStartView(discord.ui.View):
@@ -10103,6 +10126,8 @@ class PersistentBot(commands.Bot):
         self.add_view(ServerInfoLevelsView())
         self.add_view(ServerInfoBoosterView())
         self.add_view(ServerInfoBotView())
+        self.add_view(ServerInfoStrikeView())
+        self.add_view(ServerInfoStageView())
         
         # Start background task
         self.bg_voice_xp.start()
@@ -21063,94 +21088,6 @@ def has_custom_perms(command_name):
     async def predicate(ctx):
         return await check_custom_perms(ctx, command_name)
     return commands.check(predicate)
-
-
-# ==========================================
-# SERVER INFO COMMAND
-# ==========================================
-
-@bot.command(name="serverinfo")
-@commands.has_any_role(*HIGH_STAFF_ROLES, STAFF_ROLE_NAME)
-async def server_info_panel(ctx):
-    """
-    Post the server info panel with dropdown menu.
-    Usage: !serverinfo
-    """
-    await ctx.message.delete()
-    
-    # Main embed with all info
-    embed = discord.Embed(
-        title="༺ ♰ THE FALLEN — SERVER INFO ♰ ༻",
-        description="*Order forged in shadow. Power earned through action.*",
-        color=0x8B0000
-    )
-    
-    embed.add_field(
-        name="༺ ♰ ROLE INFORMATION ♰ ༻",
-        value=(
-            "• Ranks and roles are **earned, not requested**\n"
-            "• Combat ranks: Tryouts and performance\n"
-            "• Staff roles: Assigned by High Staff only\n"
-            "• Activity / War / Raid roles: Performance-based"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="༺ ♰ LEVEL PERKS ♰ ༻",
-        value=(
-            "**Activity fuels ascension.**\n"
-            "• Cosmetic roles & titles\n"
-            "• Access to special channels\n"
-            "• Event priority\n"
-            "• Increased recognition\n\n"
-            "**Higher levels = greater presence within The Fallen.**"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="༺ ♰ BOOSTER PERKS ♰ ༻",
-        value=(
-            "**Support the legion and be rewarded.**\n"
-            "• Exclusive Booster role\n"
-            "• Priority access to events & trainings\n"
-            "• Special chat access\n"
-            "• Recognition & faster support"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="༺ ♰ IMPORTANT NOTES ♰ ༻",
-        value=(
-            "• Respect the hierarchy — structure keeps us strong\n"
-            "• Follow the Code of Conduct at all times\n"
-            "• Participation matters — inactivity leads to replacement\n"
-            "• Power is proven through consistency, not words"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="༺ ♰ LEARN MORE ♰ ༻",
-        value="**Use the dropdown below to explore:**\n⚔️ Stages • 🎯 Trials • 🔥 Raid Ranks • 🛡️ Staff • 📈 Levels • 💎 Boosters • 🤖 Bot • 📜 Rules",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="༺ ♰ WELCOME TO THE FALLEN ♰ ༻",
-        value=(
-            "**If you are here to grow, fight, and rise —**\n"
-            "**you are in the right place.**\n\n"
-            "*Strength is taken. Order is enforced.*"
-        ),
-        inline=False
-    )
-    
-    embed.set_footer(text="✝ THE FALLEN ✝")
-    
-    await ctx.send(embed=embed, view=ServerInfoView())
 
 
 # ==========================================
