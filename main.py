@@ -11794,8 +11794,8 @@ async def on_ready():
     print("=" * 50)
     
     # Add startup delay to avoid rate limits
-    print("⏳ Waiting 5 seconds before initializing...")
-    await asyncio.sleep(5)
+    print("⏳ Waiting 10 seconds before initializing...")
+    await asyncio.sleep(10)
     
     # Initialize PostgreSQL database
     if POSTGRES_AVAILABLE and DATABASE_URL:
@@ -11806,7 +11806,7 @@ async def on_ready():
             # Sync data from PostgreSQL (restore after redeploy)
             print("Syncing data from PostgreSQL...")
             await sync_data_from_postgres()
-            await asyncio.sleep(1)  # Small delay
+            await asyncio.sleep(2)  # Delay between operations
             
             # Sync other data files
             duels_data = await load_duels_from_postgres()
@@ -11815,7 +11815,7 @@ async def on_ready():
                     json.dump(duels_data, f, indent=2)
                 print("✅ Duels data synced from PostgreSQL!")
             
-            await asyncio.sleep(1)  # Small delay
+            await asyncio.sleep(2)  # Delay between operations
             
             events_data = await load_events_from_postgres()
             if events_data:
@@ -11823,7 +11823,7 @@ async def on_ready():
                     json.dump(events_data, f, indent=2)
                 print("✅ Events data synced from PostgreSQL!")
             
-            await asyncio.sleep(1)  # Small delay
+            await asyncio.sleep(2)  # Delay between operations
             
             inactivity_data = await load_inactivity_from_postgres()
             if inactivity_data:
@@ -19744,110 +19744,6 @@ async def setup_attendance_panel(ctx):
     await ctx.message.delete()
 
 
-# ==========================================
-# SERVER INFO SETUP COMMAND
-# ==========================================
-
-@bot.command(name="setup_serverinfo")
-@commands.has_permissions(administrator=True)
-async def setup_serverinfo(ctx):
-    """
-    Setup the server info panel with all buttons.
-    Usage: !setup_serverinfo
-    """
-    await ctx.message.delete()
-    
-    # Embed 1: Main Header + Role Info
-    embed1 = discord.Embed(
-        title="༺ ♰ THE FALLEN — SERVER INFO ♰ ༻",
-        description="*Order forged in shadow. Power earned through action.*",
-        color=0x8B0000
-    )
-    embed1.add_field(
-        name="༺ ♰ ROLE INFORMATION ♰ ༻",
-        value=(
-            "• Ranks and roles within The Fallen are **earned, not requested.**\n"
-            "• Combat ranks are obtained through tryouts and performance, while staff and activity roles are granted based on trust, consistency, and contribution.\n"
-            "• **Staff Roles:** Assigned by High Staff only\n"
-            "• **Activity / War / Raid Roles:** Performance-based"
-        ),
-        inline=False
-    )
-    await ctx.send(embed=embed1, view=ServerInfoView())
-    
-    # Embed 2: Level Perks
-    embed2 = discord.Embed(
-        title="༺ ♰ LEVEL PERKS ♰ ༻",
-        description=(
-            "**Activity fuels ascension.**\n\n"
-            "As you level up, you unlock:\n"
-            "• Cosmetic roles & titles\n"
-            "• Access to special channels\n"
-            "• Event priority\n"
-            "• Increased recognition within the clan\n\n"
-            "**Higher levels = greater presence within The Fallen.**"
-        ),
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed2, view=ServerInfoLevelsView())
-    
-    # Embed 3: Booster Perks
-    embed3 = discord.Embed(
-        title="༺ ♰ BOOSTER PERKS ♰ ༻",
-        description=(
-            "**Support the legion and be rewarded.**\n\n"
-            "• Exclusive Booster role\n"
-            "• Priority access to select events & trainings\n"
-            "• Special chat access\n"
-            "• Recognition within the server\n"
-            "• Faster response on applications & support"
-        ),
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed3, view=ServerInfoBoosterView())
-    
-    # Embed 4: Important Notes
-    embed4 = discord.Embed(
-        title="༺ ♰ IMPORTANT NOTES ♰ ༻",
-        description=(
-            "• Respect the hierarchy — structure keeps us strong\n"
-            "• Follow the Code of Conduct at all times\n"
-            "• Participation matters — inactivity leads to replacement\n"
-            "• Power is proven through consistency, not words"
-        ),
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed4, view=ServerInfoStrikeView())
-    
-    # Embed 5: Bot Guide
-    embed5 = discord.Embed(
-        title="༺ ♰ BOT GUIDE ♰ ༻",
-        description="Press the button below for bot info.",
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed5, view=ServerInfoBotView())
-    
-    # Embed 6: Stage Info
-    embed6 = discord.Embed(
-        title="༺ ♰ COMBAT RANKS ♰ ༻",
-        description="Press the button below to view the complete stage/rank system.",
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed6, view=ServerInfoStageView())
-    
-    # Embed 7: Welcome
-    embed7 = discord.Embed(
-        title="༺ ♰ WELCOME TO THE FALLEN ♰ ༻",
-        description=(
-            "**If you are here to grow, fight, and rise —**\n"
-            "**you are in the right place.**\n\n"
-            "*Strength is taken. Order is enforced.*"
-        ),
-        color=0x8B0000
-    )
-    await ctx.send(embed=embed7)
-
-
 # STAFF QUICK ACTIONS PANEL
 # ==========================================
 
@@ -24328,31 +24224,43 @@ if __name__ == "__main__":
     
     # Check if we should wait (rate limit cooldown file)
     cooldown_file = "/tmp/bot_cooldown"
+    startup_delay = 5  # Base delay before connecting
+    
     if os.path.exists(cooldown_file):
         try:
             with open(cooldown_file, "r") as f:
                 last_crash = float(f.read().strip())
             time_since_crash = time.time() - last_crash
-            if time_since_crash < 120:  # 2 minute cooldown
-                wait_time = int(120 - time_since_crash)
+            if time_since_crash < 300:  # 5 minute cooldown window
+                wait_time = int(300 - time_since_crash)
                 print(f"⏳ Rate limit cooldown active. Waiting {wait_time}s...")
                 time.sleep(wait_time)
         except:
             pass
     
+    # Always wait a bit before connecting to avoid rapid reconnects
+    print(f"⏳ Startup delay: {startup_delay}s...")
+    time.sleep(startup_delay)
+    
     try:
         bot.run(TOKEN)
     except discord.errors.HTTPException as e:
         if e.status == 429:
-            retry_after = getattr(e, 'retry_after', 60)
-            print(f"⚠️ Rate limited by Discord! Waiting {retry_after}s before Render restarts...")
+            retry_after = getattr(e, 'retry_after', 300)
+            print(f"⚠️ Rate limited by Discord! Retry after: {retry_after}s")
+            print("Writing cooldown file for next restart...")
             # Write cooldown file so next restart knows to wait
             with open(cooldown_file, "w") as f:
                 f.write(str(time.time()))
-            time.sleep(min(retry_after, 120))  # Wait up to 2 minutes
+            # Wait the full retry time before exiting
+            wait_time = min(retry_after + 60, 600)  # Add buffer, max 10 min
+            print(f"⏳ Waiting {wait_time}s before exit...")
+            time.sleep(wait_time)
             sys.exit(1)  # Exit with error so Render restarts
         else:
             print(f"❌ HTTP error: {e}")
+            with open(cooldown_file, "w") as f:
+                f.write(str(time.time()))
             sys.exit(1)
     except discord.errors.LoginFailure as e:
         print(f"❌ Login failed - check your token: {e}")
@@ -24361,9 +24269,12 @@ if __name__ == "__main__":
         print("Bot stopped by user.")
     except Exception as e:
         print(f"❌ Bot error: {e}")
+        import traceback
+        traceback.print_exc()
         # Write cooldown file for unexpected errors too
         with open(cooldown_file, "w") as f:
             f.write(str(time.time()))
+        time.sleep(30)  # Wait before crash to reduce restart spam
         sys.exit(1)
     finally:
         # Clean exit
