@@ -7674,408 +7674,353 @@ class ShopSelectView(discord.ui.View):
         shop_view = ShopView()
         await shop_view.buy_item(interaction, "custom_role")
 
+# ==========================================
+# HELP SYSTEM — Data-Driven Pages with Navigation
+# ==========================================
+
+HELP_PAGES = [
+    {
+        "key": "Member",
+        "emoji": "👤",
+        "color": 0x3498db,
+        "title": "👤  Member Commands",
+        "fields": [
+            ("🔗 Verification", "`/verify` — Link your Roblox account", True),
+            ("📊 Quick Stats", (
+                "`/level` — Level card\n"
+                "`/rank` — Rank card\n"
+                "`/profile` — Full profile\n"
+                "`/fcoins` — Coin balance\n"
+                "`/inventory` — Your items"
+            ), True),
+            ("🎁 Rewards & Events", (
+                "`/daily` — Daily reward\n"
+                "`/weekly` — Weekly role reward\n"
+                "`/perks` — View your perks\n"
+                "`/schedule` — Upcoming events"
+            ), True),
+        ],
+        "tip": "Use /verify first to unlock all features!",
+    },
+    {
+        "key": "Profile & Stats",
+        "emoji": "📊",
+        "color": 0x9b59b6,
+        "title": "📊  Profile & Statistics",
+        "fields": [
+            ("🖼️ Visual Cards", (
+                "`/profile` — Full card w/ avatar\n"
+                "`/rank` — Rank card w/ XP bar\n"
+                "`/level` — Level card *(animated for boosters!)*"
+            ), True),
+            ("📈 Statistics", (
+                "`/stats` — Combat W/L\n"
+                "`!mystats` — Detailed breakdown\n"
+                "`!achievements` — Your badges\n"
+                "`!activity` — Activity graph"
+            ), True),
+            ("🏆 Leaderboards", (
+                "`/leaderboard` — XP rankings\n"
+                "`!voicetop` — Voice time leaders\n"
+                "`!topactive` — Most active this week\n"
+                "`!serverstats` — Server stats\n"
+                "`!compare @user` — Compare stats"
+            ), False),
+        ],
+        "tip": "Server boosters get animated level cards & diamond borders!",
+    },
+    {
+        "key": "Perks & Rewards",
+        "emoji": "🎭",
+        "color": 0xf1c40f,
+        "title": "🎭  Perks & Rewards",
+        "fields": [
+            ("📈 XP Multipliers", (
+                "Lvl 10 `+5%` · Lvl 20 `+10%` · Lvl 30 `+15%`\n"
+                "Lvl 50 `+20%` · Lvl 70 `+25%` · Lvl 100 `+30%`\n"
+                "Lvl 140 `+40%` · Lvl 200 `+50%`"
+            ), False),
+            ("🎁 Daily & Weekly", (
+                "`/daily` — Coins + XP *(role multiplier!)*\n"
+                "`/weekly` — Bonus from your role\n"
+                "`/boosterreward` — Weekly booster bonus"
+            ), True),
+            ("✨ Exclusive Shop", (
+                "`!exclusiveshop` — Role-locked items\n"
+                "`!buyexclusive <item>` — Purchase\n"
+                "*Higher levels = more items!*"
+            ), True),
+            ("💎 Booster Perks", "+25% XP · 2x Daily · Animated card · Weekly bonus · Diamond border", False),
+        ],
+        "tip": "Check /perks to see exactly what bonuses you currently have!",
+    },
+    {
+        "key": "Events",
+        "emoji": "📅",
+        "color": 0x2ecc71,
+        "title": "📅  Events — Trainings & Tryouts",
+        "fields": [
+            ("👤 For Members", "`/schedule` — View upcoming events\nClick **RSVP** buttons on event posts!", True),
+            ("💰 Attendance Rewards", "Training: `100c` + `50 XP`\nTryout: `150c` + `75 XP`\nHosting: `300c` + `100 XP`", True),
+            ("🎖️ Attendance Milestones", (
+                "`5` Fallen Initiate · `15` Fallen Disciple\n"
+                "`30` Fallen Warrior · `50` Fallen Slayer\n"
+                "`100` Fallen Immortal"
+            ), False),
+            ("🛡️ Staff", "`!log_training @members` · `!log_tryout @members`\n`!quick_training <time>` · `!quick_tryout <time>`", False),
+        ],
+        "tip": "Attend events regularly to unlock milestone roles!",
+    },
+    {
+        "key": "Polls",
+        "emoji": "📊",
+        "color": 0x1abc9c,
+        "title": "📊  Availability Polls",
+        "fields": [
+            ("📋 How It Works", "1️⃣ Click a **day button** (Mon-Sun)\n2️⃣ Enter your **available times**\n3️⃣ Click **✅ Submit** when done!", True),
+            ("🔘 Poll Buttons", "📆 Day buttons — Select times\n✅ Submit — Finalize response\n👁️ My Times — View selections\n📊 Results / 🔒 Close — *Staff only*", True),
+            ("🛡️ Staff Commands", "`!poll training` · `!poll tryout` — Create\n`!poll list` — Active polls\n`!poll results <id>` — View results", False),
+        ],
+        "tip": "Staff use polls to find the best times for events!",
+    },
+    {
+        "key": "Duels & ELO",
+        "emoji": "⚔️",
+        "color": 0xe74c3c,
+        "title": "⚔️  Duels & ELO System",
+        "fields": [
+            ("⚔️ Commands", (
+                "`/duel @user` — Challenge to 1v1\n"
+                "`/elo` — Your ELO rating\n"
+                "`/elo @user` — Check someone's ELO\n"
+                "`!elo_leaderboard` — Top ranked\n"
+                "`!duel_history` — Match history"
+            ), True),
+            ("🏅 ELO Ranks", (
+                "🏆 Grandmaster `2000+`\n"
+                "💎 Diamond `1800+`\n"
+                "🥇 Platinum `1600+`\n"
+                "🥈 Gold `1400+`\n"
+                "🥉 Silver `1200+`\n"
+                "⚔️ Bronze `1000+`"
+            ), True),
+        ],
+        "tip": "Buy an ELO Shield from the shop to protect against one loss!",
+    },
+    {
+        "key": "Spar Finder",
+        "emoji": "🎯",
+        "color": 0xe67e22,
+        "title": "🎯  Spar Finder",
+        "fields": [
+            ("⚔️ Matchmaking", "Your **Stage + Rank + Strength** = Tier\n⭐ Perfect `±1` · ✅ Good `±2-3` · ⚠️ Fair `±4-6`", False),
+            ("📋 Panel Buttons", "🎯 **Find Spar** — Join queue\n📋 **View Queue** — Who's waiting\n🔍 **Find Match** — Auto-find\n⚔️ **Challenge** — Pick directly", True),
+            ("🎮 In Match", "• Post private server link\n• Play your set (FT5, FT10)\n• Post proof & submit result\n`/practice_stats` — Your stats", True),
+        ],
+        "tip": "54 tiers total — lower tier number = stronger!",
+    },
+    {
+        "key": "Tournaments",
+        "emoji": "🏆",
+        "color": 0xf39c12,
+        "title": "🏆  Tournament System",
+        "fields": [
+            ("👤 How to Play", "• Click **Register** on portal\n• Match threads auto-created\n• Bracket image updates live!", True),
+            ("💰 Prizes", "🥇 1st: `5,000c` + `500 XP`\n🥈 2nd: `2,500c` + `250 XP`\n🥉 3rd: `1,000c` + `100 XP`", True),
+            ("🛠️ Staff Commands", "`!tournament` — Create · `!bracket` — View\n`!tparticipants` — Players · `!tstatus` — Status\n`!tsetwinner @user` · `!tendtournament`", False),
+        ],
+        "tip": "Watch for announcements — tournaments fill up fast!",
+    },
+    {
+        "key": "Economy & Shop",
+        "emoji": "💰",
+        "color": 0x2ecc71,
+        "title": "💰  Economy & Shop",
+        "fields": [
+            ("💵 Earning Coins", "💬 Chat & reactions\n🎙️ Voice channel time\n📅 Attend events\n🎁 `/daily` & `/weekly`\n⚔️ Win duels & raids", True),
+            ("📜 Commands", "`/fcoins` — Balance\n`/inventory` — Your items\n`/setbackground <url>` — Custom BG", True),
+            ("🛒 Shop Items", "Private Tryout `500` · ELO Shield `1,000`\nRole Color `1,500` · Custom Role `2,000`\nLevel BG `3,000` · Hoisted Role `5,000`", False),
+        ],
+        "tip": "Use !exclusiveshop for role-locked premium items!",
+    },
+    {
+        "key": "Raids & Wars",
+        "emoji": "🔥",
+        "color": 0xc0392b,
+        "title": "🔥  Raids & Wars",
+        "fields": [
+            ("⚔️ Raid Commands", "`!raid start <type> [target]`\n`!raid join` / `!raid leave`\n`!raid end <our> <their> [@mvp]`\n`!raid stats [@user]`\n`!raid leaderboard` · `!raid history`", True),
+            ("💀 Types & XP", "Standard `150` · Mega `300`\nWar `500` · Defense `200`\nScrimmage `100`\nWin: `1.5x` · MVP: `+25%`", True),
+            ("🏴 War System", "`!war declare <clan> [best_of]`\n`!war status` · `!war score <id> <o> <t>`\n`!war record` · `!war history`", True),
+            ("🎖️ Raid Ranks", "Shadow Scout `5` → Abyssal Striker `15` → Voidborne Vanguard `30` →\nFallen Warmaster `50` → Dread Commander `75` → Eternal War Sovereign `100`", False),
+        ],
+        "tip": "Raid more to rank up — check !raid stats for your progress!",
+    },
+    {
+        "key": "Recruitment",
+        "emoji": "📝",
+        "color": 0x3498db,
+        "title": "📝  Recruitment Pipeline",
+        "fields": [
+            ("👤 Apply", "`!recruit board` — Open positions\n`!recruit apply <id>` — Submit app\n`!recruit myapps` — Check status", True),
+            ("📋 Positions", "⚔️ War Manager · 🎯 Tryout Host\n📋 Training Host · 🔥 Raid Leader\n📢 Recruiter · 🎬 Content Creator", True),
+            ("📊 Pipeline", "Applied → Under Review → Interview → Trial → ✅ Accepted / ❌ Denied", False),
+            ("🛡️ Staff", "`!recruit post <pos>` · `!recruit close <id>`\n`!recruit pipeline` · `!recruit review <id>`\n`!recruit advance <id> <stage>` · `!recruit accept/deny <id>`", False),
+        ],
+        "tip": "You get DM notifications when your app status changes!",
+    },
+    {
+        "key": "Backup",
+        "emoji": "🆘",
+        "color": 0xe74c3c,
+        "title": "🆘  Backup System",
+        "fields": [
+            ("🆘 Request", "`/backup` or `!backup`\nOpens a form to request backup!", True),
+            ("📋 Requirements", "• List at least **3 enemies**\n• Include a valid **invite link**\n• `roblox.com/share?code=...`\n• `ro.pro/XXXXXX`", True),
+            ("⚠️ Rules", "• Don't spam requests\n• Only use for real situations\n• Include accurate enemy count", False),
+        ],
+        "tip": "Your request pings @Backup Ping so members can join!",
+    },
+    {
+        "key": "Stage Transfer",
+        "emoji": "📋",
+        "color": 0x9b59b6,
+        "title": "📋  Stage Transfer & Results",
+        "fields": [
+            ("📋 How To", "Click **Stage Transfer** button\nUpload proof from TSBCC, VALHALLA, TSBER\nStaff will approve/deny", True),
+            ("📊 Stage Ranks", "Stage 0 — FALLEN DEITY\nStage 1 — FALLEN APEX\nStage 2 — FALLEN ASCENDANT\nStage 3 — FORSAKEN WARRIOR\nStage 4 — ABYSS-TOUCHED\nStage 5 — BROKEN INITIATE", True),
+            ("📈 Rankings", "**Rank:** High / Mid / Low / Stable\n**Strength:** Strong / Moderate / Weak\n\n**Staff:** `/result @user <stage> [rank] [str]`", False),
+        ],
+        "tip": "Proof must be recent (within 24 hours) & show your username!",
+    },
+    {
+        "key": "Staff",
+        "emoji": "🛡️",
+        "color": 0x95a5a6,
+        "title": "🛡️  Staff Commands",
+        "fields": [
+            ("⚠️ Warnings", "`!warn @user <cat> [reason]`\n`!strike @user <pts> <reason>`\n`!warnings @user` · `!clearwarns`\n`!removewarn @user <id>` · `!warnlog`", True),
+            ("🔇 Moderation", "`!mute @user <time> [reason]`\n`!unmute @user`\n`!purge <1-100>` · `!slowmode <s>`\n`!lock` / `!unlock`", True),
+            ("🛡️ Guardian", "`!botlogs [cmd|errors|audit]`\n`!auditlog` · `!abusereport`\n`!guardianstatus`", True),
+            ("👤 User Management", "`!checklevel @user` · `!userinfo @user`\n`!addxp` / `!removexp @user <amt>`\n`!addfcoins` / `!removefcoins`\n`!log_training @m` · `!log_tryout @m`", False),
+        ],
+        "tip": "Use !guardianstatus to monitor command abuse!",
+    },
+    {
+        "key": "Admin",
+        "emoji": "⚙️",
+        "color": 0x2c3e50,
+        "title": "⚙️  Admin Commands",
+        "fields": [
+            ("📋 Setup Panels", "`!setup_verify` · `!setup_shop`\n`!setup_transfer` · `!setup_practice`\n`!setup_attendance` · `!setup_tournament`\n`!setup_tickets` · `!setup_applications`\n`!setup_staffpanel` · `!setup_modlog`", True),
+            ("🤖 Bot Management", "`!dbstatus` — Database status\n`!migrate_db` — JSON → PostgreSQL\n`!loadcog` / `!unloadcog` / `!reloadcog`\n`!clearabuse [@user]`\n`!sync` — Sync slash commands", True),
+            ("🔒 Server Control", "`!massrole add/remove @Role`\n`!lockdown` / `!unlockdown`\n`!setup_permissions confirm`\n`!fix_muted` · `!announce`", False),
+        ],
+        "tip": "Use !reloadcog <name> to hot-reload without restarting!",
+    },
+]
+
+# Quick lookup and ordered keys
+HELP_CATEGORY_ORDER = [p["key"] for p in HELP_PAGES]
+HELP_PAGE_MAP = {p["key"]: p for p in HELP_PAGES}
+
+
+def build_help_home(guild):
+    """Build the main help menu embed with two-column category list."""
+    embed = discord.Embed(
+        title="✝ THE FALLEN ✝ — Command Guide",
+        description=(
+            "Browse all commands by category.\n"
+            "Use the **dropdown** or **◀ ▶ buttons** to navigate."
+        ),
+        color=0x8B0000,
+    )
+    
+    mid = (len(HELP_PAGES) + 1) // 2
+    col1 = "\n".join(f"{p['emoji']} **{p['key']}**" for p in HELP_PAGES[:mid])
+    col2 = "\n".join(f"{p['emoji']} **{p['key']}**" for p in HELP_PAGES[mid:])
+    
+    embed.add_field(name="▸ User & Activities", value=col1, inline=True)
+    embed.add_field(name="▸ Clan & Staff", value=col2, inline=True)
+    
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    
+    embed.set_footer(text="✝ THE FALLEN ✝ • 15 categories • / = slash  ! = prefix")
+    return embed
+
+
+def build_help_page(category):
+    """Build a category help page embed with color and tip."""
+    page = HELP_PAGE_MAP[category]
+    idx = HELP_CATEGORY_ORDER.index(category) + 1
+    total = len(HELP_CATEGORY_ORDER)
+    
+    embed = discord.Embed(title=page["title"], color=page["color"])
+    
+    for name, value, inline in page["fields"]:
+        embed.add_field(name=name, value=value, inline=inline)
+    
+    tip = page.get("tip", "")
+    footer = f"✝ THE FALLEN ✝ • Page {idx}/{total}"
+    if tip:
+        footer += f"  •  💡 {tip}"
+    embed.set_footer(text=footer)
+    return embed
+
+
 class HelpSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Member", emoji="👤", description="Basic member commands"),
-            discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
-            discord.SelectOption(label="Perks & Rewards", emoji="🎭", description="Role perks, daily, weekly"),
-            discord.SelectOption(label="Events", emoji="📅", description="Trainings & tryouts"),
-            discord.SelectOption(label="Polls", emoji="📊", description="Availability polls"),
-            discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
-            discord.SelectOption(label="Spar Finder", emoji="🎯", description="Tier-based spar matchmaking"),
-            discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
-            discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
-            discord.SelectOption(label="Raids & Wars", emoji="🔥", description="Raid tracking & clan wars"),
-            discord.SelectOption(label="Recruitment", emoji="📝", description="Apply for staff positions"),
-            discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
-            discord.SelectOption(label="Stage Transfer", emoji="📋", description="Rank transfers & results"),
-            discord.SelectOption(label="Staff", emoji="🛡️", description="Staff commands"),
-            discord.SelectOption(label="Admin", emoji="⚙️", description="Setup & management"),
+            discord.SelectOption(label=p["key"], emoji=p["emoji"])
+            for p in HELP_PAGES
         ]
-        super().__init__(placeholder="Select a category...", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder="Jump to category...", options=options)
     
     async def callback(self, interaction: discord.Interaction):
-        e = discord.Embed(color=0x8B0000)
-        
-        if self.values[0] == "Member": 
-            e.title="👤 Member Commands"
-            e.description=(
-                "**🔗 Verification**\n"
-                "`/verify` - Link your Roblox account\n\n"
-                "**📊 Quick Stats**\n"
-                "`/level` - View your level card\n"
-                "`/rank` - View your rank card\n"
-                "`/profile` - Full profile with all stats\n"
-                "`/fcoins` - Check coin balance\n"
-                "`/inventory` - View purchased items\n\n"
-                "**🎁 Rewards**\n"
-                "`/daily` - Claim daily reward\n"
-                "`/weekly` - Claim weekly role reward\n"
-                "`/perks` - View your current perks\n\n"
-                "**📅 Events**\n"
-                "`/schedule` - View upcoming events\n"
-                "Click RSVP buttons on event posts!"
-            )
-            
-        elif self.values[0] == "Profile & Stats":
-            e.title="📊 Profile & Statistics"
-            e.description=(
-                "**🖼️ Visual Cards**\n"
-                "`/profile` - Full profile card with avatar\n"
-                "`/rank` - Rank card with XP bar\n"
-                "`/level` - Level card (animated for boosters!)\n\n"
-                "**📈 Statistics**\n"
-                "`/stats` - Combat stats (W/L)\n"
-                "`!mystats` - Detailed stats breakdown\n"
-                "`!achievements` - View your badges\n"
-                "`!activity` - Activity graph\n\n"
-                "**🏆 Leaderboards**\n"
-                "`/leaderboard` - XP leaderboard\n"
-                "`!voicetop` - Voice time leaders\n"
-                "`!topactive` - Most active this week\n"
-                "`!serverstats` - Server statistics\n"
-                "`!compare @user` - Compare with someone"
-            )
-        
-        elif self.values[0] == "Perks & Rewards":
-            e.title="🎭 Perks & Rewards System"
-            e.description=(
-                "**🎭 Role Perks**\n"
-                "`/perks` - View all your current perks\n"
-                "Each milestone role gives XP bonuses!\n\n"
-                "**📈 XP Multipliers (by Level)**\n"
-                "Lvl 10: +5% • Lvl 20: +10% • Lvl 30: +15%\n"
-                "Lvl 50: +20% • Lvl 70: +25% • Lvl 100: +30%\n"
-                "Lvl 140: +40% • Lvl 200: +50%\n\n"
-                "**🎁 Daily & Weekly**\n"
-                "`/daily` - Daily coins + XP (role multiplier!)\n"
-                "`/weekly` - Weekly bonus from your role\n"
-                "`/boosterreward` - Weekly booster bonus\n\n"
-                "**🛒 Exclusive Shop**\n"
-                "`!exclusiveshop` - Browse exclusive items\n"
-                "`!buyexclusive <item>` - Purchase items\n"
-                "Higher levels unlock more tiers!\n\n"
-                "**💎 Booster Perks**\n"
-                "+25% XP • 2x Daily • Animated card\n"
-                "Weekly bonus • Diamond border"
-            )
-        
-        elif self.values[0] == "Duels & ELO":
-            e.title="⚔️ Duels & ELO System"
-            e.description=(
-                "**⚔️ Duel Commands**\n"
-                "`/duel @user` - Challenge to 1v1\n"
-                "`/elo` - Check your ELO rating\n"
-                "`/elo @user` - Check someone's ELO\n"
-                "`!elo_leaderboard` - Top ranked players\n"
-                "`!duel_history` - Your match history\n\n"
-                "**🛡️ ELO Shield (Shop Item)**\n"
-                "Protects you from ELO loss once!\n\n"
-                "**🏅 ELO Ranks**\n"
-                "🏆 Grandmaster (2000+)\n"
-                "💎 Diamond (1800+)\n"
-                "🥇 Platinum (1600+)\n"
-                "🥈 Gold (1400+)\n"
-                "🥉 Silver (1200+)\n"
-                "⚔️ Bronze (1000+)\n\n"
-                "*Win duels to climb!*"
-            )
-        
-        elif self.values[0] == "Spar Finder":
-            e.title="🎯 Spar Finder"
-            e.description=(
-                "**⚔️ Tier-Based Matchmaking**\n"
-                "Your Stage + Rank + Strength = Your Tier\n"
-                "54 tiers total (lower = stronger)\n\n"
-                "**Match Types:**\n"
-                "⭐ Perfect (±1 tier)\n"
-                "✅ Good (±2-3 tiers)\n"
-                "⚠️ Fair (±4-6 tiers)\n\n"
-                "**📋 Panel Buttons**\n"
-                "• **🎯 Find Spar** - Join queue\n"
-                "• **📋 View Queue** - See who's waiting\n"
-                "• **🔍 Find Match** - Auto-find opponents\n"
-                "• **⚔️ Challenge** - Pick directly\n\n"
-                "**🎮 In Match Channel**\n"
-                "• Post private server link\n"
-                "• Play your set (FT5, FT10, etc.)\n"
-                "• Post proof & submit result\n"
-                "• Rate your partner!\n\n"
-                "**📊 Commands**\n"
-                "`/practice_stats` - View your stats"
-            )
-        
-        elif self.values[0] == "Tournaments":
-            e.title="🏆 Tournament System V3"
-            e.description=(
-                "**👤 How to Participate**\n"
-                "• Click **Register** on tournament portal\n"
-                "• Click **Leave** to withdraw\n"
-                "• Click **Spectate** to watch\n\n"
-                "**⚔️ During Matches**\n"
-                "• Match threads created automatically\n"
-                "• Staff click **Report Score** button\n"
-                "• Bracket image updates live!\n\n"
-                "**🛠️ Staff Commands**\n"
-                "`!tournament` — Create new tournament\n"
-                "`!bracket` — View current bracket\n"
-                "`!tparticipants` — View registered players\n"
-                "`!tstatus` — Tournament status\n"
-                "`!tsetwinner @user` — Set winner manually\n"
-                "`!tendtournament` — End tournament\n"
-                "`!tdeletetournament` — Delete tournament\n\n"
-                "**💰 Reward Amounts**\n"
-                "🥇 1st: 5,000 coins + 500 XP\n"
-                "🥈 2nd: 2,500 coins + 250 XP\n"
-                "🥉 3rd: 1,000 coins + 100 XP"
-            )
-            
-        elif self.values[0] == "Events":
-            e.title="📅 Events (Trainings & Tryouts)"
-            e.description=(
-                "**👤 Member Commands**\n"
-                "`/schedule` - View upcoming events\n\n"
-                "**💰 Attendance Rewards**\n"
-                "• Training: 100 coins + 50 XP\n"
-                "• Tryout: 150 coins + 75 XP\n"
-                "• Host: 300 coins + 100 XP\n\n"
-                "**🎖️ Attendance Roles**\n"
-                "5 → Fallen Initiate\n"
-                "15 → Fallen Disciple\n"
-                "30 → Fallen Warrior\n"
-                "50 → Fallen Slayer\n"
-                "100 → Fallen Immortal\n\n"
-                "**🛡️ Staff Commands**\n"
-                "`!log_training @members` - Log attendance\n"
-                "`!log_tryout @members` - Log attendance\n"
-                "`!quick_training <time>` - Quick announce\n"
-                "`!quick_tryout <time>` - Quick announce"
-            )
-        
-        elif self.values[0] == "Polls":
-            e.title="📊 Availability Polls"
-            e.description=(
-                "**📋 What Are Polls?**\n"
-                "Staff create polls to find the best\n"
-                "times for trainings and tryouts!\n\n"
-                "**👤 How to Respond**\n"
-                "1️⃣ Click a **day button** (Mon-Sun)\n"
-                "2️⃣ Enter your **available times**\n"
-                "3️⃣ Repeat for other days\n"
-                "4️⃣ Click **✅ Submit** when done!\n\n"
-                "**🔘 Poll Buttons**\n"
-                "• Day buttons - Select times\n"
-                "• ✅ Submit - Finalize response\n"
-                "• 👁️ My Times - View selections\n"
-                "• 📊 Results - Staff only\n"
-                "• 🔒 Close - Staff only\n\n"
-                "**🛡️ Staff Commands**\n"
-                "`!poll training` - Create training poll\n"
-                "`!poll tryout` - Create tryout poll\n"
-                "`!poll list` - View active polls\n"
-                "`!poll results <id>` - View results"
-            )
-            
-        elif self.values[0] == "Economy & Shop": 
-            e.title="💰 Economy & Shop"
-            e.description=(
-                "**💵 Earning Coins**\n"
-                "• Chat messages & reactions\n"
-                "• Voice channel time\n"
-                "• Attend trainings/tryouts\n"
-                "• `/daily` & `/weekly` rewards\n"
-                "• Win duels & raids\n\n"
-                "**📜 Commands**\n"
-                "`/fcoins` - Check balance\n"
-                "`/inventory` - View items\n"
-                "`/setbackground <url>` - Custom bg\n\n"
-                "**🛒 Regular Shop Items**\n"
-                "• Private Tryout (500)\n"
-                "• Custom Role (2000)\n"
-                "• Custom Role Color (1500)\n"
-                "• Hoisted Role (5000)\n"
-                "• Custom Level BG (3000)\n"
-                "• ELO Shield (1000)\n\n"
-                "**✨ Exclusive Shop**\n"
-                "`!exclusiveshop` - Role-locked items\n"
-                "`!buyexclusive <item>` - Purchase\n"
-                "*Higher levels = more items!*"
-            )
-        
-        elif self.values[0] == "Raids & Wars":
-            e.title="🔥 Raids & Wars"
-            e.description=(
-                "**⚔️ Raid Commands**\n"
-                "`!raid start <type> [target]` - Start a raid\n"
-                "`!raid join` / `!raid leave` - Join or leave\n"
-                "`!raid end <our> <their> [@mvp]` - End raid\n"
-                "`!raid cancel` - Cancel active raid\n"
-                "`!raid stats [@user]` - View raid stats card\n"
-                "`!raid leaderboard [field]` - Top raiders\n"
-                "`!raid history [count]` - Recent results\n"
-                "`!raid panel` - Staff management panel\n\n"
-                "**🏴 Raid Types & XP**\n"
-                "Standard (150) • Mega (300) • War (500)\n"
-                "Defense (200) • Scrimmage (100)\n\n"
-                "**⚔️ War Commands**\n"
-                "`!war declare <clan> [best_of]` - Declare war\n"
-                "`!war status` - View active wars\n"
-                "`!war score <id> <our> <their>` - Log match\n"
-                "`!war record` - Overall W/L record\n"
-                "`!war history` - Past war results\n\n"
-                "**🎖️ Raid Ranks**\n"
-                "Shadow Scout (5) → Abyssal Striker (15)\n"
-                "Voidborne Vanguard (30) → Fallen Warmaster (50)\n"
-                "Dread Commander (75) → Eternal War Sovereign (100)"
-            )
-        
-        elif self.values[0] == "Recruitment":
-            e.title="📝 Recruitment Pipeline"
-            e.description=(
-                "**👤 Member Commands**\n"
-                "`!recruit board` - View open positions\n"
-                "`!recruit apply <id>` - Submit application\n"
-                "`!recruit myapps` - Check your applications\n\n"
-                "**📋 Available Positions**\n"
-                "• **War Manager** - Coordinate clan wars\n"
-                "• **Tryout Host** - Host & evaluate tryouts\n"
-                "• **Training Host** - Lead training sessions\n"
-                "• **Raid Leader** - Lead raid parties\n"
-                "• **Recruiter** - Find & recruit players\n"
-                "• **Content Creator** - Create clan content\n\n"
-                "**📊 Application Stages**\n"
-                "Applied → Under Review → Interview →\n"
-                "Trial → Accepted / Denied\n\n"
-                "**🛡️ Staff Commands**\n"
-                "`!recruit post <position>` - Post position\n"
-                "`!recruit close <id>` - Close position\n"
-                "`!recruit pipeline` - View all applications\n"
-                "`!recruit review <app_id>` - Review app\n"
-                "`!recruit advance <id> <stage>` - Move stage\n"
-                "`!recruit accept <id>` - Accept applicant\n"
-                "`!recruit deny <id> [reason]` - Deny app\n"
-                "`!recruit panel` - Post recruitment board"
-            )
-        
-        elif self.values[0] == "Backup":
-            e.title="🆘 Backup System"
-            e.description=(
-                "**🆘 Request Backup**\n"
-                "`/backup` or `!backup`\n"
-                "Opens a form to request backup!\n\n"
-                "**📋 Requirements:**\n"
-                "• List at least **3 enemies**\n"
-                "• Include a valid **invite link**\n\n"
-                "**🔗 Valid Links:**\n"
-                "• Roblox Invite: `roblox.com/share?code=...`\n"
-                "• RO-PRO: `ro.pro/XXXXXX`\n\n"
-                "**📢 What Happens:**\n"
-                "Your request pings @Backup Ping\n"
-                "so members can join and help!\n\n"
-                "**⚠️ Rules:**\n"
-                "• Don't spam backup requests\n"
-                "• Only use for real situations\n"
-                "• Include accurate enemy count"
-            )
-        
-        elif self.values[0] == "Stage Transfer":
-            e.title="📋 Stage Transfer & Results"
-            e.description=(
-                "**📋 Request a Transfer**\n"
-                "Click **Stage Transfer** button\n"
-                "Upload proof from: TSBCC, VALHALLA, TSBER\n"
-                "Staff will approve/deny\n\n"
-                "**📸 Proof Requirements**\n"
-                "• Shows your username + rank\n"
-                "• Recent (within 24 hours)\n\n"
-                "**📊 Stage Ranks**\n"
-                "Stage 0 - FALLEN DEITY\n"
-                "Stage 1 - FALLEN APEX\n"
-                "Stage 2 - FALLEN ASCENDANT\n"
-                "Stage 3 - FORSAKEN WARRIOR\n"
-                "Stage 4 - ABYSS-TOUCHED\n"
-                "Stage 5 - BROKEN INITIATE\n\n"
-                "**📈 Rank Levels:** High/Mid/Low/Stable\n"
-                "**💪 Strength:** Strong/Moderate/Weak\n\n"
-                "**🛡️ Staff:** `/result @user <stage> [rank] [str]`"
-            )
-            
-        elif self.values[0] == "Staff": 
-            e.title="🛡️ Staff Commands"
-            e.description=(
-                "**⚠️ Warning System**\n"
-                "`!warn @user <category> [reason]`\n"
-                "`!strike @user <points> <reason>`\n"
-                "`!warnings @user` - View warnings\n"
-                "`!removewarn @user <id>`\n"
-                "`!clearwarns @user` - Clear all\n"
-                "`!warnlog` - Recent warnings\n\n"
-                "**🔇 Moderation**\n"
-                "`!mute @user <time> [reason]`\n"
-                "`!unmute @user`\n"
-                "`!purge <1-100>` - Delete messages\n"
-                "`!lock` / `!unlock` - Channel lock\n"
-                "`!slowmode <seconds>`\n\n"
-                "**🛡️ Guardian System**\n"
-                "`!botlogs [cmd|errors|audit]` - Bot logs\n"
-                "`!auditlog` - Abuse event log\n"
-                "`!abusereport` - Active abuse flags\n"
-                "`!guardianstatus` - System status\n\n"
-                "**👤 User Management**\n"
-                "`!checklevel @user` - Check stats\n"
-                "`!addxp` / `!removexp @user <amt>`\n"
-                "`!addfcoins` / `!removefcoins`\n"
-                "`!userinfo @user` - Full info\n\n"
-                "**📋 Attendance**\n"
-                "`!log_training @members`\n"
-                "`!log_tryout @members`\n\n"
-                "**🎁 Other**\n"
-                "`!giveaway` - Start giveaway\n"
-                "`!activitycheck` - Activity check"
-            )
-            
-        elif self.values[0] == "Admin":
-            e.title="⚙️ Admin Commands"
-            e.description=(
-                "**📋 Setup Panels**\n"
-                "`!setup_verify` - Verification\n"
-                "`!setup_shop` - Shop panel\n"
-                "`!setup_transfer` - Stage transfer\n"
-                "`!setup_practice` - Spar finder\n"
-                "`!setup_attendance` - Attendance\n"
-                "`!setup_tournament` - Tournament\n"
-                "`!setup_tickets` - Ticket system\n"
-                "`!setup_applications` - Applications\n"
-                "`!setup_staffpanel` - Staff panel\n"
-                "`!setup_modlog` - Mod log\n\n"
-                "**🏆 Leaderboards**\n"
-                "`!top10_setup` - Top 10 panel\n"
-                "`!top10_refresh` - Refresh image\n"
-                "`!setup_roster` - Clan roster\n\n"
-                "**🤖 Bot Management**\n"
-                "`!dbstatus` - Database status\n"
-                "`!migrate_db` - Migrate JSON → PostgreSQL\n"
-                "`!loadcog <name>` - Load a cog\n"
-                "`!unloadcog <name>` - Unload a cog\n"
-                "`!reloadcog <name>` - Hot-reload a cog\n"
-                "`!clearabuse [@user]` - Clear abuse flags\n\n"
-                "**🔒 Permissions**\n"
-                "`!setup_permissions confirm`\n"
-                "`!fix_muted` - Fix Muted role\n"
-                "`!lockdown` / `!unlockdown`\n\n"
-                "**⚙️ Sync**\n"
-                "`!sync` - Sync slash commands"
-            )
-        
-        e.set_footer(text="✝ THE FALLEN ✝ • / = slash • ! = prefix")
-        await interaction.response.edit_message(embed=e)
+        cat = self.values[0]
+        self.view.current_page = HELP_CATEGORY_ORDER.index(cat) + 1
+        self.view.update_nav()
+        await interaction.response.edit_message(embed=build_help_page(cat), view=self.view)
+
 
 class HelpView(discord.ui.View):
-    def __init__(self): 
+    def __init__(self):
         super().__init__(timeout=180)
+        self.current_page = 0  # 0 = home, 1..15 = categories
         self.add_item(HelpSelect())
+        self.update_nav()
+    
+    def update_nav(self):
+        self.btn_prev.disabled = self.current_page <= 0
+        self.btn_home.disabled = self.current_page == 0
+        self.btn_next.disabled = self.current_page >= len(HELP_CATEGORY_ORDER)
+    
+    def _embed(self, interaction):
+        if self.current_page == 0:
+            return build_help_home(interaction.guild)
+        return build_help_page(HELP_CATEGORY_ORDER[self.current_page - 1])
+    
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = max(0, self.current_page - 1)
+        self.update_nav()
+        await interaction.response.edit_message(embed=self._embed(interaction), view=self)
+    
+    @discord.ui.button(label="🏠 Home", style=discord.ButtonStyle.primary, row=1)
+    async def btn_home(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = 0
+        self.update_nav()
+        await interaction.response.edit_message(embed=self._embed(interaction), view=self)
+    
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=1)
+    async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = min(len(HELP_CATEGORY_ORDER), self.current_page + 1)
+        self.update_nav()
+        await interaction.response.edit_message(embed=self._embed(interaction), view=self)
 
+
+class ChallengeModal(discord.ui.Modal, title="Challenge Request"):
     claimed_rank = discord.ui.TextInput(label="Your Rank", max_length=5)
     opponent_name = discord.ui.TextInput(label="Opponent Username", max_length=32)
     
@@ -13033,50 +12978,8 @@ async def setbackground_cmd(ctx, url: str):
 
 @bot.hybrid_command(name="help", description="Get help with bot commands")
 async def help_cmd(ctx):
-    """Display help information"""
-    embed = discord.Embed(
-        title="✝ THE FALLEN ✝",
-        description="**Welcome to the Fallen Bot!**\n\nSelect a category below to explore commands.",
-        color=0x8B0000
-    )
-    
-    embed.add_field(
-        name="━━━━━ User Commands ━━━━━",
-        value=(
-            "👤 **Member** - Verification & basics\n"
-            "📊 **Profile & Stats** - Cards & statistics\n"
-            "💰 **Economy & Shop** - Coins & items"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="━━━━━ Activities ━━━━━",
-        value=(
-            "📅 **Events** - Trainings & tryouts\n"
-            "📊 **Polls** - Availability scheduling\n"
-            "⚔️ **Duels & ELO** - 1v1 battles\n"
-            "🏆 **Tournaments** - Competitions\n"
-            "🔥 **Raids & Wars** - Raid tracking & clan wars\n"
-            "🆘 **Backup** - Request help"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="━━━━━ Ranking & Staff ━━━━━",
-        value=(
-            "📋 **Stage Transfer** - Rank transfers\n"
-            "📝 **Recruitment** - Apply for positions\n"
-            "🛡️ **Staff** - Moderation & Guardian\n"
-            "⚙️ **Admin** - Server & bot management"
-        ),
-        inline=False
-    )
-    
-    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
-    embed.set_footer(text="Use the dropdown below to view commands • / or ! prefix")
-    
+    """Display the interactive help menu"""
+    embed = build_help_home(ctx.guild)
     await ctx.send(embed=embed, view=HelpView())
 
 # --- STAFF COMMANDS ---
