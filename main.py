@@ -9,6 +9,7 @@ import random
 import re
 from io import BytesIO
 import aiohttp
+import traceback
 
 # === NEW: Import enhanced database module ===
 try:
@@ -7685,6 +7686,8 @@ class HelpSelect(discord.ui.Select):
             discord.SelectOption(label="Spar Finder", emoji="🎯", description="Tier-based spar matchmaking"),
             discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
             discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
+            discord.SelectOption(label="Raids & Wars", emoji="🔥", description="Raid tracking & clan wars"),
+            discord.SelectOption(label="Recruitment", emoji="📝", description="Apply for staff positions"),
             discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
             discord.SelectOption(label="Stage Transfer", emoji="📋", description="Rank transfers & results"),
             discord.SelectOption(label="Staff", emoji="🛡️", description="Staff commands"),
@@ -7900,6 +7903,61 @@ class HelpSelect(discord.ui.Select):
                 "*Higher levels = more items!*"
             )
         
+        elif self.values[0] == "Raids & Wars":
+            e.title="🔥 Raids & Wars"
+            e.description=(
+                "**⚔️ Raid Commands**\n"
+                "`!raid start <type> [target]` - Start a raid\n"
+                "`!raid join` / `!raid leave` - Join or leave\n"
+                "`!raid end <our> <their> [@mvp]` - End raid\n"
+                "`!raid cancel` - Cancel active raid\n"
+                "`!raid stats [@user]` - View raid stats card\n"
+                "`!raid leaderboard [field]` - Top raiders\n"
+                "`!raid history [count]` - Recent results\n"
+                "`!raid panel` - Staff management panel\n\n"
+                "**🏴 Raid Types & XP**\n"
+                "Standard (150) • Mega (300) • War (500)\n"
+                "Defense (200) • Scrimmage (100)\n\n"
+                "**⚔️ War Commands**\n"
+                "`!war declare <clan> [best_of]` - Declare war\n"
+                "`!war status` - View active wars\n"
+                "`!war score <id> <our> <their>` - Log match\n"
+                "`!war record` - Overall W/L record\n"
+                "`!war history` - Past war results\n\n"
+                "**🎖️ Raid Ranks**\n"
+                "Shadow Scout (5) → Abyssal Striker (15)\n"
+                "Voidborne Vanguard (30) → Fallen Warmaster (50)\n"
+                "Dread Commander (75) → Eternal War Sovereign (100)"
+            )
+        
+        elif self.values[0] == "Recruitment":
+            e.title="📝 Recruitment Pipeline"
+            e.description=(
+                "**👤 Member Commands**\n"
+                "`!recruit board` - View open positions\n"
+                "`!recruit apply <id>` - Submit application\n"
+                "`!recruit myapps` - Check your applications\n\n"
+                "**📋 Available Positions**\n"
+                "• **War Manager** - Coordinate clan wars\n"
+                "• **Tryout Host** - Host & evaluate tryouts\n"
+                "• **Training Host** - Lead training sessions\n"
+                "• **Raid Leader** - Lead raid parties\n"
+                "• **Recruiter** - Find & recruit players\n"
+                "• **Content Creator** - Create clan content\n\n"
+                "**📊 Application Stages**\n"
+                "Applied → Under Review → Interview →\n"
+                "Trial → Accepted / Denied\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`!recruit post <position>` - Post position\n"
+                "`!recruit close <id>` - Close position\n"
+                "`!recruit pipeline` - View all applications\n"
+                "`!recruit review <app_id>` - Review app\n"
+                "`!recruit advance <id> <stage>` - Move stage\n"
+                "`!recruit accept <id>` - Accept applicant\n"
+                "`!recruit deny <id> [reason]` - Deny app\n"
+                "`!recruit panel` - Post recruitment board"
+            )
+        
         elif self.values[0] == "Backup":
             e.title="🆘 Backup System"
             e.description=(
@@ -7959,15 +8017,15 @@ class HelpSelect(discord.ui.Select):
                 "`!purge <1-100>` - Delete messages\n"
                 "`!lock` / `!unlock` - Channel lock\n"
                 "`!slowmode <seconds>`\n\n"
-                "**😴 Inactivity (Mainers)**\n"
-                "`!mainers` - View all Mainers\n"
-                "`!inactivity_check` - Run check\n"
-                "`!inactive_list` - Striked members\n\n"
+                "**🛡️ Guardian System**\n"
+                "`!botlogs [cmd|errors|audit]` - Bot logs\n"
+                "`!auditlog` - Abuse event log\n"
+                "`!abusereport` - Active abuse flags\n"
+                "`!guardianstatus` - System status\n\n"
                 "**👤 User Management**\n"
                 "`!checklevel @user` - Check stats\n"
                 "`!addxp` / `!removexp @user <amt>`\n"
                 "`!addfcoins` / `!removefcoins`\n"
-                "`!setlevel @user <level>`\n"
                 "`!userinfo @user` - Full info\n\n"
                 "**📋 Attendance**\n"
                 "`!log_training @members`\n"
@@ -7995,14 +8053,17 @@ class HelpSelect(discord.ui.Select):
                 "`!top10_setup` - Top 10 panel\n"
                 "`!top10_refresh` - Refresh image\n"
                 "`!setup_roster` - Clan roster\n\n"
+                "**🤖 Bot Management**\n"
+                "`!dbstatus` - Database status\n"
+                "`!migrate_db` - Migrate JSON → PostgreSQL\n"
+                "`!loadcog <name>` - Load a cog\n"
+                "`!unloadcog <name>` - Unload a cog\n"
+                "`!reloadcog <name>` - Hot-reload a cog\n"
+                "`!clearabuse [@user]` - Clear abuse flags\n\n"
                 "**🔒 Permissions**\n"
                 "`!setup_permissions confirm`\n"
                 "`!fix_muted` - Fix Muted role\n"
                 "`!lockdown` / `!unlockdown`\n\n"
-                "**📊 Management**\n"
-                "`!massrole add/remove @Role`\n"
-                "`!db_status` - Database status\n"
-                "`!announce` - Make announcement\n\n"
                 "**⚙️ Sync**\n"
                 "`!sync` - Sync slash commands"
             )
@@ -11921,8 +11982,9 @@ async def setup_cogs():
         except Exception as e:
             print(f"Cog already registered or error: {e}")
     
-    # === NEW: Load file-based cogs (raids, recruitment) ===
+    # === NEW: Load file-based cogs (raids, recruitment, guardian) ===
     new_cog_extensions = [
+        "cogs.guardian",
         "cogs.raids",
         "cogs.recruitment",
     ]
@@ -12978,7 +13040,6 @@ async def help_cmd(ctx):
         color=0x8B0000
     )
     
-    # Categories with emojis
     embed.add_field(
         name="━━━━━ User Commands ━━━━━",
         value=(
@@ -12996,17 +13057,19 @@ async def help_cmd(ctx):
             "📊 **Polls** - Availability scheduling\n"
             "⚔️ **Duels & ELO** - 1v1 battles\n"
             "🏆 **Tournaments** - Competitions\n"
+            "🔥 **Raids & Wars** - Raid tracking & clan wars\n"
             "🆘 **Backup** - Request help"
         ),
         inline=False
     )
     
     embed.add_field(
-        name="━━━━━ Ranking ━━━━━",
+        name="━━━━━ Ranking & Staff ━━━━━",
         value=(
             "📋 **Stage Transfer** - Rank transfers\n"
-            "🛡️ **Staff** - Moderation tools\n"
-            "⚙️ **Admin** - Server management"
+            "📝 **Recruitment** - Apply for positions\n"
+            "🛡️ **Staff** - Moderation & Guardian\n"
+            "⚙️ **Admin** - Server & bot management"
         ),
         inline=False
     )
@@ -16652,36 +16715,40 @@ async def leaderboards(ctx):
 # Global error handler for rate limits
 @bot.event
 async def on_command_error(ctx, error):
-    """Handle command errors gracefully with friendly messages"""
+    """Enhanced error handler with structured logging and friendly messages."""
     
-    # Cooldown errors - show time remaining
+    # --- Guardian rate limit (already handled by Guardian cog) ---
+    if isinstance(error, commands.CheckFailure) and "Guardian rate limit" in str(error):
+        return
+    
+    # --- Cooldown errors — animated countdown feel ---
     if isinstance(error, commands.CommandOnCooldown):
         minutes = int(error.retry_after // 60)
         seconds = int(error.retry_after % 60)
+        time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
         
-        if minutes > 0:
-            time_str = f"{minutes}m {seconds}s"
+        # Different messages based on cooldown type
+        bucket = error.type
+        if bucket == commands.BucketType.guild:
+            scope = "This command is on a server-wide cooldown."
+        elif bucket == commands.BucketType.channel:
+            scope = "This command is on cooldown in this channel."
         else:
-            time_str = f"{seconds}s"
+            scope = "This command is on cooldown for you."
         
         embed = discord.Embed(
             title="⏰ Cooldown Active",
-            description=(
-                f"This command is on cooldown!\n\n"
-                f"**Try again in:** {time_str}\n\n"
-                f"*Cooldowns help keep the bot running smoothly for everyone.*"
-            ),
+            description=f"{scope}\n\n**Try again in:** {time_str}",
             color=0xf39c12
         )
-        embed.set_footer(text="✝ The Fallen ✝")
-        
+        embed.set_footer(text="✝ The Fallen ✝ • Cooldowns keep things smooth")
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except:
+        except Exception:
             pass
         return
     
-    # Permission errors
+    # --- Permission errors ---
     elif isinstance(error, commands.MissingPermissions):
         missing = ", ".join(error.missing_permissions)
         embed = discord.Embed(
@@ -16691,11 +16758,11 @@ async def on_command_error(ctx, error):
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except:
+        except Exception:
             pass
         return
     
-    elif isinstance(error, commands.MissingRole):
+    elif isinstance(error, (commands.MissingRole, commands.MissingAnyRole)):
         embed = discord.Embed(
             title="🔒 Role Required",
             description="You don't have the required role for this command.",
@@ -16703,19 +16770,7 @@ async def on_command_error(ctx, error):
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except:
-            pass
-        return
-    
-    elif isinstance(error, commands.MissingAnyRole):
-        embed = discord.Embed(
-            title="🔒 Role Required",
-            description="You need one of the required roles to use this command.",
-            color=0xe74c3c
-        )
-        try:
-            await ctx.send(embed=embed, delete_after=10)
-        except:
+        except Exception:
             pass
         return
     
@@ -16723,158 +16778,235 @@ async def on_command_error(ctx, error):
         missing = ", ".join(error.missing_permissions)
         embed = discord.Embed(
             title="⚠️ Bot Missing Permissions",
-            description=f"I need the following permissions to do that:\n`{missing}`\n\nPlease contact a server admin.",
+            description=f"I need the following permissions:\n`{missing}`\n\nPlease contact a server admin.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=15)
-        except:
+        except Exception:
             pass
         return
     
-    # Rate limit errors
+    # --- Check failures (staff-only commands used by non-staff, etc.) ---
+    elif isinstance(error, commands.CheckFailure):
+        # Don't spam generic check failures — most are intentional permission gates
+        return
+    
+    # --- Rate limit errors ---
     elif isinstance(error, commands.CommandInvokeError):
         original = error.original
         
-        # Check for rate limits (429 errors)
-        if hasattr(original, 'status') and original.status == 429:
+        # Discord rate limits (429)
+        if isinstance(original, discord.HTTPException) and original.status == 429:
             retry_after = getattr(original, 'retry_after', 60)
             minutes = int(retry_after // 60) + 1
-            
             embed = discord.Embed(
                 title="🚫 Rate Limited",
                 description=(
-                    f"Discord is rate limiting the bot to prevent spam.\n\n"
+                    f"Discord is rate limiting the bot.\n\n"
                     f"**Please wait:** ~{minutes} minute(s)\n\n"
-                    f"*This is a Discord protection - not a bug!*"
+                    f"*This is Discord's spam protection — not a bug!*"
                 ),
                 color=0xe74c3c
             )
             embed.set_footer(text="✝ The Fallen ✝")
-            
             try:
                 await ctx.send(embed=embed, delete_after=30)
-            except:
+            except Exception:
                 pass
-            
-            print(f"[RATE LIMIT] Command: {ctx.command}, Retry after: {retry_after}s")
+            print(f"[RATE LIMIT] Command: {ctx.command}, Retry: {retry_after}s")
             return
         
-        # Check for HTTPException with rate limit
-        elif isinstance(original, discord.HTTPException):
-            if original.status == 429 or "rate limit" in str(original).lower():
-                embed = discord.Embed(
-                    title="🚫 Rate Limited",
-                    description=(
-                        f"Discord is temporarily limiting requests.\n\n"
-                        f"**Please wait:** ~1-2 minutes\n\n"
-                        f"*The bot is fine - just need to slow down!*"
-                    ),
-                    color=0xe74c3c
-                )
-                try:
-                    await ctx.send(embed=embed, delete_after=30)
-                except:
-                    pass
-                return
+        # Discord Forbidden (missing perms at API level)
+        elif isinstance(original, discord.Forbidden):
+            embed = discord.Embed(
+                title="⚠️ Action Blocked",
+                description=(
+                    "I don't have permission to do that.\n\n"
+                    "This usually means I need a higher role position "
+                    "or specific channel permissions."
+                ),
+                color=0xe74c3c
+            )
+            try:
+                await ctx.send(embed=embed, delete_after=15)
+            except Exception:
+                pass
+            cmd_name = ctx.command.name if ctx.command else "unknown"
+            print(f"[FORBIDDEN] !{cmd_name} by {ctx.author} in #{ctx.channel.name}: {original}")
+            return
+        
+        # Discord NotFound (deleted message/channel/user)
+        elif isinstance(original, discord.NotFound):
+            embed = discord.Embed(
+                title="❌ Not Found",
+                description="The target message, channel, or user no longer exists.",
+                color=0xe74c3c
+            )
+            try:
+                await ctx.send(embed=embed, delete_after=10)
+            except Exception:
+                pass
+            return
+        
+        # All other invoke errors — log with full traceback
+        else:
+            cmd_name = ctx.command.name if ctx.command else "unknown"
+            tb = "".join(traceback.format_exception(type(original), original, original.__traceback__))
+            print(f"[ERROR] !{cmd_name} by {ctx.author} in #{ctx.channel.name}")
+            print(f"  Type: {type(original).__name__}")
+            print(f"  Message: {original}")
+            print(f"  Traceback:\n{tb}")
+            
+            embed = discord.Embed(
+                title="❌ Something Went Wrong",
+                description=(
+                    f"An error occurred while processing `!{cmd_name}`.\n\n"
+                    f"**What to do:**\n"
+                    f"• Wait a few seconds and try again\n"
+                    f"• Make sure you're using the command correctly\n"
+                    f"• If it persists, let staff know\n\n"
+                    f"*The error has been logged automatically.*"
+                ),
+                color=0xe74c3c
+            )
+            embed.set_footer(text="✝ The Fallen ✝ • Error logged")
+            try:
+                await ctx.send(embed=embed, delete_after=15)
+            except Exception:
+                pass
+            return
     
-    # Generic rate limit check in error string
+    # --- Generic rate limit in error string ---
     elif "429" in str(error) or "rate limit" in str(error).lower():
         embed = discord.Embed(
             title="🚫 Rate Limited",
-            description=(
-                f"Discord is temporarily limiting requests.\n\n"
-                f"**Please wait:** ~1-2 minutes\n\n"
-                f"*Try again shortly!*"
-            ),
+            description="Discord is temporarily limiting requests. Please wait ~1-2 minutes.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=30)
-        except:
+        except Exception:
             pass
         print(f"[RATE LIMIT] {error}")
         return
     
-    # Member not found
+    # --- User input errors (friendly messages) ---
     elif isinstance(error, commands.MemberNotFound):
         embed = discord.Embed(
             title="❌ Member Not Found",
-            description=f"Could not find that member. Make sure you're mentioning them correctly.",
+            description=f"Could not find that member. Try mentioning them with @.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except:
+        except Exception:
             pass
         return
     
-    # Role not found
     elif isinstance(error, commands.RoleNotFound):
         embed = discord.Embed(
             title="❌ Role Not Found",
-            description=f"Could not find that role. Make sure you're mentioning it correctly.",
+            description=f"Could not find that role. Check the spelling or mention it with @.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except:
+        except Exception:
             pass
         return
     
-    # Channel not found
     elif isinstance(error, commands.ChannelNotFound):
         embed = discord.Embed(
             title="❌ Channel Not Found",
-            description=f"Could not find that channel.",
+            description="Could not find that channel. Try mentioning it with #.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except:
+        except Exception:
             pass
         return
     
-    # Bad argument
     elif isinstance(error, commands.BadArgument):
+        cmd_name = ctx.command.name if ctx.command else "command"
         embed = discord.Embed(
             title="❌ Invalid Input",
-            description=f"One of your inputs was invalid. Check the command usage.",
+            description=f"One of your inputs for `!{cmd_name}` was invalid.\n\nCheck `!help` for correct usage.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except:
+        except Exception:
             pass
         return
     
-    # Missing required argument
     elif isinstance(error, commands.MissingRequiredArgument):
+        cmd_name = ctx.command.name if ctx.command else "command"
         embed = discord.Embed(
             title="❌ Missing Argument",
-            description=f"You're missing a required input: `{error.param.name}`",
+            description=f"You're missing a required input: **{error.param.name}**\n\nCheck `!help` for correct usage.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except:
+        except Exception:
             pass
         return
     
-    # Command not found - ignore silently
+    elif isinstance(error, commands.TooManyArguments):
+        cmd_name = ctx.command.name if ctx.command else "command"
+        embed = discord.Embed(
+            title="❌ Too Many Arguments",
+            description=f"You provided too many inputs for `!{cmd_name}`.\n\nCheck `!help` for correct usage.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except Exception:
+            pass
+        return
+    
+    elif isinstance(error, commands.DisabledCommand):
+        embed = discord.Embed(
+            title="🔒 Command Disabled",
+            description="This command is currently disabled.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except Exception:
+            pass
+        return
+    
+    elif isinstance(error, commands.MaxConcurrencyReached):
+        embed = discord.Embed(
+            title="⏳ Command Busy",
+            description="This command is already being used. Please wait for it to finish.",
+            color=0xf39c12
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except Exception:
+            pass
+        return
+    
+    # --- Command not found — silent ---
     elif isinstance(error, commands.CommandNotFound):
         return
     
-    # Log other errors
+    # --- Catch-all for anything else ---
     else:
-        print(f"[ERROR] Command: {ctx.command}, Error: {error}")
+        cmd_name = ctx.command.name if ctx.command else "unknown"
+        print(f"[UNHANDLED ERROR] !{cmd_name} by {ctx.author}: {type(error).__name__}: {error}")
+        import traceback as tb_mod
+        tb_mod.print_exception(type(error), error, error.__traceback__)
 
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
-    """Handle slash command errors with friendly messages"""
+    """Enhanced slash command error handler."""
     
-    # Check if already responded
     responded = interaction.response.is_done()
     
     async def send_error(embed):
@@ -16883,25 +17015,18 @@ async def on_app_command_error(interaction: discord.Interaction, error):
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 await interaction.response.send_message(embed=embed, ephemeral=True)
-        except:
+        except Exception:
             pass
     
     # Cooldown
     if isinstance(error, discord.app_commands.errors.CommandOnCooldown):
         minutes = int(error.retry_after // 60)
         seconds = int(error.retry_after % 60)
-        
-        if minutes > 0:
-            time_str = f"{minutes}m {seconds}s"
-        else:
-            time_str = f"{seconds}s"
+        time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
         
         embed = discord.Embed(
             title="⏰ Cooldown Active",
-            description=(
-                f"This command is on cooldown!\n\n"
-                f"**Try again in:** {time_str}"
-            ),
+            description=f"This command is on cooldown.\n\n**Try again in:** {time_str}",
             color=0xf39c12
         )
         await send_error(embed)
@@ -16917,7 +17042,6 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         await send_error(embed)
         return
     
-    # Missing role
     elif isinstance(error, discord.app_commands.errors.MissingRole):
         embed = discord.Embed(
             title="🔒 Role Required",
@@ -16927,7 +17051,6 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         await send_error(embed)
         return
     
-    # Bot missing permissions
     elif isinstance(error, discord.app_commands.errors.BotMissingPermissions):
         embed = discord.Embed(
             title="⚠️ Bot Missing Permissions",
@@ -16937,36 +17060,61 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         await send_error(embed)
         return
     
+    elif isinstance(error, discord.app_commands.errors.CheckFailure):
+        # Silent — permission gates
+        return
+    
     # Rate limits
     elif "429" in str(error) or "rate limit" in str(error).lower():
         embed = discord.Embed(
             title="🚫 Rate Limited",
+            description="Discord is temporarily limiting requests. Please wait ~1-2 minutes.",
+            color=0xe74c3c
+        )
+        await send_error(embed)
+        print(f"[RATE LIMIT] Slash: {error}")
+        return
+    
+    # App command invoke errors (the actual crashes)
+    elif isinstance(error, discord.app_commands.errors.CommandInvokeError):
+        original = error.original
+        cmd_name = interaction.command.name if interaction.command else "unknown"
+        
+        # Full traceback to console
+        tb = "".join(traceback.format_exception(type(original), original, original.__traceback__))
+        print(f"[SLASH ERROR] /{cmd_name} by {interaction.user} in #{interaction.channel}")
+        print(f"  Type: {type(original).__name__}")
+        print(f"  Message: {original}")
+        print(f"  Traceback:\n{tb}")
+        
+        embed = discord.Embed(
+            title="❌ Something Went Wrong",
             description=(
-                f"Discord is temporarily limiting requests.\n\n"
-                f"**Please wait:** ~1-2 minutes\n\n"
-                f"*This protects the server from spam!*"
+                f"An error occurred with `/{cmd_name}`.\n\n"
+                f"**What to do:**\n"
+                f"• Wait a few seconds and try again\n"
+                f"• If it persists, let staff know\n\n"
+                f"*The error has been logged.*"
             ),
             color=0xe74c3c
         )
         await send_error(embed)
-        print(f"[RATE LIMIT] Slash command error: {error}")
         return
     
     # Generic error
     else:
+        cmd_name = interaction.command.name if interaction.command else "unknown"
+        print(f"[SLASH ERROR] /{cmd_name} by {interaction.user}: {type(error).__name__}: {error}")
+        
         embed = discord.Embed(
             title="❌ Something Went Wrong",
             description=(
-                f"An error occurred while processing your request.\n\n"
-                f"**What to do:**\n"
-                f"• Wait a few seconds and try again\n"
-                f"• If it persists, contact staff\n\n"
+                f"An error occurred. Please try again.\n\n"
                 f"*The issue has been logged.*"
             ),
             color=0xe74c3c
         )
         await send_error(embed)
-        print(f"[ERROR] Slash command: {interaction.command}, Error: {error}")
 
 
 # Global interaction error handler for buttons/modals
