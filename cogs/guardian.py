@@ -292,16 +292,41 @@ class GuardianCog(commands.Cog, name="Guardian"):
         self._error_count_today = 0
         self._commands_today = 0
     
+    def _get_db_pool(self):
+        """Get the bot's PostgreSQL pool (from main module)."""
+        try:
+            import __main__
+            return getattr(__main__, 'db_pool', None)
+        except:
+            return None
+    
+    async def _db_log(self, action: str, user_id: int = None, details: str = None):
+        """Log guardian event to PostgreSQL dashboard_audit_log for dashboard visibility."""
+        pool = self._get_db_pool()
+        if not pool:
+            return
+        try:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO dashboard_audit_log (staff_id, staff_name, action, target_id, details) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    0, "Guardian System", f"guardian_{action}", user_id, details
+                )
+        except Exception as e:
+            pass  # Silent fail — file logs are primary
+    
     async def cog_load(self):
         """Start background tasks when cog loads."""
         self.decay_loop.start()
         self.daily_reset_loop.start()
+        self.stats_sync_loop.start()
         print("✅ Guardian system loaded — anti-abuse & logging active!")
     
     async def cog_unload(self):
         """Stop background tasks when cog unloads."""
         self.decay_loop.cancel()
         self.daily_reset_loop.cancel()
+        self.stats_sync_loop.cancel()
     
     # --- Background Tasks ---
     
@@ -319,6 +344,7 @@ class GuardianCog(commands.Cog, name="Guardian"):
         """Reset daily counters and post daily summary."""
         if self._commands_today > 0:
             await self._post_daily_summary()
+        await self._sync_guardian_stats()  # Final sync before reset
         self.tracker.reset_daily()
         self._error_count_today = 0
         self._commands_today = 0
@@ -358,6 +384,7 @@ class GuardianCog(commands.Cog, name="Guardian"):
         
         if action == "warn":
             self.logger.audit("WARN", user.id, str(user), f"Abuse score: {score}")
+            await self._db_log("warn", user.id, f"Abuse score: {score} | Command spam warning")
             try:
                 await user.send(
                     f"⚠️ **Warning from The Fallen Bot**\n\n"
@@ -371,6 +398,7 @@ class GuardianCog(commands.Cog, name="Guardian"):
         elif action == "restrict":
             self.logger.audit("RESTRICT", user.id, str(user), 
                               f"Abuse score: {score} | Duration: {RESTRICT_DURATION}s")
+            await self._db_log("restrict", user.id, f"Abuse score: {score} | Restricted {RESTRICT_DURATION}s")
             embed = discord.Embed(
                 title="🛡️ Guardian — User Restricted",
                 description=f"{user.mention} has been temporarily restricted from commands.",
@@ -385,6 +413,7 @@ class GuardianCog(commands.Cog, name="Guardian"):
         
         elif action == "staff_alert":
             self.logger.audit("STAFF_ALERT", user.id, str(user), f"Abuse score: {score}")
+            await self._db_log("staff_alert", user.id, f"Abuse score: {score} | Staff alerted")
             embed = discord.Embed(
                 title="🚨 Guardian — Staff Alert",
                 description=(
@@ -402,6 +431,7 @@ class GuardianCog(commands.Cog, name="Guardian"):
         elif action == "timeout":
             self.logger.audit("AUTO_TIMEOUT", user.id, str(user), 
                               f"Abuse score: {score} | Duration: {AUTO_TIMEOUT_MINUTES}m")
+            await self._db_log("auto_timeout", user.id, f"Abuse score: {score} | Timed out {AUTO_TIMEOUT_MINUTES}m")
             try:
                 await user.timeout(
                     datetime.timedelta(minutes=AUTO_TIMEOUT_MINUTES),
@@ -455,6 +485,42 @@ class GuardianCog(commands.Cog, name="Guardian"):
             except Exception:
                 pass
     
+    async def _sync_guardian_stats(self):
+        """Sync guardian stats to PostgreSQL json_data for dashboard visibility."""
+        pool = self._get_db_pool()
+        if not pool:
+            return
+        try:
+            abuse_report = self.tracker.get_abuse_report()
+            top_users = self.tracker.get_top_users(10)
+            stats = {
+                "commands_today": self._commands_today,
+                "errors_today": self._error_count_today,
+                "active_abuse_flags": len(abuse_report),
+                "abuse_scores": {str(k): v for k, v in abuse_report.items()},
+                "top_users_today": [{"user_id": uid, "count": cnt} for uid, cnt in top_users],
+                "restricted_users": list(self.tracker.restricted_until.keys()) if hasattr(self.tracker, 'restricted_until') else [],
+                "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+            async with pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO json_data (key, data, updated_at)
+                    VALUES ('guardian_stats', $1, NOW())
+                    ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+                ''', json.dumps(stats))
+        except Exception as e:
+            print(f"[Guardian] Stats sync error: {e}")
+
+    @tasks.loop(minutes=5)
+    async def stats_sync_loop(self):
+        """Sync guardian stats to PostgreSQL every 5 minutes."""
+        await self._sync_guardian_stats()
+
+    @stats_sync_loop.before_loop
+    async def before_stats_sync(self):
+        await self.bot.wait_until_ready()
+        await asyncio.sleep(30)  # Wait 30s after ready before first sync
+
     # --- Event Listeners (Global Middleware) ---
     
     @commands.Cog.listener()
