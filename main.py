@@ -44,6 +44,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 # PostgreSQL Database URL (set in Render dashboard)
 DATABASE_URL = os.getenv("DATABASE_URL") 
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "https://the-fallen-dashboard.onrender.com")
 
 # --- ROLE SETTINGS ---
 REQUIRED_ROLE_NAME = "Mainer"         # Legacy - keeping for backwards compatibility         
@@ -883,6 +884,14 @@ async def sync_data_from_postgres():
         local_data = load_data()
         await save_data_to_postgres(local_data)
         print("✅ Local data uploaded to PostgreSQL!")
+        
+    # Sync duels & warnings to PostgreSQL for dashboard
+    if db_pool:
+        await startup_dashboard_sync()
+        await init_pending_actions_table()
+        if not dashboard_actions_loop.is_running():
+            dashboard_actions_loop.start()
+            print("✅ Dashboard actions poller started (30s interval)")
         return True
 
 def reset_all_data():
@@ -959,13 +968,56 @@ def add_xp_to_user(user_id, amount):
     save_data(data)
     return data["users"][uid]["xp"]
 
-def add_coins(user_id, amount):
-    """Add coins to a user"""
+
+
+# ══════════════════════════════════════════════════════════════
+# TRANSACTION LOGGING — Records all coin changes for dashboard
+# ══════════════════════════════════════════════════════════════
+
+async def log_transaction(user_id: int, amount: int, tx_type: str, description: str = "", staff_id: int = None):
+    """Log a coin transaction to PostgreSQL for dashboard history."""
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS coin_transactions (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    amount INTEGER NOT NULL,
+                    tx_type TEXT NOT NULL,
+                    description TEXT,
+                    staff_id BIGINT,
+                    balance_after INTEGER,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            # Get current balance
+            data = load_data()
+            uid = str(user_id)
+            balance = data.get("users", {}).get(uid, {}).get("coins", 0)
+            await conn.execute(
+                "INSERT INTO coin_transactions (user_id, amount, tx_type, description, staff_id, balance_after) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                user_id, amount, tx_type, description, staff_id, balance
+            )
+    except Exception as e:
+        print(f"[TX LOG] {e}")
+
+def add_coins(user_id, amount, tx_type="system", description="", staff_id=None):
+    """Add coins to a user and log the transaction"""
     data = load_data()
     uid = str(user_id)
     data = ensure_user_structure(data, uid)
     data["users"][uid]["coins"] = data["users"][uid].get("coins", 0) + amount
+    if data["users"][uid]["coins"] > MAX_COINS:
+        data["users"][uid]["coins"] = MAX_COINS
+    if data["users"][uid]["coins"] < 0:
+        data["users"][uid]["coins"] = 0
     save_data(data)
+    # Log transaction in background
+    if db_pool:
+        asyncio.create_task(log_transaction(user_id, amount, tx_type, description, staff_id))
     return data["users"][uid]["coins"]
 
 def calculate_next_level_xp(level):
@@ -3749,13 +3801,13 @@ def save_duels_data(data):
         asyncio.create_task(save_duels_to_postgres(data))
 
 async def save_duels_to_postgres(data):
-    """Save duels data to PostgreSQL"""
+    """Save duels data to PostgreSQL json_data table (for dashboard)"""
     if not db_pool:
         return
     try:
         async with db_pool.acquire() as conn:
             await conn.execute('''
-                INSERT INTO duels (key, data, updated_at)
+                INSERT INTO json_data (key, data, updated_at)
                 VALUES ('duels_data', $1, NOW())
                 ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
             ''', json.dumps(data))
@@ -3763,14 +3815,15 @@ async def save_duels_to_postgres(data):
         print(f"PostgreSQL duels save error: {e}")
 
 async def load_duels_from_postgres():
-    """Load duels data from PostgreSQL"""
+    """Load duels data from PostgreSQL json_data table"""
     if not db_pool:
         return None
     try:
         async with db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT data FROM duels WHERE key = 'duels_data'")
+            row = await conn.fetchrow("SELECT data FROM json_data WHERE key = 'duels_data'")
             if row:
-                return json.loads(row['data'])
+                d = row['data']
+                return json.loads(d) if isinstance(d, str) else d
     except Exception as e:
         print(f"PostgreSQL duels load error: {e}")
     return None
@@ -5703,9 +5756,40 @@ def load_warnings_data():
         return {"users": {}, "recent_warnings": [], "kicked_users": []}
 
 def save_warnings_data(data):
-    """Save warnings data to file"""
+    """Save warnings data to file AND PostgreSQL"""
     with open(WARNINGS_FILE, "w") as f:
         json.dump(data, f, indent=2)
+    # Sync to PostgreSQL for dashboard
+    if db_pool:
+        asyncio.create_task(save_warnings_to_postgres(data))
+
+async def save_warnings_to_postgres(data):
+    """Save warnings data to PostgreSQL json_data table (for dashboard)"""
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO json_data (key, data, updated_at)
+                VALUES ('warnings_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+    except Exception as e:
+        print(f"PostgreSQL warnings save error: {e}")
+
+async def load_warnings_from_postgres():
+    """Load warnings data from PostgreSQL json_data table"""
+    if not db_pool:
+        return None
+    try:
+        async with db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT data FROM json_data WHERE key = 'warnings_data'")
+            if row:
+                d = row['data']
+                return json.loads(d) if isinstance(d, str) else d
+    except Exception as e:
+        print(f"PostgreSQL warnings load error: {e}")
+    return None
 
 def get_user_warnings(user_id, check_expiry=True):
     """Get all warnings for a user, optionally checking for expired warnings"""
@@ -7838,7 +7922,7 @@ HELP_PAGES = [
         "title": "💰  Economy & Shop",
         "fields": [
             ("💵 Earning Coins", "💬 Chat & reactions\n🎙️ Voice channel time\n📅 Attend events\n🎁 `/daily` & `/weekly`\n⚔️ Win duels & raids", True),
-            ("📜 Commands", "`/fcoins` — Balance\n`/inventory` — Your items\n`/setbackground <url>` — Custom BG", True),
+            ("📜 Commands", "`/fcoins` — Balance\n`/inventory` — Your items\n`!backgrounds` — Browse presets\n`/setbackground <url>` — Custom BG", True),
             ("🛒 Shop Items", "Private Tryout `500` · ELO Shield `1,000`\nRole Color `1,500` · Custom Role `2,000`\nLevel BG `3,000` · Hoisted Role `5,000`", False),
         ],
         "tip": "Use !exclusiveshop for role-locked premium items!",
@@ -7901,10 +7985,44 @@ HELP_PAGES = [
         "fields": [
             ("⚠️ Warnings", "`!warn @user <cat> [reason]`\n`!strike @user <pts> <reason>`\n`!warnings @user` · `!clearwarns`\n`!removewarn @user <id>` · `!warnlog`", True),
             ("🔇 Moderation", "`!mute @user <time> [reason]`\n`!unmute @user`\n`!purge <1-100>` · `!slowmode <s>`\n`!lock` / `!unlock`", True),
-            ("🛡️ Guardian", "`!botlogs [cmd|errors|audit]`\n`!auditlog` · `!abusereport`\n`!guardianstatus`", True),
+            ("🛡️ Guardian", "`!botlogs [cmd|errors|audit]`\n`!auditlog` · `!abusereport`\n`!guardianstatus` · `!dashsync`", True),
             ("👤 User Management", "`!checklevel @user` · `!userinfo @user`\n`!addxp` / `!removexp @user <amt>`\n`!addfcoins` / `!removefcoins`\n`!log_training @m` · `!log_tryout @m`", False),
         ],
         "tip": "Use !guardianstatus to monitor command abuse!",
+    },
+    {
+        "key": "Dashboard & Web",
+        "emoji": "🌐",
+        "color": 0x8B0000,
+        "title": "🌐  Dashboard & Web Tools",
+        "fields": [
+            ("🌐 Web Dashboard", (
+                f"**{DASHBOARD_URL}**\n"
+                "📊 Leaderboard · 👤 Profile · ⚔️ Duels\n"
+                "💰 Economy · 📈 Analytics · 🔥 Raids\n"
+                "🏴 Clan Page · 📋 Apply for Positions"
+            ), False),
+            ("👤 Member Features", (
+                "• View your full profile & stats\n"
+                "• Track XP, ELO, and raid history\n"
+                "• Browse shop catalog & inventory\n"
+                "• Submit recruitment applications\n"
+                "• See level distribution & analytics"
+            ), True),
+            ("🛡️ Staff Features", (
+                "• Search & view any member\n"
+                "• Full warning history & audit log\n"
+                "• Guardian monitoring dashboard\n"
+                "• Warn, timeout, adjust XP/coins\n"
+                "• Server analytics & economy stats"
+            ), True),
+            ("🤖 Sync Commands", (
+                "`!dashsync` — Force sync all data\n"
+                "`!backgrounds` — Level card presets\n"
+                "`/setbackground <url>` — Custom BG"
+            ), False),
+        ],
+        "tip": f"Visit {DASHBOARD_URL} to access the full web dashboard!",
     },
     {
         "key": "Admin",
@@ -12975,6 +13093,406 @@ async def setbackground_cmd(ctx, url: str):
     embed.set_footer(text="Use /setbackground default to reset")
     
     await ctx.send(embed=embed)
+
+
+
+# ══════════════════════════════════════════════════════════════
+# DASHBOARD INTEGRATION COMMANDS
+# ══════════════════════════════════════════════════════════════
+
+class BackgroundSelect(discord.ui.Select):
+    """Dropdown for preset level card backgrounds."""
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Default (Reset)", value="default", emoji="🔄", description="Remove custom background"),
+        ]
+        for key, url in LEVEL_CARD_BACKGROUNDS.items():
+            if key == "default":
+                continue
+            label = key.replace("_", " ").title()
+            options.append(discord.SelectOption(label=label, value=key, emoji="🖼️"))
+        super().__init__(placeholder="Choose a background...", options=options, min_values=1, max_values=1)
+    
+    async def callback(self, interaction: discord.Interaction):
+        choice = self.values[0]
+        user_data = get_user_data(interaction.user.id)
+        
+        # Check ownership
+        if "custom_level_bg" not in user_data.get("inventory", []):
+            return await interaction.response.send_message(
+                "❌ You need to purchase **Custom Level Card BG** from the shop first!",
+                ephemeral=True
+            )
+        
+        if choice == "default":
+            update_user_data(interaction.user.id, "custom_level_bg", None)
+            embed = discord.Embed(
+                title="🔄 Background Reset",
+                description="Your level card background has been reset to default.",
+                color=0x2ecc71
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        url = LEVEL_CARD_BACKGROUNDS.get(choice)
+        if not url:
+            return await interaction.response.send_message("❌ Invalid background.", ephemeral=True)
+        
+        update_user_data(interaction.user.id, "custom_level_bg", url)
+        embed = discord.Embed(
+            title=f"🖼️ Background Set: {choice.replace('_', ' ').title()}",
+            description="Your level card will now use this background!\nUse `/level` to preview.",
+            color=0x2ecc71
+        )
+        embed.set_image(url=url)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class BackgroundView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+        self.add_item(BackgroundSelect())
+
+
+@bot.hybrid_command(name="backgrounds", aliases=["bgs", "presets"], description="Browse preset level card backgrounds")
+@commands.cooldown(1, 15, commands.BucketType.user)
+async def backgrounds_cmd(ctx):
+    """Browse and select from preset level card backgrounds."""
+    user_data = get_user_data(ctx.author.id)
+    owns_bg = "custom_level_bg" in user_data.get("inventory", [])
+    current_bg = user_data.get("custom_level_bg")
+    
+    embed = discord.Embed(
+        title="🖼️ Level Card Backgrounds",
+        description=(
+            "Choose a preset background for your level card.\n"
+            f"**Current:** {'Custom URL' if current_bg and current_bg not in LEVEL_CARD_BACKGROUNDS.values() else 'Default' if not current_bg else next((k for k, v in LEVEL_CARD_BACKGROUNDS.items() if v == current_bg), 'Custom').replace('_', ' ').title()}\n\n"
+        ),
+        color=0x8B0000
+    )
+    
+    if not owns_bg:
+        embed.description += "⚠️ You need to purchase **Custom Level Card BG** from the shop (3,000 FC) first!"
+        embed.set_footer(text="Use !shop to buy | ✝ THE FALLEN ✝")
+        return await ctx.send(embed=embed)
+    
+    # Show available presets
+    preset_list = ""
+    for key, url in LEVEL_CARD_BACKGROUNDS.items():
+        if key == "default":
+            continue
+        label = key.replace("_", " ").title()
+        marker = " ← Current" if url == current_bg else ""
+        preset_list += f"• **{label}**{marker}\n"
+    
+    if preset_list:
+        embed.add_field(name="Available Presets", value=preset_list, inline=False)
+    
+    embed.add_field(
+        name="Custom URL",
+        value="Use `/setbackground <url>` for a custom image URL.",
+        inline=False
+    )
+    embed.set_footer(text="Select from dropdown below | ✝ THE FALLEN ✝")
+    
+    await ctx.send(embed=embed, view=BackgroundView())
+
+
+@bot.command(name="dashsync", description="Staff: Force sync all data to PostgreSQL for dashboard")
+async def dashsync_cmd(ctx):
+    """Force sync main_data, duels_data, and warnings_data to PostgreSQL."""
+    if not is_staff(ctx.author):
+        return await ctx.send("❌ Staff only.", ephemeral=True)
+    
+    if not db_pool:
+        return await ctx.send("❌ PostgreSQL not connected.", ephemeral=True)
+    
+    msg = await ctx.send("⏳ Syncing all data to PostgreSQL...")
+    
+    synced = []
+    errors = []
+    
+    # 1. Main data
+    try:
+        main_data = load_data()
+        await save_data_to_postgres(main_data)
+        synced.append(f"✅ main_data ({len(main_data.get('users', {}))} users)")
+    except Exception as e:
+        errors.append(f"❌ main_data: {e}")
+    
+    # 2. Duels data
+    try:
+        duels_data = load_duels_data()
+        await save_duels_to_postgres(duels_data)
+        elo_count = len(duels_data.get("elo", {}))
+        history_count = len(duels_data.get("duel_history", []))
+        synced.append(f"✅ duels_data ({elo_count} ELO ratings, {history_count} matches)")
+    except Exception as e:
+        errors.append(f"❌ duels_data: {e}")
+    
+    # 3. Warnings data
+    try:
+        warnings_data = load_warnings_data()
+        await save_warnings_to_postgres(warnings_data)
+        warn_users = len(warnings_data.get("users", {}))
+        synced.append(f"✅ warnings_data ({warn_users} users with warnings)")
+    except Exception as e:
+        errors.append(f"❌ warnings_data: {e}")
+    
+    result = "**Dashboard Sync Complete!**\n\n"
+    result += "\n".join(synced)
+    if errors:
+        result += "\n\n**Errors:**\n" + "\n".join(errors)
+    
+    embed = discord.Embed(
+        title="📊 Dashboard Sync",
+        description=result,
+        color=0x2ecc71 if not errors else 0xe74c3c
+    )
+    embed.set_footer(text="✝ THE FALLEN ✝ Dashboard")
+    await msg.edit(content=None, embed=embed)
+
+
+async def startup_dashboard_sync():
+    """Sync all local JSON data to PostgreSQL on bot startup.
+    Called from on_ready after DB is connected."""
+    if not db_pool:
+        return
+    
+    print("📊 [Dashboard] Running startup sync...")
+    
+    # Sync duels
+    try:
+        duels = load_duels_data()
+        if duels and duels.get("elo"):
+            await save_duels_to_postgres(duels)
+            print(f"   ✅ duels_data synced ({len(duels.get('elo', {}))} ELO ratings)")
+    except Exception as e:
+        print(f"   ❌ duels_data sync failed: {e}")
+    
+    # Sync warnings
+    try:
+        warnings = load_warnings_data()
+        if warnings and warnings.get("users"):
+            await save_warnings_to_postgres(warnings)
+            print(f"   ✅ warnings_data synced ({len(warnings.get('users', {}))} users)")
+    except Exception as e:
+        print(f"   ❌ warnings_data sync failed: {e}")
+    
+    print("📊 [Dashboard] Startup sync complete!")
+
+
+
+
+# ══════════════════════════════════════════════════════════════
+# PENDING ACTIONS — Dashboard queues actions, bot executes them
+# ══════════════════════════════════════════════════════════════
+
+
+# Pending actions poller
+@tasks.loop(seconds=30)
+async def dashboard_actions_loop():
+    """Poll for pending dashboard actions every 30 seconds."""
+    try:
+        await execute_pending_actions()
+    except Exception as e:
+        print(f"[ACTIONS LOOP] {e}")
+
+@dashboard_actions_loop.before_loop
+async def before_actions_loop():
+    await bot.wait_until_ready()
+    await asyncio.sleep(15)  # Wait 15s after ready
+
+
+async def init_pending_actions_table():
+    """Create the pending_dashboard_actions table if it doesn't exist."""
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_dashboard_actions (
+                    id SERIAL PRIMARY KEY,
+                    action_type TEXT NOT NULL,
+                    target_user_id BIGINT NOT NULL,
+                    staff_id BIGINT NOT NULL,
+                    staff_name TEXT,
+                    params JSONB DEFAULT '{}',
+                    status TEXT DEFAULT 'pending',
+                    result TEXT,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    executed_at TIMESTAMP
+                )
+            """)
+    except Exception as e:
+        print(f"[ACTIONS] Table create error: {e}")
+
+
+async def execute_pending_actions():
+    """Poll for and execute pending dashboard actions."""
+    if not db_pool:
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM pending_dashboard_actions WHERE status = 'pending' ORDER BY created_at LIMIT 10"
+            )
+        
+        if not rows:
+            return
+        
+        guild = bot.guilds[0] if bot.guilds else None
+        if not guild:
+            return
+        
+        for row in rows:
+            action_id = row["id"]
+            action_type = row["action_type"]
+            target_id = row["target_user_id"]
+            staff_id = row["staff_id"]
+            staff_name = row.get("staff_name", "Dashboard")
+            params = row.get("params", {}) or {}
+            result = "ok"
+            
+            try:
+                if action_type == "warn":
+                    # Warn a user
+                    category = params.get("category", "minor_offense")
+                    reason = params.get("reason", "Dashboard warning")
+                    data = load_warnings_data()
+                    uid = str(target_id)
+                    if uid not in data["users"]:
+                        data["users"][uid] = {"warnings": [], "total_points": 0}
+                    
+                    cat_info = WARNING_CATEGORIES.get(category, {"name": category, "points": 2})
+                    warn_id = len(data["users"][uid]["warnings"]) + 1
+                    warning = {
+                        "id": warn_id,
+                        "category": category,
+                        "category_name": cat_info.get("name", category),
+                        "reason": reason,
+                        "points": cat_info.get("points", 2),
+                        "staff_id": str(staff_id),
+                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "expired": False,
+                    }
+                    data["users"][uid]["warnings"].append(warning)
+                    data["users"][uid]["total_points"] = sum(
+                        w["points"] for w in data["users"][uid]["warnings"] if not w.get("expired")
+                    )
+                    save_warnings_data(data)
+                    result = f"warned: {cat_info.get('name', category)} ({cat_info.get('points', 2)} pts)"
+                    
+                    # Try to DM the user
+                    try:
+                        member = guild.get_member(target_id)
+                        if member:
+                            embed = discord.Embed(
+                                title="⚠️ Warning Received",
+                                description=f"You received a warning in **The Fallen**",
+                                color=0xFF6600
+                            )
+                            embed.add_field(name="Category", value=cat_info.get("name", category), inline=True)
+                            embed.add_field(name="Points", value=str(cat_info.get("points", 2)), inline=True)
+                            embed.add_field(name="Total Points", value=str(data["users"][uid]["total_points"]), inline=True)
+                            if reason:
+                                embed.add_field(name="Reason", value=reason, inline=False)
+                            embed.set_footer(text="✝ The Fallen ✝ • Issued via Dashboard")
+                            await member.send(embed=embed)
+                    except:
+                        pass
+                    
+                    await log_action(guild, "⚠️ Dashboard Warning",
+                        f"**Target:** <@{target_id}>\n**Category:** {cat_info.get('name', category)}\n**Reason:** {reason}\n**By:** {staff_name} (Dashboard)",
+                        0xFF6600)
+                
+                elif action_type == "timeout":
+                    duration = int(params.get("duration_minutes", 10))
+                    reason = params.get("reason", "Dashboard timeout")
+                    member = guild.get_member(target_id)
+                    if member:
+                        await member.timeout(
+                            datetime.timedelta(minutes=duration),
+                            reason=f"Dashboard: {reason} (by {staff_name})"
+                        )
+                        result = f"timed out {duration}m"
+                        await log_action(guild, "🔇 Dashboard Timeout",
+                            f"**Target:** {member.mention}\n**Duration:** {duration}m\n**Reason:** {reason}\n**By:** {staff_name}",
+                            0xe74c3c)
+                    else:
+                        result = "error: member not found in guild"
+                
+                elif action_type == "remove_timeout":
+                    member = guild.get_member(target_id)
+                    if member:
+                        await member.timeout(None, reason=f"Timeout removed by {staff_name} via Dashboard")
+                        result = "timeout removed"
+                    else:
+                        result = "error: member not found"
+                
+                elif action_type == "add_xp":
+                    amount = int(params.get("amount", 0))
+                    if amount != 0:
+                        new_xp = add_xp_to_user(target_id, amount)
+                        result = f"xp {'added' if amount > 0 else 'removed'}: {amount} (total: {new_xp})"
+                        await log_action(guild, "✨ Dashboard XP Adjust",
+                            f"<@{target_id}> {'received' if amount > 0 else 'lost'} **{abs(amount):,} XP** (by {staff_name})",
+                            0xF1C40F)
+                
+                elif action_type == "add_coins":
+                    amount = int(params.get("amount", 0))
+                    reason = params.get("reason", "Dashboard adjustment")
+                    if amount != 0:
+                        new_bal = add_coins(target_id, amount, "staff_adjust", reason, staff_id)
+                        result = f"coins {'added' if amount > 0 else 'removed'}: {amount} (balance: {new_bal})"
+                        await log_action(guild, "💰 Dashboard Coin Adjust",
+                            f"<@{target_id}> {'received' if amount > 0 else 'lost'} **{abs(amount):,} FC** (by {staff_name})",
+                            0x2ecc71)
+                
+                elif action_type == "set_elo":
+                    new_elo = int(params.get("elo", 1000))
+                    duels_data = load_duels_data()
+                    duels_data["elo"][str(target_id)] = new_elo
+                    save_duels_data(duels_data)
+                    result = f"elo set to {new_elo}"
+                
+                elif action_type == "remove_warning":
+                    warn_id = int(params.get("warning_id", 0))
+                    data = load_warnings_data()
+                    uid = str(target_id)
+                    if uid in data["users"]:
+                        data["users"][uid]["warnings"] = [
+                            w for w in data["users"][uid]["warnings"] if w.get("id") != warn_id
+                        ]
+                        data["users"][uid]["total_points"] = sum(
+                            w["points"] for w in data["users"][uid]["warnings"] if not w.get("expired")
+                        )
+                        save_warnings_data(data)
+                        result = f"warning {warn_id} removed"
+                    else:
+                        result = "error: user has no warnings"
+                
+                else:
+                    result = f"error: unknown action type '{action_type}'"
+            
+            except Exception as e:
+                result = f"error: {str(e)[:200]}"
+                print(f"[ACTIONS] Error executing {action_type} for {target_id}: {e}")
+            
+            # Mark as completed
+            try:
+                async with db_pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE pending_dashboard_actions SET status = 'completed', result = $1, executed_at = NOW() WHERE id = $2",
+                        result, action_id
+                    )
+            except Exception as e:
+                print(f"[ACTIONS] Mark complete error: {e}")
+            
+            print(f"[ACTIONS] Executed {action_type} for {target_id}: {result}")
+    
+    except Exception as e:
+        print(f"[ACTIONS] Poll error: {e}")
+
 
 @bot.hybrid_command(name="help", description="Get help with bot commands")
 async def help_cmd(ctx):
