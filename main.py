@@ -9,15 +9,6 @@ import random
 import re
 from io import BytesIO
 import aiohttp
-import traceback
-
-# === NEW: Import enhanced database module ===
-try:
-    from database import db as fallen_db
-    ENHANCED_DB_AVAILABLE = True
-except ImportError:
-    ENHANCED_DB_AVAILABLE = False
-    print("⚠️ Enhanced database module not found - new raid/recruitment features disabled")
 
 # Try to import PIL for level cards (optional)
 try:
@@ -44,7 +35,6 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 
 # PostgreSQL Database URL (set in Render dashboard)
 DATABASE_URL = os.getenv("DATABASE_URL") 
-DASHBOARD_URL = os.getenv("DASHBOARD_URL", "https://the-fallen-dashboard.onrender.com")
 
 # --- ROLE SETTINGS ---
 REQUIRED_ROLE_NAME = "Mainer"         # Legacy - keeping for backwards compatibility         
@@ -520,14 +510,17 @@ SHOP_ITEMS = [
 # Coaching role - members with this role can be selected for coaching
 COACHING_ROLE = "Coach"
 
-# Preset Level Card Backgrounds
+# Preset Level Card Backgrounds (synced with dashboard db.py)
 LEVEL_CARD_BACKGROUNDS = {
-    "default": None,  # Default gradient
-    "fallen_dark": "https://i.imgur.com/dark_fallen_bg.png",
-    "crimson": "https://i.imgur.com/crimson_bg.png",
-    "shadow": "https://i.imgur.com/shadow_bg.png",
-    "flames": "https://i.imgur.com/flames_bg.png",
-    "galaxy": "https://i.imgur.com/galaxy_bg.png",
+    "default": None,  # Default template file
+    "crimson_flame": "https://i.imgur.com/8QjK4Nf.png",
+    "dark_forest": "https://i.imgur.com/VkXcNQz.png",
+    "midnight_city": "https://i.imgur.com/RJ3qYxW.png",
+    "blood_moon": "https://i.imgur.com/WzC7pLf.png",
+    "shadow_realm": "https://i.imgur.com/PqK8vNd.png",
+    "neon_grid": "https://i.imgur.com/LmB9xTc.png",
+    "volcanic": "https://i.imgur.com/dFhK2Np.png",
+    "fallen_crest": "https://i.imgur.com/Jx9mNvP.png",
 }
 
 # --- TOURNAMENT STATE ---
@@ -884,14 +877,6 @@ async def sync_data_from_postgres():
         local_data = load_data()
         await save_data_to_postgres(local_data)
         print("✅ Local data uploaded to PostgreSQL!")
-        
-    # Sync duels & warnings to PostgreSQL for dashboard
-    if db_pool:
-        await startup_dashboard_sync()
-        await init_pending_actions_table()
-        if not dashboard_actions_loop.is_running():
-            dashboard_actions_loop.start()
-            print("✅ Dashboard actions poller started (30s interval)")
         return True
 
 def reset_all_data():
@@ -921,6 +906,8 @@ def ensure_user_structure(data, uid):
         "training_reserved": False,  # Training slot reserved
         "custom_level_bg": None,  # Custom level card background URL
         "events_hosted": 0,  # Number of events hosted
+        "messages": 0,  # Message count for dashboard
+        "avatar_url": None,  # Discord avatar URL for dashboard
     }
     if uid not in data["users"]:
         data["users"][uid] = defaults.copy()
@@ -968,56 +955,13 @@ def add_xp_to_user(user_id, amount):
     save_data(data)
     return data["users"][uid]["xp"]
 
-
-
-# ══════════════════════════════════════════════════════════════
-# TRANSACTION LOGGING — Records all coin changes for dashboard
-# ══════════════════════════════════════════════════════════════
-
-async def log_transaction(user_id: int, amount: int, tx_type: str, description: str = "", staff_id: int = None):
-    """Log a coin transaction to PostgreSQL for dashboard history."""
-    if not db_pool:
-        return
-    try:
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS coin_transactions (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    amount INTEGER NOT NULL,
-                    tx_type TEXT NOT NULL,
-                    description TEXT,
-                    staff_id BIGINT,
-                    balance_after INTEGER,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            """)
-            # Get current balance
-            data = load_data()
-            uid = str(user_id)
-            balance = data.get("users", {}).get(uid, {}).get("coins", 0)
-            await conn.execute(
-                "INSERT INTO coin_transactions (user_id, amount, tx_type, description, staff_id, balance_after) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
-                user_id, amount, tx_type, description, staff_id, balance
-            )
-    except Exception as e:
-        print(f"[TX LOG] {e}")
-
-def add_coins(user_id, amount, tx_type="system", description="", staff_id=None):
-    """Add coins to a user and log the transaction"""
+def add_coins(user_id, amount):
+    """Add coins to a user"""
     data = load_data()
     uid = str(user_id)
     data = ensure_user_structure(data, uid)
     data["users"][uid]["coins"] = data["users"][uid].get("coins", 0) + amount
-    if data["users"][uid]["coins"] > MAX_COINS:
-        data["users"][uid]["coins"] = MAX_COINS
-    if data["users"][uid]["coins"] < 0:
-        data["users"][uid]["coins"] = 0
     save_data(data)
-    # Log transaction in background
-    if db_pool:
-        asyncio.create_task(log_transaction(user_id, amount, tx_type, description, staff_id))
     return data["users"][uid]["coins"]
 
 def calculate_next_level_xp(level):
@@ -3801,11 +3745,17 @@ def save_duels_data(data):
         asyncio.create_task(save_duels_to_postgres(data))
 
 async def save_duels_to_postgres(data):
-    """Save duels data to PostgreSQL json_data table (for dashboard)"""
+    """Save duels data to PostgreSQL"""
     if not db_pool:
         return
     try:
         async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO duels (key, data, updated_at)
+                VALUES ('duels_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+            # Also sync to json_data table for dashboard
             await conn.execute('''
                 INSERT INTO json_data (key, data, updated_at)
                 VALUES ('duels_data', $1, NOW())
@@ -3815,15 +3765,14 @@ async def save_duels_to_postgres(data):
         print(f"PostgreSQL duels save error: {e}")
 
 async def load_duels_from_postgres():
-    """Load duels data from PostgreSQL json_data table"""
+    """Load duels data from PostgreSQL"""
     if not db_pool:
         return None
     try:
         async with db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT data FROM json_data WHERE key = 'duels_data'")
+            row = await conn.fetchrow("SELECT data FROM duels WHERE key = 'duels_data'")
             if row:
-                d = row['data']
-                return json.loads(d) if isinstance(d, str) else d
+                return json.loads(row['data'])
     except Exception as e:
         print(f"PostgreSQL duels load error: {e}")
     return None
@@ -5756,15 +5705,15 @@ def load_warnings_data():
         return {"users": {}, "recent_warnings": [], "kicked_users": []}
 
 def save_warnings_data(data):
-    """Save warnings data to file AND PostgreSQL"""
+    """Save warnings data to file and PostgreSQL"""
     with open(WARNINGS_FILE, "w") as f:
         json.dump(data, f, indent=2)
-    # Sync to PostgreSQL for dashboard
+    # Also sync to json_data table for dashboard
     if db_pool:
-        asyncio.create_task(save_warnings_to_postgres(data))
+        asyncio.create_task(_save_warnings_to_postgres(data))
 
-async def save_warnings_to_postgres(data):
-    """Save warnings data to PostgreSQL json_data table (for dashboard)"""
+async def _save_warnings_to_postgres(data):
+    """Save warnings data to PostgreSQL json_data table for dashboard"""
     if not db_pool:
         return
     try:
@@ -5776,20 +5725,6 @@ async def save_warnings_to_postgres(data):
             ''', json.dumps(data))
     except Exception as e:
         print(f"PostgreSQL warnings save error: {e}")
-
-async def load_warnings_from_postgres():
-    """Load warnings data from PostgreSQL json_data table"""
-    if not db_pool:
-        return None
-    try:
-        async with db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT data FROM json_data WHERE key = 'warnings_data'")
-            if row:
-                d = row['data']
-                return json.loads(d) if isinstance(d, str) else d
-    except Exception as e:
-        print(f"PostgreSQL warnings load error: {e}")
-    return None
 
 def get_user_warnings(user_id, check_expiry=True):
     """Get all warnings for a user, optionally checking for expired warnings"""
@@ -7758,387 +7693,348 @@ class ShopSelectView(discord.ui.View):
         shop_view = ShopView()
         await shop_view.buy_item(interaction, "custom_role")
 
-# ==========================================
-# HELP SYSTEM — Data-Driven Pages with Navigation
-# ==========================================
-
-HELP_PAGES = [
-    {
-        "key": "Member",
-        "emoji": "👤",
-        "color": 0x3498db,
-        "title": "👤  Member Commands",
-        "fields": [
-            ("🔗 Verification", "`/verify` — Link your Roblox account", True),
-            ("📊 Quick Stats", (
-                "`/level` — Level card\n"
-                "`/rank` — Rank card\n"
-                "`/profile` — Full profile\n"
-                "`/fcoins` — Coin balance\n"
-                "`/inventory` — Your items"
-            ), True),
-            ("🎁 Rewards & Events", (
-                "`/daily` — Daily reward\n"
-                "`/weekly` — Weekly role reward\n"
-                "`/perks` — View your perks\n"
-                "`/schedule` — Upcoming events"
-            ), True),
-        ],
-        "tip": "Use /verify first to unlock all features!",
-    },
-    {
-        "key": "Profile & Stats",
-        "emoji": "📊",
-        "color": 0x9b59b6,
-        "title": "📊  Profile & Statistics",
-        "fields": [
-            ("🖼️ Visual Cards", (
-                "`/profile` — Full card w/ avatar\n"
-                "`/rank` — Rank card w/ XP bar\n"
-                "`/level` — Level card *(animated for boosters!)*"
-            ), True),
-            ("📈 Statistics", (
-                "`/stats` — Combat W/L\n"
-                "`!mystats` — Detailed breakdown\n"
-                "`!achievements` — Your badges\n"
-                "`!activity` — Activity graph"
-            ), True),
-            ("🏆 Leaderboards", (
-                "`/leaderboard` — XP rankings\n"
-                "`!voicetop` — Voice time leaders\n"
-                "`!topactive` — Most active this week\n"
-                "`!serverstats` — Server stats\n"
-                "`!compare @user` — Compare stats"
-            ), False),
-        ],
-        "tip": "Server boosters get animated level cards & diamond borders!",
-    },
-    {
-        "key": "Perks & Rewards",
-        "emoji": "🎭",
-        "color": 0xf1c40f,
-        "title": "🎭  Perks & Rewards",
-        "fields": [
-            ("📈 XP Multipliers", (
-                "Lvl 10 `+5%` · Lvl 20 `+10%` · Lvl 30 `+15%`\n"
-                "Lvl 50 `+20%` · Lvl 70 `+25%` · Lvl 100 `+30%`\n"
-                "Lvl 140 `+40%` · Lvl 200 `+50%`"
-            ), False),
-            ("🎁 Daily & Weekly", (
-                "`/daily` — Coins + XP *(role multiplier!)*\n"
-                "`/weekly` — Bonus from your role\n"
-                "`/boosterreward` — Weekly booster bonus"
-            ), True),
-            ("✨ Exclusive Shop", (
-                "`!exclusiveshop` — Role-locked items\n"
-                "`!buyexclusive <item>` — Purchase\n"
-                "*Higher levels = more items!*"
-            ), True),
-            ("💎 Booster Perks", "+25% XP · 2x Daily · Animated card · Weekly bonus · Diamond border", False),
-        ],
-        "tip": "Check /perks to see exactly what bonuses you currently have!",
-    },
-    {
-        "key": "Events",
-        "emoji": "📅",
-        "color": 0x2ecc71,
-        "title": "📅  Events — Trainings & Tryouts",
-        "fields": [
-            ("👤 For Members", "`/schedule` — View upcoming events\nClick **RSVP** buttons on event posts!", True),
-            ("💰 Attendance Rewards", "Training: `100c` + `50 XP`\nTryout: `150c` + `75 XP`\nHosting: `300c` + `100 XP`", True),
-            ("🎖️ Attendance Milestones", (
-                "`5` Fallen Initiate · `15` Fallen Disciple\n"
-                "`30` Fallen Warrior · `50` Fallen Slayer\n"
-                "`100` Fallen Immortal"
-            ), False),
-            ("🛡️ Staff", "`!log_training @members` · `!log_tryout @members`\n`!quick_training <time>` · `!quick_tryout <time>`", False),
-        ],
-        "tip": "Attend events regularly to unlock milestone roles!",
-    },
-    {
-        "key": "Polls",
-        "emoji": "📊",
-        "color": 0x1abc9c,
-        "title": "📊  Availability Polls",
-        "fields": [
-            ("📋 How It Works", "1️⃣ Click a **day button** (Mon-Sun)\n2️⃣ Enter your **available times**\n3️⃣ Click **✅ Submit** when done!", True),
-            ("🔘 Poll Buttons", "📆 Day buttons — Select times\n✅ Submit — Finalize response\n👁️ My Times — View selections\n📊 Results / 🔒 Close — *Staff only*", True),
-            ("🛡️ Staff Commands", "`!poll training` · `!poll tryout` — Create\n`!poll list` — Active polls\n`!poll results <id>` — View results", False),
-        ],
-        "tip": "Staff use polls to find the best times for events!",
-    },
-    {
-        "key": "Duels & ELO",
-        "emoji": "⚔️",
-        "color": 0xe74c3c,
-        "title": "⚔️  Duels & ELO System",
-        "fields": [
-            ("⚔️ Commands", (
-                "`/duel @user` — Challenge to 1v1\n"
-                "`/elo` — Your ELO rating\n"
-                "`/elo @user` — Check someone's ELO\n"
-                "`!elo_leaderboard` — Top ranked\n"
-                "`!duel_history` — Match history"
-            ), True),
-            ("🏅 ELO Ranks", (
-                "🏆 Grandmaster `2000+`\n"
-                "💎 Diamond `1800+`\n"
-                "🥇 Platinum `1600+`\n"
-                "🥈 Gold `1400+`\n"
-                "🥉 Silver `1200+`\n"
-                "⚔️ Bronze `1000+`"
-            ), True),
-        ],
-        "tip": "Buy an ELO Shield from the shop to protect against one loss!",
-    },
-    {
-        "key": "Spar Finder",
-        "emoji": "🎯",
-        "color": 0xe67e22,
-        "title": "🎯  Spar Finder",
-        "fields": [
-            ("⚔️ Matchmaking", "Your **Stage + Rank + Strength** = Tier\n⭐ Perfect `±1` · ✅ Good `±2-3` · ⚠️ Fair `±4-6`", False),
-            ("📋 Panel Buttons", "🎯 **Find Spar** — Join queue\n📋 **View Queue** — Who's waiting\n🔍 **Find Match** — Auto-find\n⚔️ **Challenge** — Pick directly", True),
-            ("🎮 In Match", "• Post private server link\n• Play your set (FT5, FT10)\n• Post proof & submit result\n`/practice_stats` — Your stats", True),
-        ],
-        "tip": "54 tiers total — lower tier number = stronger!",
-    },
-    {
-        "key": "Tournaments",
-        "emoji": "🏆",
-        "color": 0xf39c12,
-        "title": "🏆  Tournament System",
-        "fields": [
-            ("👤 How to Play", "• Click **Register** on portal\n• Match threads auto-created\n• Bracket image updates live!", True),
-            ("💰 Prizes", "🥇 1st: `5,000c` + `500 XP`\n🥈 2nd: `2,500c` + `250 XP`\n🥉 3rd: `1,000c` + `100 XP`", True),
-            ("🛠️ Staff Commands", "`!tournament` — Create · `!bracket` — View\n`!tparticipants` — Players · `!tstatus` — Status\n`!tsetwinner @user` · `!tendtournament`", False),
-        ],
-        "tip": "Watch for announcements — tournaments fill up fast!",
-    },
-    {
-        "key": "Economy & Shop",
-        "emoji": "💰",
-        "color": 0x2ecc71,
-        "title": "💰  Economy & Shop",
-        "fields": [
-            ("💵 Earning Coins", "💬 Chat & reactions\n🎙️ Voice channel time\n📅 Attend events\n🎁 `/daily` & `/weekly`\n⚔️ Win duels & raids", True),
-            ("📜 Commands", "`/fcoins` — Balance\n`/inventory` — Your items\n`!backgrounds` — Browse presets\n`/setbackground <url>` — Custom BG", True),
-            ("🛒 Shop Items", "Private Tryout `500` · ELO Shield `1,000`\nRole Color `1,500` · Custom Role `2,000`\nLevel BG `3,000` · Hoisted Role `5,000`", False),
-        ],
-        "tip": "Use !exclusiveshop for role-locked premium items!",
-    },
-    {
-        "key": "Raids & Wars",
-        "emoji": "🔥",
-        "color": 0xc0392b,
-        "title": "🔥  Raids & Wars",
-        "fields": [
-            ("⚔️ Raid Commands", "`!raid start <type> [target]`\n`!raid join` / `!raid leave`\n`!raid end <our> <their> [@mvp]`\n`!raid stats [@user]`\n`!raid leaderboard` · `!raid history`", True),
-            ("💀 Types & XP", "Standard `150` · Mega `300`\nWar `500` · Defense `200`\nScrimmage `100`\nWin: `1.5x` · MVP: `+25%`", True),
-            ("🏴 War System", "`!war declare <clan> [best_of]`\n`!war status` · `!war score <id> <o> <t>`\n`!war record` · `!war history`", True),
-            ("🎖️ Raid Ranks", "Shadow Scout `5` → Abyssal Striker `15` → Voidborne Vanguard `30` →\nFallen Warmaster `50` → Dread Commander `75` → Eternal War Sovereign `100`", False),
-        ],
-        "tip": "Raid more to rank up — check !raid stats for your progress!",
-    },
-    {
-        "key": "Recruitment",
-        "emoji": "📝",
-        "color": 0x3498db,
-        "title": "📝  Recruitment Pipeline",
-        "fields": [
-            ("👤 Apply", "`!recruit board` — Open positions\n`!recruit apply <id>` — Submit app\n`!recruit myapps` — Check status", True),
-            ("📋 Positions", "⚔️ War Manager · 🎯 Tryout Host\n📋 Training Host · 🔥 Raid Leader\n📢 Recruiter · 🎬 Content Creator", True),
-            ("📊 Pipeline", "Applied → Under Review → Interview → Trial → ✅ Accepted / ❌ Denied", False),
-            ("🛡️ Staff", "`!recruit post <pos>` · `!recruit close <id>`\n`!recruit pipeline` · `!recruit review <id>`\n`!recruit advance <id> <stage>` · `!recruit accept/deny <id>`", False),
-        ],
-        "tip": "You get DM notifications when your app status changes!",
-    },
-    {
-        "key": "Backup",
-        "emoji": "🆘",
-        "color": 0xe74c3c,
-        "title": "🆘  Backup System",
-        "fields": [
-            ("🆘 Request", "`/backup` or `!backup`\nOpens a form to request backup!", True),
-            ("📋 Requirements", "• List at least **3 enemies**\n• Include a valid **invite link**\n• `roblox.com/share?code=...`\n• `ro.pro/XXXXXX`", True),
-            ("⚠️ Rules", "• Don't spam requests\n• Only use for real situations\n• Include accurate enemy count", False),
-        ],
-        "tip": "Your request pings @Backup Ping so members can join!",
-    },
-    {
-        "key": "Stage Transfer",
-        "emoji": "📋",
-        "color": 0x9b59b6,
-        "title": "📋  Stage Transfer & Results",
-        "fields": [
-            ("📋 How To", "Click **Stage Transfer** button\nUpload proof from TSBCC, VALHALLA, TSBER\nStaff will approve/deny", True),
-            ("📊 Stage Ranks", "Stage 0 — FALLEN DEITY\nStage 1 — FALLEN APEX\nStage 2 — FALLEN ASCENDANT\nStage 3 — FORSAKEN WARRIOR\nStage 4 — ABYSS-TOUCHED\nStage 5 — BROKEN INITIATE", True),
-            ("📈 Rankings", "**Rank:** High / Mid / Low / Stable\n**Strength:** Strong / Moderate / Weak\n\n**Staff:** `/result @user <stage> [rank] [str]`", False),
-        ],
-        "tip": "Proof must be recent (within 24 hours) & show your username!",
-    },
-    {
-        "key": "Staff",
-        "emoji": "🛡️",
-        "color": 0x95a5a6,
-        "title": "🛡️  Staff Commands",
-        "fields": [
-            ("⚠️ Warnings", "`!warn @user <cat> [reason]`\n`!strike @user <pts> <reason>`\n`!warnings @user` · `!clearwarns`\n`!removewarn @user <id>` · `!warnlog`", True),
-            ("🔇 Moderation", "`!mute @user <time> [reason]`\n`!unmute @user`\n`!purge <1-100>` · `!slowmode <s>`\n`!lock` / `!unlock`", True),
-            ("🛡️ Guardian", "`!botlogs [cmd|errors|audit]`\n`!auditlog` · `!abusereport`\n`!guardianstatus` · `!dashsync`", True),
-            ("👤 User Management", "`!checklevel @user` · `!userinfo @user`\n`!addxp` / `!removexp @user <amt>`\n`!addfcoins` / `!removefcoins`\n`!log_training @m` · `!log_tryout @m`", False),
-        ],
-        "tip": "Use !guardianstatus to monitor command abuse!",
-    },
-    {
-        "key": "Dashboard & Web",
-        "emoji": "🌐",
-        "color": 0x8B0000,
-        "title": "🌐  Dashboard & Web Tools",
-        "fields": [
-            ("🌐 Web Dashboard", (
-                f"**{DASHBOARD_URL}**\n"
-                "📊 Leaderboard · 👤 Profile · ⚔️ Duels\n"
-                "💰 Economy · 📈 Analytics · 🔥 Raids\n"
-                "🏴 Clan Page · 📋 Apply for Positions"
-            ), False),
-            ("👤 Member Features", (
-                "• View your full profile & stats\n"
-                "• Track XP, ELO, and raid history\n"
-                "• Browse shop catalog & inventory\n"
-                "• Submit recruitment applications\n"
-                "• See level distribution & analytics"
-            ), True),
-            ("🛡️ Staff Features", (
-                "• Search & view any member\n"
-                "• Full warning history & audit log\n"
-                "• Guardian monitoring dashboard\n"
-                "• Warn, timeout, adjust XP/coins\n"
-                "• Server analytics & economy stats"
-            ), True),
-            ("🤖 Sync Commands", (
-                "`!dashsync` — Force sync all data\n"
-                "`!backgrounds` — Level card presets\n"
-                "`/setbackground <url>` — Custom BG"
-            ), False),
-        ],
-        "tip": f"Visit {DASHBOARD_URL} to access the full web dashboard!",
-    },
-    {
-        "key": "Admin",
-        "emoji": "⚙️",
-        "color": 0x2c3e50,
-        "title": "⚙️  Admin Commands",
-        "fields": [
-            ("📋 Setup Panels", "`!setup_verify` · `!setup_shop`\n`!setup_transfer` · `!setup_practice`\n`!setup_attendance` · `!setup_tournament`\n`!setup_tickets` · `!setup_applications`\n`!setup_staffpanel` · `!setup_modlog`", True),
-            ("🤖 Bot Management", "`!dbstatus` — Database status\n`!migrate_db` — JSON → PostgreSQL\n`!loadcog` / `!unloadcog` / `!reloadcog`\n`!clearabuse [@user]`\n`!sync` — Sync slash commands", True),
-            ("🔒 Server Control", "`!massrole add/remove @Role`\n`!lockdown` / `!unlockdown`\n`!setup_permissions confirm`\n`!fix_muted` · `!announce`", False),
-        ],
-        "tip": "Use !reloadcog <name> to hot-reload without restarting!",
-    },
-]
-
-# Quick lookup and ordered keys
-HELP_CATEGORY_ORDER = [p["key"] for p in HELP_PAGES]
-HELP_PAGE_MAP = {p["key"]: p for p in HELP_PAGES}
-
-
-def build_help_home(guild):
-    """Build the main help menu embed with two-column category list."""
-    embed = discord.Embed(
-        title="✝ THE FALLEN ✝ — Command Guide",
-        description=(
-            "Browse all commands by category.\n"
-            "Use the **dropdown** or **◀ ▶ buttons** to navigate."
-        ),
-        color=0x8B0000,
-    )
-    
-    mid = (len(HELP_PAGES) + 1) // 2
-    col1 = "\n".join(f"{p['emoji']} **{p['key']}**" for p in HELP_PAGES[:mid])
-    col2 = "\n".join(f"{p['emoji']} **{p['key']}**" for p in HELP_PAGES[mid:])
-    
-    embed.add_field(name="▸ User & Activities", value=col1, inline=True)
-    embed.add_field(name="▸ Clan & Staff", value=col2, inline=True)
-    
-    if guild and guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
-    
-    embed.set_footer(text="✝ THE FALLEN ✝ • 15 categories • / = slash  ! = prefix")
-    return embed
-
-
-def build_help_page(category):
-    """Build a category help page embed with color and tip."""
-    page = HELP_PAGE_MAP[category]
-    idx = HELP_CATEGORY_ORDER.index(category) + 1
-    total = len(HELP_CATEGORY_ORDER)
-    
-    embed = discord.Embed(title=page["title"], color=page["color"])
-    
-    for name, value, inline in page["fields"]:
-        embed.add_field(name=name, value=value, inline=inline)
-    
-    tip = page.get("tip", "")
-    footer = f"✝ THE FALLEN ✝ • Page {idx}/{total}"
-    if tip:
-        footer += f"  •  💡 {tip}"
-    embed.set_footer(text=footer)
-    return embed
-
-
 class HelpSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label=p["key"], emoji=p["emoji"])
-            for p in HELP_PAGES
+            discord.SelectOption(label="Member", emoji="👤", description="Basic member commands"),
+            discord.SelectOption(label="Profile & Stats", emoji="📊", description="Profile, rank, stats"),
+            discord.SelectOption(label="Perks & Rewards", emoji="🎭", description="Role perks, daily, weekly"),
+            discord.SelectOption(label="Events", emoji="📅", description="Trainings & tryouts"),
+            discord.SelectOption(label="Polls", emoji="📊", description="Availability polls"),
+            discord.SelectOption(label="Duels & ELO", emoji="⚔️", description="1v1 duels & rankings"),
+            discord.SelectOption(label="Spar Finder", emoji="🎯", description="Tier-based spar matchmaking"),
+            discord.SelectOption(label="Tournaments", emoji="🏆", description="Tournament system"),
+            discord.SelectOption(label="Economy & Shop", emoji="💰", description="Coins, shop & items"),
+            discord.SelectOption(label="Backup", emoji="🆘", description="Request backup help"),
+            discord.SelectOption(label="Stage Transfer", emoji="📋", description="Rank transfers & results"),
+            discord.SelectOption(label="Staff", emoji="🛡️", description="Staff commands"),
+            discord.SelectOption(label="Admin", emoji="⚙️", description="Setup & management"),
         ]
-        super().__init__(placeholder="Jump to category...", options=options)
+        super().__init__(placeholder="Select a category...", min_values=1, max_values=1, options=options)
     
     async def callback(self, interaction: discord.Interaction):
-        cat = self.values[0]
-        self.view.current_page = HELP_CATEGORY_ORDER.index(cat) + 1
-        self.view.update_nav()
-        await interaction.response.edit_message(embed=build_help_page(cat), view=self.view)
-
+        e = discord.Embed(color=0x8B0000)
+        
+        if self.values[0] == "Member": 
+            e.title="👤 Member Commands"
+            e.description=(
+                "**🔗 Verification**\n"
+                "`/verify` - Link your Roblox account\n\n"
+                "**📊 Quick Stats**\n"
+                "`/level` - View your level card\n"
+                "`/rank` - View your rank card\n"
+                "`/profile` - Full profile with all stats\n"
+                "`/fcoins` - Check coin balance\n"
+                "`/inventory` - View purchased items\n\n"
+                "**🎁 Rewards**\n"
+                "`/daily` - Claim daily reward\n"
+                "`/weekly` - Claim weekly role reward\n"
+                "`/perks` - View your current perks\n\n"
+                "**📅 Events**\n"
+                "`/schedule` - View upcoming events\n"
+                "Click RSVP buttons on event posts!"
+            )
+            
+        elif self.values[0] == "Profile & Stats":
+            e.title="📊 Profile & Statistics"
+            e.description=(
+                "**🖼️ Visual Cards**\n"
+                "`/profile` - Full profile card with avatar\n"
+                "`/rank` - Rank card with XP bar\n"
+                "`/level` - Level card (animated for boosters!)\n\n"
+                "**📈 Statistics**\n"
+                "`/stats` - Combat stats (W/L)\n"
+                "`!mystats` - Detailed stats breakdown\n"
+                "`!achievements` - View your badges\n"
+                "`!activity` - Activity graph\n\n"
+                "**🏆 Leaderboards**\n"
+                "`/leaderboard` - XP leaderboard\n"
+                "`!voicetop` - Voice time leaders\n"
+                "`!topactive` - Most active this week\n"
+                "`!serverstats` - Server statistics\n"
+                "`!compare @user` - Compare with someone"
+            )
+        
+        elif self.values[0] == "Perks & Rewards":
+            e.title="🎭 Perks & Rewards System"
+            e.description=(
+                "**🎭 Role Perks**\n"
+                "`/perks` - View all your current perks\n"
+                "Each milestone role gives XP bonuses!\n\n"
+                "**📈 XP Multipliers (by Level)**\n"
+                "Lvl 10: +5% • Lvl 20: +10% • Lvl 30: +15%\n"
+                "Lvl 50: +20% • Lvl 70: +25% • Lvl 100: +30%\n"
+                "Lvl 140: +40% • Lvl 200: +50%\n\n"
+                "**🎁 Daily & Weekly**\n"
+                "`/daily` - Daily coins + XP (role multiplier!)\n"
+                "`/weekly` - Weekly bonus from your role\n"
+                "`/boosterreward` - Weekly booster bonus\n\n"
+                "**🛒 Exclusive Shop**\n"
+                "`!exclusiveshop` - Browse exclusive items\n"
+                "`!buyexclusive <item>` - Purchase items\n"
+                "Higher levels unlock more tiers!\n\n"
+                "**💎 Booster Perks**\n"
+                "+25% XP • 2x Daily • Animated card\n"
+                "Weekly bonus • Diamond border"
+            )
+        
+        elif self.values[0] == "Duels & ELO":
+            e.title="⚔️ Duels & ELO System"
+            e.description=(
+                "**⚔️ Duel Commands**\n"
+                "`/duel @user` - Challenge to 1v1\n"
+                "`/elo` - Check your ELO rating\n"
+                "`/elo @user` - Check someone's ELO\n"
+                "`!elo_leaderboard` - Top ranked players\n"
+                "`!duel_history` - Your match history\n\n"
+                "**🛡️ ELO Shield (Shop Item)**\n"
+                "Protects you from ELO loss once!\n\n"
+                "**🏅 ELO Ranks**\n"
+                "🏆 Grandmaster (2000+)\n"
+                "💎 Diamond (1800+)\n"
+                "🥇 Platinum (1600+)\n"
+                "🥈 Gold (1400+)\n"
+                "🥉 Silver (1200+)\n"
+                "⚔️ Bronze (1000+)\n\n"
+                "*Win duels to climb!*"
+            )
+        
+        elif self.values[0] == "Spar Finder":
+            e.title="🎯 Spar Finder"
+            e.description=(
+                "**⚔️ Tier-Based Matchmaking**\n"
+                "Your Stage + Rank + Strength = Your Tier\n"
+                "54 tiers total (lower = stronger)\n\n"
+                "**Match Types:**\n"
+                "⭐ Perfect (±1 tier)\n"
+                "✅ Good (±2-3 tiers)\n"
+                "⚠️ Fair (±4-6 tiers)\n\n"
+                "**📋 Panel Buttons**\n"
+                "• **🎯 Find Spar** - Join queue\n"
+                "• **📋 View Queue** - See who's waiting\n"
+                "• **🔍 Find Match** - Auto-find opponents\n"
+                "• **⚔️ Challenge** - Pick directly\n\n"
+                "**🎮 In Match Channel**\n"
+                "• Post private server link\n"
+                "• Play your set (FT5, FT10, etc.)\n"
+                "• Post proof & submit result\n"
+                "• Rate your partner!\n\n"
+                "**📊 Commands**\n"
+                "`/practice_stats` - View your stats"
+            )
+        
+        elif self.values[0] == "Tournaments":
+            e.title="🏆 Tournament System V3"
+            e.description=(
+                "**👤 How to Participate**\n"
+                "• Click **Register** on tournament portal\n"
+                "• Click **Leave** to withdraw\n"
+                "• Click **Spectate** to watch\n\n"
+                "**⚔️ During Matches**\n"
+                "• Match threads created automatically\n"
+                "• Staff click **Report Score** button\n"
+                "• Bracket image updates live!\n\n"
+                "**🛠️ Staff Commands**\n"
+                "`!tournament` — Create new tournament\n"
+                "`!bracket` — View current bracket\n"
+                "`!tparticipants` — View registered players\n"
+                "`!tstatus` — Tournament status\n"
+                "`!tsetwinner @user` — Set winner manually\n"
+                "`!tendtournament` — End tournament\n"
+                "`!tdeletetournament` — Delete tournament\n\n"
+                "**💰 Reward Amounts**\n"
+                "🥇 1st: 5,000 coins + 500 XP\n"
+                "🥈 2nd: 2,500 coins + 250 XP\n"
+                "🥉 3rd: 1,000 coins + 100 XP"
+            )
+            
+        elif self.values[0] == "Events":
+            e.title="📅 Events (Trainings & Tryouts)"
+            e.description=(
+                "**👤 Member Commands**\n"
+                "`/schedule` - View upcoming events\n\n"
+                "**💰 Attendance Rewards**\n"
+                "• Training: 100 coins + 50 XP\n"
+                "• Tryout: 150 coins + 75 XP\n"
+                "• Host: 300 coins + 100 XP\n\n"
+                "**🎖️ Attendance Roles**\n"
+                "5 → Fallen Initiate\n"
+                "15 → Fallen Disciple\n"
+                "30 → Fallen Warrior\n"
+                "50 → Fallen Slayer\n"
+                "100 → Fallen Immortal\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`!log_training @members` - Log attendance\n"
+                "`!log_tryout @members` - Log attendance\n"
+                "`!quick_training <time>` - Quick announce\n"
+                "`!quick_tryout <time>` - Quick announce"
+            )
+        
+        elif self.values[0] == "Polls":
+            e.title="📊 Availability Polls"
+            e.description=(
+                "**📋 What Are Polls?**\n"
+                "Staff create polls to find the best\n"
+                "times for trainings and tryouts!\n\n"
+                "**👤 How to Respond**\n"
+                "1️⃣ Click a **day button** (Mon-Sun)\n"
+                "2️⃣ Enter your **available times**\n"
+                "3️⃣ Repeat for other days\n"
+                "4️⃣ Click **✅ Submit** when done!\n\n"
+                "**🔘 Poll Buttons**\n"
+                "• Day buttons - Select times\n"
+                "• ✅ Submit - Finalize response\n"
+                "• 👁️ My Times - View selections\n"
+                "• 📊 Results - Staff only\n"
+                "• 🔒 Close - Staff only\n\n"
+                "**🛡️ Staff Commands**\n"
+                "`!poll training` - Create training poll\n"
+                "`!poll tryout` - Create tryout poll\n"
+                "`!poll list` - View active polls\n"
+                "`!poll results <id>` - View results"
+            )
+            
+        elif self.values[0] == "Economy & Shop": 
+            e.title="💰 Economy & Shop"
+            e.description=(
+                "**💵 Earning Coins**\n"
+                "• Chat messages & reactions\n"
+                "• Voice channel time\n"
+                "• Attend trainings/tryouts\n"
+                "• `/daily` & `/weekly` rewards\n"
+                "• Win duels & raids\n\n"
+                "**📜 Commands**\n"
+                "`/fcoins` - Check balance\n"
+                "`/inventory` - View items\n"
+                "`/setbackground <url>` - Custom bg\n\n"
+                "**🛒 Regular Shop Items**\n"
+                "• Private Tryout (500)\n"
+                "• Custom Role (2000)\n"
+                "• Custom Role Color (1500)\n"
+                "• Hoisted Role (5000)\n"
+                "• Custom Level BG (3000)\n"
+                "• ELO Shield (1000)\n\n"
+                "**✨ Exclusive Shop**\n"
+                "`!exclusiveshop` - Role-locked items\n"
+                "`!buyexclusive <item>` - Purchase\n"
+                "*Higher levels = more items!*"
+            )
+        
+        elif self.values[0] == "Backup":
+            e.title="🆘 Backup System"
+            e.description=(
+                "**🆘 Request Backup**\n"
+                "`/backup` or `!backup`\n"
+                "Opens a form to request backup!\n\n"
+                "**📋 Requirements:**\n"
+                "• List at least **3 enemies**\n"
+                "• Include a valid **invite link**\n\n"
+                "**🔗 Valid Links:**\n"
+                "• Roblox Invite: `roblox.com/share?code=...`\n"
+                "• RO-PRO: `ro.pro/XXXXXX`\n\n"
+                "**📢 What Happens:**\n"
+                "Your request pings @Backup Ping\n"
+                "so members can join and help!\n\n"
+                "**⚠️ Rules:**\n"
+                "• Don't spam backup requests\n"
+                "• Only use for real situations\n"
+                "• Include accurate enemy count"
+            )
+        
+        elif self.values[0] == "Stage Transfer":
+            e.title="📋 Stage Transfer & Results"
+            e.description=(
+                "**📋 Request a Transfer**\n"
+                "Click **Stage Transfer** button\n"
+                "Upload proof from: TSBCC, VALHALLA, TSBER\n"
+                "Staff will approve/deny\n\n"
+                "**📸 Proof Requirements**\n"
+                "• Shows your username + rank\n"
+                "• Recent (within 24 hours)\n\n"
+                "**📊 Stage Ranks**\n"
+                "Stage 0 - FALLEN DEITY\n"
+                "Stage 1 - FALLEN APEX\n"
+                "Stage 2 - FALLEN ASCENDANT\n"
+                "Stage 3 - FORSAKEN WARRIOR\n"
+                "Stage 4 - ABYSS-TOUCHED\n"
+                "Stage 5 - BROKEN INITIATE\n\n"
+                "**📈 Rank Levels:** High/Mid/Low/Stable\n"
+                "**💪 Strength:** Strong/Moderate/Weak\n\n"
+                "**🛡️ Staff:** `/result @user <stage> [rank] [str]`"
+            )
+            
+        elif self.values[0] == "Staff": 
+            e.title="🛡️ Staff Commands"
+            e.description=(
+                "**⚠️ Warning System**\n"
+                "`!warn @user <category> [reason]`\n"
+                "`!strike @user <points> <reason>`\n"
+                "`!warnings @user` - View warnings\n"
+                "`!removewarn @user <id>`\n"
+                "`!clearwarns @user` - Clear all\n"
+                "`!warnlog` - Recent warnings\n\n"
+                "**🔇 Moderation**\n"
+                "`!mute @user <time> [reason]`\n"
+                "`!unmute @user`\n"
+                "`!purge <1-100>` - Delete messages\n"
+                "`!lock` / `!unlock` - Channel lock\n"
+                "`!slowmode <seconds>`\n\n"
+                "**😴 Inactivity (Mainers)**\n"
+                "`!mainers` - View all Mainers\n"
+                "`!inactivity_check` - Run check\n"
+                "`!inactive_list` - Striked members\n\n"
+                "**👤 User Management**\n"
+                "`!checklevel @user` - Check stats\n"
+                "`!addxp` / `!removexp @user <amt>`\n"
+                "`!addfcoins` / `!removefcoins`\n"
+                "`!setlevel @user <level>`\n"
+                "`!userinfo @user` - Full info\n\n"
+                "**📋 Attendance**\n"
+                "`!log_training @members`\n"
+                "`!log_tryout @members`\n\n"
+                "**🎁 Other**\n"
+                "`!giveaway` - Start giveaway\n"
+                "`!activitycheck` - Activity check"
+            )
+            
+        elif self.values[0] == "Admin":
+            e.title="⚙️ Admin Commands"
+            e.description=(
+                "**📋 Setup Panels**\n"
+                "`!setup_verify` - Verification\n"
+                "`!setup_shop` - Shop panel\n"
+                "`!setup_transfer` - Stage transfer\n"
+                "`!setup_practice` - Spar finder\n"
+                "`!setup_attendance` - Attendance\n"
+                "`!setup_tournament` - Tournament\n"
+                "`!setup_tickets` - Ticket system\n"
+                "`!setup_applications` - Applications\n"
+                "`!setup_staffpanel` - Staff panel\n"
+                "`!setup_modlog` - Mod log\n\n"
+                "**🏆 Leaderboards**\n"
+                "`!top10_setup` - Top 10 panel\n"
+                "`!top10_refresh` - Refresh image\n"
+                "`!setup_roster` - Clan roster\n\n"
+                "**🔒 Permissions**\n"
+                "`!setup_permissions confirm`\n"
+                "`!fix_muted` - Fix Muted role\n"
+                "`!lockdown` / `!unlockdown`\n\n"
+                "**📊 Management**\n"
+                "`!massrole add/remove @Role`\n"
+                "`!db_status` - Database status\n"
+                "`!announce` - Make announcement\n\n"
+                "**⚙️ Sync**\n"
+                "`!sync` - Sync slash commands"
+            )
+        
+        e.set_footer(text="✝ THE FALLEN ✝ • / = slash • ! = prefix")
+        await interaction.response.edit_message(embed=e)
 
 class HelpView(discord.ui.View):
-    def __init__(self):
+    def __init__(self): 
         super().__init__(timeout=180)
-        self.current_page = 0  # 0 = home, 1..15 = categories
         self.add_item(HelpSelect())
-        self.update_nav()
-    
-    def update_nav(self):
-        self.btn_prev.disabled = self.current_page <= 0
-        self.btn_home.disabled = self.current_page == 0
-        self.btn_next.disabled = self.current_page >= len(HELP_CATEGORY_ORDER)
-    
-    def _embed(self, interaction):
-        if self.current_page == 0:
-            return build_help_home(interaction.guild)
-        return build_help_page(HELP_CATEGORY_ORDER[self.current_page - 1])
-    
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=1)
-    async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = max(0, self.current_page - 1)
-        self.update_nav()
-        await interaction.response.edit_message(embed=self._embed(interaction), view=self)
-    
-    @discord.ui.button(label="🏠 Home", style=discord.ButtonStyle.primary, row=1)
-    async def btn_home(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = 0
-        self.update_nav()
-        await interaction.response.edit_message(embed=self._embed(interaction), view=self)
-    
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=1)
-    async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = min(len(HELP_CATEGORY_ORDER), self.current_page + 1)
-        self.update_nav()
-        await interaction.response.edit_message(embed=self._embed(interaction), view=self)
 
-
-class ChallengeModal(discord.ui.Modal, title="Challenge Request"):
     claimed_rank = discord.ui.TextInput(label="Your Rank", max_length=5)
     opponent_name = discord.ui.TextInput(label="Opponent Username", max_length=32)
     
@@ -10157,17 +10053,6 @@ class PersistentBot(commands.Bot):
         self.add_view(ServerInfoStrikeView())
         self.add_view(ServerInfoStageView())
         
-        # === NEW: Register raid & recruitment persistent views ===
-        try:
-            from cogs.raids import RaidJoinView, RaidStaffControlView
-            from cogs.recruitment import RecruitmentBoardView
-            self.add_view(RaidJoinView(0))
-            self.add_view(RaidStaffControlView(0))
-            self.add_view(RecruitmentBoardView())
-            print("✅ Raid & Recruitment persistent views registered!")
-        except Exception as e:
-            print(f"⚠️ New persistent views not loaded (non-fatal): {e}")
-        
         # Start background task
         self.bg_voice_xp.start()
         print("Bot setup complete!")
@@ -10195,124 +10080,6 @@ class PersistentBot(commands.Bot):
         await asyncio.sleep(30)  # Wait 30 seconds after ready before starting
 
 bot = PersistentBot()
-
-# ==========================================
-# NEW: DATABASE MIGRATION & COG MANAGEMENT
-# ==========================================
-
-@bot.command(name="migrate_db")
-@commands.has_permissions(administrator=True)
-async def migrate_db_command(ctx):
-    """One-time migration of JSON data to PostgreSQL. Admin only."""
-    if not ENHANCED_DB_AVAILABLE or not fallen_db.using_postgres:
-        return await ctx.send("❌ PostgreSQL not connected! Make sure DATABASE_URL is set in Render.")
-    
-    msg = await ctx.send("🔄 Starting data migration... This may take a moment.")
-    
-    try:
-        # Migrate users from leaderboard.json
-        count = 0
-        if os.path.exists("leaderboard.json"):
-            with open("leaderboard.json", "r") as f:
-                lb_data = json.load(f)
-            
-            users = lb_data.get("users", {})
-            for uid_str, udata in users.items():
-                try:
-                    uid = int(uid_str)
-                    await fallen_db.ensure_user(uid)
-                    await fallen_db.update_user(uid,
-                        xp=udata.get("xp", 0),
-                        level=udata.get("level", 0),
-                        coins=udata.get("coins", 0),
-                        wins=udata.get("wins", 0),
-                        losses=udata.get("losses", 0),
-                        raid_wins=udata.get("raid_wins", 0),
-                        raid_losses=udata.get("raid_losses", 0),
-                        raid_participation=udata.get("raid_participation", 0),
-                        daily_streak=udata.get("daily_streak", 0),
-                        weekly_xp=udata.get("weekly_xp", 0),
-                        monthly_xp=udata.get("monthly_xp", 0),
-                        voice_time=udata.get("voice_time", 0),
-                    )
-                    count += 1
-                except Exception:
-                    continue
-            
-            await msg.edit(content=f"🔄 Migrated {count} users... Processing remaining data...")
-            await fallen_db.save_json_blob("main_data", lb_data)
-        
-        # Migrate other JSON files as backup blobs
-        blob_files = {
-            "duels_data": "duels_data.json",
-            "events": "events_data.json",
-            "inactivity": "inactivity_data.json",
-            "recurring": "recurring_events.json",
-        }
-        for key, filepath in blob_files.items():
-            if os.path.exists(filepath):
-                try:
-                    with open(filepath, "r") as f:
-                        await fallen_db.save_json_blob(key, json.load(f))
-                except Exception:
-                    pass
-        
-        await msg.edit(content=f"✅ Migration complete! **{count}** users and all JSON data migrated to PostgreSQL.\n\nYour existing JSON files are untouched and still work as fallback.")
-        
-    except Exception as e:
-        await msg.edit(content=f"❌ Migration error: {e}")
-
-@bot.command(name="loadcog")
-@commands.has_permissions(administrator=True)
-async def load_cog_cmd(ctx, cog_name: str):
-    """Load a cog extension. Admin only. Usage: !loadcog raids"""
-    try:
-        await bot.load_extension(f"cogs.{cog_name}")
-        await ctx.send(f"✅ Loaded `cogs.{cog_name}`")
-    except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
-
-@bot.command(name="unloadcog")
-@commands.has_permissions(administrator=True)
-async def unload_cog_cmd(ctx, cog_name: str):
-    """Unload a cog extension. Admin only. Usage: !unloadcog raids"""
-    try:
-        await bot.unload_extension(f"cogs.{cog_name}")
-        await ctx.send(f"✅ Unloaded `cogs.{cog_name}`")
-    except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
-
-@bot.command(name="reloadcog")
-@commands.has_permissions(administrator=True)
-async def reload_cog_cmd(ctx, cog_name: str):
-    """Reload a cog extension. Admin only. Usage: !reloadcog raids"""
-    try:
-        await bot.reload_extension(f"cogs.{cog_name}")
-        await ctx.send(f"✅ Reloaded `cogs.{cog_name}`")
-    except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
-
-@bot.command(name="dbstatus")
-@commands.has_permissions(administrator=True)
-async def db_status_cmd(ctx):
-    """Check database connection status. Admin only."""
-    embed = discord.Embed(title="📊 Database Status", color=0x8B0000)
-    
-    embed.add_field(name="PostgreSQL (Legacy)", 
-                    value="✅ Connected" if db_pool else "❌ Not connected", inline=True)
-    
-    if ENHANCED_DB_AVAILABLE:
-        embed.add_field(name="Enhanced DB", 
-                        value="✅ Connected" if fallen_db.using_postgres else "📁 JSON fallback", inline=True)
-    else:
-        embed.add_field(name="Enhanced DB", value="⚠️ Module not loaded", inline=True)
-    
-    # Count loaded cogs
-    cog_list = [name for name in bot.extensions]
-    embed.add_field(name="Loaded Extensions", value="\n".join(cog_list) if cog_list else "None", inline=False)
-    
-    embed.set_footer(text="✝ THE FALLEN ✝")
-    await ctx.send(embed=embed)
 
 # ==========================================
 # WARNING SYSTEM COMMANDS
@@ -12044,20 +11811,6 @@ async def setup_cogs():
             await bot.add_cog(cog)
         except Exception as e:
             print(f"Cog already registered or error: {e}")
-    
-    # === NEW: Load file-based cogs (raids, recruitment, guardian) ===
-    new_cog_extensions = [
-        "cogs.guardian",
-        "cogs.raids",
-        "cogs.recruitment",
-    ]
-    for ext_path in new_cog_extensions:
-        try:
-            if ext_path not in [e for e in bot.extensions]:
-                await bot.load_extension(ext_path)
-                print(f"✅ Loaded {ext_path}")
-        except Exception as e:
-            print(f"⚠️ Could not load {ext_path} (non-fatal): {e}")
 
 @bot.event
 async def on_ready():
@@ -12108,15 +11861,6 @@ async def on_ready():
     else:
         print("📁 Using JSON file storage (no PostgreSQL)")
     
-    # === NEW: Initialize enhanced database module ===
-    if ENHANCED_DB_AVAILABLE:
-        print("📡 Initializing enhanced database (raids, recruitment)...")
-        try:
-            await fallen_db.init()
-            print("✅ Enhanced database module ready!")
-        except Exception as e:
-            print(f"⚠️ Enhanced database init error (non-fatal): {e}")
-    
     # Check database health
     print("Checking database health...")
     data = load_data()
@@ -12154,6 +11898,12 @@ async def on_ready():
     if not hasattr(bot, 'poll_views_loaded'):
         await setup_poll_views()
         bot.poll_views_loaded = True
+    
+    # Start dashboard pending actions processor
+    if not hasattr(bot, 'dashboard_actions_started') and db_pool:
+        process_dashboard_actions.start()
+        bot.dashboard_actions_started = True
+        print("✅ Dashboard actions processor started!")
     
     print("=" * 50)
     print("🚀 Bot is ready!")
@@ -12413,8 +12163,17 @@ async def on_message(message):
             add_xp_to_user(message.author.id, xp)
             await check_level_up(message.author.id, message.guild)
         
-        # Always update last_active timestamp for inactivity tracking
-        update_user_data(message.author.id, "last_active", datetime.datetime.now(datetime.timezone.utc).isoformat())
+        # Always update last_active, avatar, and message count for dashboard
+        data = load_data()
+        uid = str(message.author.id)
+        data = ensure_user_structure(data, uid)
+        data["users"][uid]["last_active"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        data["users"][uid]["messages"] = (data["users"][uid].get("messages", 0) or 0) + 1
+        if message.author.avatar:
+            data["users"][uid]["avatar_url"] = str(message.author.avatar.url).split("?")[0] + "?size=128"
+        else:
+            data["users"][uid]["avatar_url"] = f"https://cdn.discordapp.com/embed/avatars/{message.author.id % 5}.png"
+        save_data(data)
         
     await bot.process_commands(message)
 
@@ -13094,410 +12853,51 @@ async def setbackground_cmd(ctx, url: str):
     
     await ctx.send(embed=embed)
 
-
-
-# ══════════════════════════════════════════════════════════════
-# DASHBOARD INTEGRATION COMMANDS
-# ══════════════════════════════════════════════════════════════
-
-class BackgroundSelect(discord.ui.Select):
-    """Dropdown for preset level card backgrounds."""
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Default (Reset)", value="default", emoji="🔄", description="Remove custom background"),
-        ]
-        for key, url in LEVEL_CARD_BACKGROUNDS.items():
-            if key == "default":
-                continue
-            label = key.replace("_", " ").title()
-            options.append(discord.SelectOption(label=label, value=key, emoji="🖼️"))
-        super().__init__(placeholder="Choose a background...", options=options, min_values=1, max_values=1)
-    
-    async def callback(self, interaction: discord.Interaction):
-        choice = self.values[0]
-        user_data = get_user_data(interaction.user.id)
-        
-        # Check ownership
-        if "custom_level_bg" not in user_data.get("inventory", []):
-            return await interaction.response.send_message(
-                "❌ You need to purchase **Custom Level Card BG** from the shop first!",
-                ephemeral=True
-            )
-        
-        if choice == "default":
-            update_user_data(interaction.user.id, "custom_level_bg", None)
-            embed = discord.Embed(
-                title="🔄 Background Reset",
-                description="Your level card background has been reset to default.",
-                color=0x2ecc71
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        url = LEVEL_CARD_BACKGROUNDS.get(choice)
-        if not url:
-            return await interaction.response.send_message("❌ Invalid background.", ephemeral=True)
-        
-        update_user_data(interaction.user.id, "custom_level_bg", url)
-        embed = discord.Embed(
-            title=f"🖼️ Background Set: {choice.replace('_', ' ').title()}",
-            description="Your level card will now use this background!\nUse `/level` to preview.",
-            color=0x2ecc71
-        )
-        embed.set_image(url=url)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-class BackgroundView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=120)
-        self.add_item(BackgroundSelect())
-
-
-@bot.hybrid_command(name="backgrounds", aliases=["bgs", "presets"], description="Browse preset level card backgrounds")
-@commands.cooldown(1, 15, commands.BucketType.user)
-async def backgrounds_cmd(ctx):
-    """Browse and select from preset level card backgrounds."""
-    user_data = get_user_data(ctx.author.id)
-    owns_bg = "custom_level_bg" in user_data.get("inventory", [])
-    current_bg = user_data.get("custom_level_bg")
-    
+@bot.hybrid_command(name="help", description="Get help with bot commands")
+async def help_cmd(ctx):
+    """Display help information"""
     embed = discord.Embed(
-        title="🖼️ Level Card Backgrounds",
-        description=(
-            "Choose a preset background for your level card.\n"
-            f"**Current:** {'Custom URL' if current_bg and current_bg not in LEVEL_CARD_BACKGROUNDS.values() else 'Default' if not current_bg else next((k for k, v in LEVEL_CARD_BACKGROUNDS.items() if v == current_bg), 'Custom').replace('_', ' ').title()}\n\n"
-        ),
+        title="✝ THE FALLEN ✝",
+        description="**Welcome to the Fallen Bot!**\n\nSelect a category below to explore commands.",
         color=0x8B0000
     )
     
-    if not owns_bg:
-        embed.description += "⚠️ You need to purchase **Custom Level Card BG** from the shop (3,000 FC) first!"
-        embed.set_footer(text="Use !shop to buy | ✝ THE FALLEN ✝")
-        return await ctx.send(embed=embed)
-    
-    # Show available presets
-    preset_list = ""
-    for key, url in LEVEL_CARD_BACKGROUNDS.items():
-        if key == "default":
-            continue
-        label = key.replace("_", " ").title()
-        marker = " ← Current" if url == current_bg else ""
-        preset_list += f"• **{label}**{marker}\n"
-    
-    if preset_list:
-        embed.add_field(name="Available Presets", value=preset_list, inline=False)
-    
+    # Categories with emojis
     embed.add_field(
-        name="Custom URL",
-        value="Use `/setbackground <url>` for a custom image URL.",
+        name="━━━━━ User Commands ━━━━━",
+        value=(
+            "👤 **Member** - Verification & basics\n"
+            "📊 **Profile & Stats** - Cards & statistics\n"
+            "💰 **Economy & Shop** - Coins & items"
+        ),
         inline=False
     )
-    embed.set_footer(text="Select from dropdown below | ✝ THE FALLEN ✝")
     
-    await ctx.send(embed=embed, view=BackgroundView())
-
-
-@bot.command(name="dashsync", description="Staff: Force sync all data to PostgreSQL for dashboard")
-async def dashsync_cmd(ctx):
-    """Force sync main_data, duels_data, and warnings_data to PostgreSQL."""
-    if not is_staff(ctx.author):
-        return await ctx.send("❌ Staff only.", ephemeral=True)
-    
-    if not db_pool:
-        return await ctx.send("❌ PostgreSQL not connected.", ephemeral=True)
-    
-    msg = await ctx.send("⏳ Syncing all data to PostgreSQL...")
-    
-    synced = []
-    errors = []
-    
-    # 1. Main data
-    try:
-        main_data = load_data()
-        await save_data_to_postgres(main_data)
-        synced.append(f"✅ main_data ({len(main_data.get('users', {}))} users)")
-    except Exception as e:
-        errors.append(f"❌ main_data: {e}")
-    
-    # 2. Duels data
-    try:
-        duels_data = load_duels_data()
-        await save_duels_to_postgres(duels_data)
-        elo_count = len(duels_data.get("elo", {}))
-        history_count = len(duels_data.get("duel_history", []))
-        synced.append(f"✅ duels_data ({elo_count} ELO ratings, {history_count} matches)")
-    except Exception as e:
-        errors.append(f"❌ duels_data: {e}")
-    
-    # 3. Warnings data
-    try:
-        warnings_data = load_warnings_data()
-        await save_warnings_to_postgres(warnings_data)
-        warn_users = len(warnings_data.get("users", {}))
-        synced.append(f"✅ warnings_data ({warn_users} users with warnings)")
-    except Exception as e:
-        errors.append(f"❌ warnings_data: {e}")
-    
-    result = "**Dashboard Sync Complete!**\n\n"
-    result += "\n".join(synced)
-    if errors:
-        result += "\n\n**Errors:**\n" + "\n".join(errors)
-    
-    embed = discord.Embed(
-        title="📊 Dashboard Sync",
-        description=result,
-        color=0x2ecc71 if not errors else 0xe74c3c
+    embed.add_field(
+        name="━━━━━ Activities ━━━━━",
+        value=(
+            "📅 **Events** - Trainings & tryouts\n"
+            "📊 **Polls** - Availability scheduling\n"
+            "⚔️ **Duels & ELO** - 1v1 battles\n"
+            "🏆 **Tournaments** - Competitions\n"
+            "🆘 **Backup** - Request help"
+        ),
+        inline=False
     )
-    embed.set_footer(text="✝ THE FALLEN ✝ Dashboard")
-    await msg.edit(content=None, embed=embed)
-
-
-async def startup_dashboard_sync():
-    """Sync all local JSON data to PostgreSQL on bot startup.
-    Called from on_ready after DB is connected."""
-    if not db_pool:
-        return
     
-    print("📊 [Dashboard] Running startup sync...")
+    embed.add_field(
+        name="━━━━━ Ranking ━━━━━",
+        value=(
+            "📋 **Stage Transfer** - Rank transfers\n"
+            "🛡️ **Staff** - Moderation tools\n"
+            "⚙️ **Admin** - Server management"
+        ),
+        inline=False
+    )
     
-    # Sync duels
-    try:
-        duels = load_duels_data()
-        if duels and duels.get("elo"):
-            await save_duels_to_postgres(duels)
-            print(f"   ✅ duels_data synced ({len(duels.get('elo', {}))} ELO ratings)")
-    except Exception as e:
-        print(f"   ❌ duels_data sync failed: {e}")
+    embed.set_thumbnail(url=ctx.guild.icon.url if ctx.guild.icon else None)
+    embed.set_footer(text="Use the dropdown below to view commands • / or ! prefix")
     
-    # Sync warnings
-    try:
-        warnings = load_warnings_data()
-        if warnings and warnings.get("users"):
-            await save_warnings_to_postgres(warnings)
-            print(f"   ✅ warnings_data synced ({len(warnings.get('users', {}))} users)")
-    except Exception as e:
-        print(f"   ❌ warnings_data sync failed: {e}")
-    
-    print("📊 [Dashboard] Startup sync complete!")
-
-
-
-
-# ══════════════════════════════════════════════════════════════
-# PENDING ACTIONS — Dashboard queues actions, bot executes them
-# ══════════════════════════════════════════════════════════════
-
-
-# Pending actions poller
-@tasks.loop(seconds=30)
-async def dashboard_actions_loop():
-    """Poll for pending dashboard actions every 30 seconds."""
-    try:
-        await execute_pending_actions()
-    except Exception as e:
-        print(f"[ACTIONS LOOP] {e}")
-
-@dashboard_actions_loop.before_loop
-async def before_actions_loop():
-    await bot.wait_until_ready()
-    await asyncio.sleep(15)  # Wait 15s after ready
-
-
-async def init_pending_actions_table():
-    """Create the pending_dashboard_actions table if it doesn't exist."""
-    if not db_pool:
-        return
-    try:
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS pending_dashboard_actions (
-                    id SERIAL PRIMARY KEY,
-                    action_type TEXT NOT NULL,
-                    target_user_id BIGINT NOT NULL,
-                    staff_id BIGINT NOT NULL,
-                    staff_name TEXT,
-                    params JSONB DEFAULT '{}',
-                    status TEXT DEFAULT 'pending',
-                    result TEXT,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    executed_at TIMESTAMP
-                )
-            """)
-    except Exception as e:
-        print(f"[ACTIONS] Table create error: {e}")
-
-
-async def execute_pending_actions():
-    """Poll for and execute pending dashboard actions."""
-    if not db_pool:
-        return
-    try:
-        async with db_pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM pending_dashboard_actions WHERE status = 'pending' ORDER BY created_at LIMIT 10"
-            )
-        
-        if not rows:
-            return
-        
-        guild = bot.guilds[0] if bot.guilds else None
-        if not guild:
-            return
-        
-        for row in rows:
-            action_id = row["id"]
-            action_type = row["action_type"]
-            target_id = row["target_user_id"]
-            staff_id = row["staff_id"]
-            staff_name = row.get("staff_name", "Dashboard")
-            params = row.get("params", {}) or {}
-            result = "ok"
-            
-            try:
-                if action_type == "warn":
-                    # Warn a user
-                    category = params.get("category", "minor_offense")
-                    reason = params.get("reason", "Dashboard warning")
-                    data = load_warnings_data()
-                    uid = str(target_id)
-                    if uid not in data["users"]:
-                        data["users"][uid] = {"warnings": [], "total_points": 0}
-                    
-                    cat_info = WARNING_CATEGORIES.get(category, {"name": category, "points": 2})
-                    warn_id = len(data["users"][uid]["warnings"]) + 1
-                    warning = {
-                        "id": warn_id,
-                        "category": category,
-                        "category_name": cat_info.get("name", category),
-                        "reason": reason,
-                        "points": cat_info.get("points", 2),
-                        "staff_id": str(staff_id),
-                        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "expired": False,
-                    }
-                    data["users"][uid]["warnings"].append(warning)
-                    data["users"][uid]["total_points"] = sum(
-                        w["points"] for w in data["users"][uid]["warnings"] if not w.get("expired")
-                    )
-                    save_warnings_data(data)
-                    result = f"warned: {cat_info.get('name', category)} ({cat_info.get('points', 2)} pts)"
-                    
-                    # Try to DM the user
-                    try:
-                        member = guild.get_member(target_id)
-                        if member:
-                            embed = discord.Embed(
-                                title="⚠️ Warning Received",
-                                description=f"You received a warning in **The Fallen**",
-                                color=0xFF6600
-                            )
-                            embed.add_field(name="Category", value=cat_info.get("name", category), inline=True)
-                            embed.add_field(name="Points", value=str(cat_info.get("points", 2)), inline=True)
-                            embed.add_field(name="Total Points", value=str(data["users"][uid]["total_points"]), inline=True)
-                            if reason:
-                                embed.add_field(name="Reason", value=reason, inline=False)
-                            embed.set_footer(text="✝ The Fallen ✝ • Issued via Dashboard")
-                            await member.send(embed=embed)
-                    except:
-                        pass
-                    
-                    await log_action(guild, "⚠️ Dashboard Warning",
-                        f"**Target:** <@{target_id}>\n**Category:** {cat_info.get('name', category)}\n**Reason:** {reason}\n**By:** {staff_name} (Dashboard)",
-                        0xFF6600)
-                
-                elif action_type == "timeout":
-                    duration = int(params.get("duration_minutes", 10))
-                    reason = params.get("reason", "Dashboard timeout")
-                    member = guild.get_member(target_id)
-                    if member:
-                        await member.timeout(
-                            datetime.timedelta(minutes=duration),
-                            reason=f"Dashboard: {reason} (by {staff_name})"
-                        )
-                        result = f"timed out {duration}m"
-                        await log_action(guild, "🔇 Dashboard Timeout",
-                            f"**Target:** {member.mention}\n**Duration:** {duration}m\n**Reason:** {reason}\n**By:** {staff_name}",
-                            0xe74c3c)
-                    else:
-                        result = "error: member not found in guild"
-                
-                elif action_type == "remove_timeout":
-                    member = guild.get_member(target_id)
-                    if member:
-                        await member.timeout(None, reason=f"Timeout removed by {staff_name} via Dashboard")
-                        result = "timeout removed"
-                    else:
-                        result = "error: member not found"
-                
-                elif action_type == "add_xp":
-                    amount = int(params.get("amount", 0))
-                    if amount != 0:
-                        new_xp = add_xp_to_user(target_id, amount)
-                        result = f"xp {'added' if amount > 0 else 'removed'}: {amount} (total: {new_xp})"
-                        await log_action(guild, "✨ Dashboard XP Adjust",
-                            f"<@{target_id}> {'received' if amount > 0 else 'lost'} **{abs(amount):,} XP** (by {staff_name})",
-                            0xF1C40F)
-                
-                elif action_type == "add_coins":
-                    amount = int(params.get("amount", 0))
-                    reason = params.get("reason", "Dashboard adjustment")
-                    if amount != 0:
-                        new_bal = add_coins(target_id, amount, "staff_adjust", reason, staff_id)
-                        result = f"coins {'added' if amount > 0 else 'removed'}: {amount} (balance: {new_bal})"
-                        await log_action(guild, "💰 Dashboard Coin Adjust",
-                            f"<@{target_id}> {'received' if amount > 0 else 'lost'} **{abs(amount):,} FC** (by {staff_name})",
-                            0x2ecc71)
-                
-                elif action_type == "set_elo":
-                    new_elo = int(params.get("elo", 1000))
-                    duels_data = load_duels_data()
-                    duels_data["elo"][str(target_id)] = new_elo
-                    save_duels_data(duels_data)
-                    result = f"elo set to {new_elo}"
-                
-                elif action_type == "remove_warning":
-                    warn_id = int(params.get("warning_id", 0))
-                    data = load_warnings_data()
-                    uid = str(target_id)
-                    if uid in data["users"]:
-                        data["users"][uid]["warnings"] = [
-                            w for w in data["users"][uid]["warnings"] if w.get("id") != warn_id
-                        ]
-                        data["users"][uid]["total_points"] = sum(
-                            w["points"] for w in data["users"][uid]["warnings"] if not w.get("expired")
-                        )
-                        save_warnings_data(data)
-                        result = f"warning {warn_id} removed"
-                    else:
-                        result = "error: user has no warnings"
-                
-                else:
-                    result = f"error: unknown action type '{action_type}'"
-            
-            except Exception as e:
-                result = f"error: {str(e)[:200]}"
-                print(f"[ACTIONS] Error executing {action_type} for {target_id}: {e}")
-            
-            # Mark as completed
-            try:
-                async with db_pool.acquire() as conn:
-                    await conn.execute(
-                        "UPDATE pending_dashboard_actions SET status = 'completed', result = $1, executed_at = NOW() WHERE id = $2",
-                        result, action_id
-                    )
-            except Exception as e:
-                print(f"[ACTIONS] Mark complete error: {e}")
-            
-            print(f"[ACTIONS] Executed {action_type} for {target_id}: {result}")
-    
-    except Exception as e:
-        print(f"[ACTIONS] Poll error: {e}")
-
-
-@bot.hybrid_command(name="help", description="Get help with bot commands")
-async def help_cmd(ctx):
-    """Display the interactive help menu"""
-    embed = build_help_home(ctx.guild)
     await ctx.send(embed=embed, view=HelpView())
 
 # --- STAFF COMMANDS ---
@@ -17136,40 +16536,36 @@ async def leaderboards(ctx):
 # Global error handler for rate limits
 @bot.event
 async def on_command_error(ctx, error):
-    """Enhanced error handler with structured logging and friendly messages."""
+    """Handle command errors gracefully with friendly messages"""
     
-    # --- Guardian rate limit (already handled by Guardian cog) ---
-    if isinstance(error, commands.CheckFailure) and "Guardian rate limit" in str(error):
-        return
-    
-    # --- Cooldown errors — animated countdown feel ---
+    # Cooldown errors - show time remaining
     if isinstance(error, commands.CommandOnCooldown):
         minutes = int(error.retry_after // 60)
         seconds = int(error.retry_after % 60)
-        time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
         
-        # Different messages based on cooldown type
-        bucket = error.type
-        if bucket == commands.BucketType.guild:
-            scope = "This command is on a server-wide cooldown."
-        elif bucket == commands.BucketType.channel:
-            scope = "This command is on cooldown in this channel."
+        if minutes > 0:
+            time_str = f"{minutes}m {seconds}s"
         else:
-            scope = "This command is on cooldown for you."
+            time_str = f"{seconds}s"
         
         embed = discord.Embed(
             title="⏰ Cooldown Active",
-            description=f"{scope}\n\n**Try again in:** {time_str}",
+            description=(
+                f"This command is on cooldown!\n\n"
+                f"**Try again in:** {time_str}\n\n"
+                f"*Cooldowns help keep the bot running smoothly for everyone.*"
+            ),
             color=0xf39c12
         )
-        embed.set_footer(text="✝ The Fallen ✝ • Cooldowns keep things smooth")
+        embed.set_footer(text="✝ The Fallen ✝")
+        
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except Exception:
+        except:
             pass
         return
     
-    # --- Permission errors ---
+    # Permission errors
     elif isinstance(error, commands.MissingPermissions):
         missing = ", ".join(error.missing_permissions)
         embed = discord.Embed(
@@ -17179,11 +16575,11 @@ async def on_command_error(ctx, error):
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except Exception:
+        except:
             pass
         return
     
-    elif isinstance(error, (commands.MissingRole, commands.MissingAnyRole)):
+    elif isinstance(error, commands.MissingRole):
         embed = discord.Embed(
             title="🔒 Role Required",
             description="You don't have the required role for this command.",
@@ -17191,7 +16587,19 @@ async def on_command_error(ctx, error):
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except Exception:
+        except:
+            pass
+        return
+    
+    elif isinstance(error, commands.MissingAnyRole):
+        embed = discord.Embed(
+            title="🔒 Role Required",
+            description="You need one of the required roles to use this command.",
+            color=0xe74c3c
+        )
+        try:
+            await ctx.send(embed=embed, delete_after=10)
+        except:
             pass
         return
     
@@ -17199,235 +16607,158 @@ async def on_command_error(ctx, error):
         missing = ", ".join(error.missing_permissions)
         embed = discord.Embed(
             title="⚠️ Bot Missing Permissions",
-            description=f"I need the following permissions:\n`{missing}`\n\nPlease contact a server admin.",
+            description=f"I need the following permissions to do that:\n`{missing}`\n\nPlease contact a server admin.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=15)
-        except Exception:
+        except:
             pass
         return
     
-    # --- Check failures (staff-only commands used by non-staff, etc.) ---
-    elif isinstance(error, commands.CheckFailure):
-        # Don't spam generic check failures — most are intentional permission gates
-        return
-    
-    # --- Rate limit errors ---
+    # Rate limit errors
     elif isinstance(error, commands.CommandInvokeError):
         original = error.original
         
-        # Discord rate limits (429)
-        if isinstance(original, discord.HTTPException) and original.status == 429:
+        # Check for rate limits (429 errors)
+        if hasattr(original, 'status') and original.status == 429:
             retry_after = getattr(original, 'retry_after', 60)
             minutes = int(retry_after // 60) + 1
+            
             embed = discord.Embed(
                 title="🚫 Rate Limited",
                 description=(
-                    f"Discord is rate limiting the bot.\n\n"
+                    f"Discord is rate limiting the bot to prevent spam.\n\n"
                     f"**Please wait:** ~{minutes} minute(s)\n\n"
-                    f"*This is Discord's spam protection — not a bug!*"
+                    f"*This is a Discord protection - not a bug!*"
                 ),
                 color=0xe74c3c
             )
             embed.set_footer(text="✝ The Fallen ✝")
+            
             try:
                 await ctx.send(embed=embed, delete_after=30)
-            except Exception:
+            except:
                 pass
-            print(f"[RATE LIMIT] Command: {ctx.command}, Retry: {retry_after}s")
-            return
-        
-        # Discord Forbidden (missing perms at API level)
-        elif isinstance(original, discord.Forbidden):
-            embed = discord.Embed(
-                title="⚠️ Action Blocked",
-                description=(
-                    "I don't have permission to do that.\n\n"
-                    "This usually means I need a higher role position "
-                    "or specific channel permissions."
-                ),
-                color=0xe74c3c
-            )
-            try:
-                await ctx.send(embed=embed, delete_after=15)
-            except Exception:
-                pass
-            cmd_name = ctx.command.name if ctx.command else "unknown"
-            print(f"[FORBIDDEN] !{cmd_name} by {ctx.author} in #{ctx.channel.name}: {original}")
-            return
-        
-        # Discord NotFound (deleted message/channel/user)
-        elif isinstance(original, discord.NotFound):
-            embed = discord.Embed(
-                title="❌ Not Found",
-                description="The target message, channel, or user no longer exists.",
-                color=0xe74c3c
-            )
-            try:
-                await ctx.send(embed=embed, delete_after=10)
-            except Exception:
-                pass
-            return
-        
-        # All other invoke errors — log with full traceback
-        else:
-            cmd_name = ctx.command.name if ctx.command else "unknown"
-            tb = "".join(traceback.format_exception(type(original), original, original.__traceback__))
-            print(f"[ERROR] !{cmd_name} by {ctx.author} in #{ctx.channel.name}")
-            print(f"  Type: {type(original).__name__}")
-            print(f"  Message: {original}")
-            print(f"  Traceback:\n{tb}")
             
-            embed = discord.Embed(
-                title="❌ Something Went Wrong",
-                description=(
-                    f"An error occurred while processing `!{cmd_name}`.\n\n"
-                    f"**What to do:**\n"
-                    f"• Wait a few seconds and try again\n"
-                    f"• Make sure you're using the command correctly\n"
-                    f"• If it persists, let staff know\n\n"
-                    f"*The error has been logged automatically.*"
-                ),
-                color=0xe74c3c
-            )
-            embed.set_footer(text="✝ The Fallen ✝ • Error logged")
-            try:
-                await ctx.send(embed=embed, delete_after=15)
-            except Exception:
-                pass
+            print(f"[RATE LIMIT] Command: {ctx.command}, Retry after: {retry_after}s")
             return
+        
+        # Check for HTTPException with rate limit
+        elif isinstance(original, discord.HTTPException):
+            if original.status == 429 or "rate limit" in str(original).lower():
+                embed = discord.Embed(
+                    title="🚫 Rate Limited",
+                    description=(
+                        f"Discord is temporarily limiting requests.\n\n"
+                        f"**Please wait:** ~1-2 minutes\n\n"
+                        f"*The bot is fine - just need to slow down!*"
+                    ),
+                    color=0xe74c3c
+                )
+                try:
+                    await ctx.send(embed=embed, delete_after=30)
+                except:
+                    pass
+                return
     
-    # --- Generic rate limit in error string ---
+    # Generic rate limit check in error string
     elif "429" in str(error) or "rate limit" in str(error).lower():
         embed = discord.Embed(
             title="🚫 Rate Limited",
-            description="Discord is temporarily limiting requests. Please wait ~1-2 minutes.",
+            description=(
+                f"Discord is temporarily limiting requests.\n\n"
+                f"**Please wait:** ~1-2 minutes\n\n"
+                f"*Try again shortly!*"
+            ),
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=30)
-        except Exception:
+        except:
             pass
         print(f"[RATE LIMIT] {error}")
         return
     
-    # --- User input errors (friendly messages) ---
+    # Member not found
     elif isinstance(error, commands.MemberNotFound):
         embed = discord.Embed(
             title="❌ Member Not Found",
-            description=f"Could not find that member. Try mentioning them with @.",
+            description=f"Could not find that member. Make sure you're mentioning them correctly.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except Exception:
+        except:
             pass
         return
     
+    # Role not found
     elif isinstance(error, commands.RoleNotFound):
         embed = discord.Embed(
             title="❌ Role Not Found",
-            description=f"Could not find that role. Check the spelling or mention it with @.",
+            description=f"Could not find that role. Make sure you're mentioning it correctly.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except Exception:
+        except:
             pass
         return
     
+    # Channel not found
     elif isinstance(error, commands.ChannelNotFound):
         embed = discord.Embed(
             title="❌ Channel Not Found",
-            description="Could not find that channel. Try mentioning it with #.",
+            description=f"Could not find that channel.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except Exception:
+        except:
             pass
         return
     
+    # Bad argument
     elif isinstance(error, commands.BadArgument):
-        cmd_name = ctx.command.name if ctx.command else "command"
         embed = discord.Embed(
             title="❌ Invalid Input",
-            description=f"One of your inputs for `!{cmd_name}` was invalid.\n\nCheck `!help` for correct usage.",
+            description=f"One of your inputs was invalid. Check the command usage.",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except Exception:
+        except:
             pass
         return
     
+    # Missing required argument
     elif isinstance(error, commands.MissingRequiredArgument):
-        cmd_name = ctx.command.name if ctx.command else "command"
         embed = discord.Embed(
             title="❌ Missing Argument",
-            description=f"You're missing a required input: **{error.param.name}**\n\nCheck `!help` for correct usage.",
+            description=f"You're missing a required input: `{error.param.name}`",
             color=0xe74c3c
         )
         try:
             await ctx.send(embed=embed, delete_after=10)
-        except Exception:
+        except:
             pass
         return
     
-    elif isinstance(error, commands.TooManyArguments):
-        cmd_name = ctx.command.name if ctx.command else "command"
-        embed = discord.Embed(
-            title="❌ Too Many Arguments",
-            description=f"You provided too many inputs for `!{cmd_name}`.\n\nCheck `!help` for correct usage.",
-            color=0xe74c3c
-        )
-        try:
-            await ctx.send(embed=embed, delete_after=10)
-        except Exception:
-            pass
-        return
-    
-    elif isinstance(error, commands.DisabledCommand):
-        embed = discord.Embed(
-            title="🔒 Command Disabled",
-            description="This command is currently disabled.",
-            color=0xe74c3c
-        )
-        try:
-            await ctx.send(embed=embed, delete_after=10)
-        except Exception:
-            pass
-        return
-    
-    elif isinstance(error, commands.MaxConcurrencyReached):
-        embed = discord.Embed(
-            title="⏳ Command Busy",
-            description="This command is already being used. Please wait for it to finish.",
-            color=0xf39c12
-        )
-        try:
-            await ctx.send(embed=embed, delete_after=10)
-        except Exception:
-            pass
-        return
-    
-    # --- Command not found — silent ---
+    # Command not found - ignore silently
     elif isinstance(error, commands.CommandNotFound):
         return
     
-    # --- Catch-all for anything else ---
+    # Log other errors
     else:
-        cmd_name = ctx.command.name if ctx.command else "unknown"
-        print(f"[UNHANDLED ERROR] !{cmd_name} by {ctx.author}: {type(error).__name__}: {error}")
-        import traceback as tb_mod
-        tb_mod.print_exception(type(error), error, error.__traceback__)
+        print(f"[ERROR] Command: {ctx.command}, Error: {error}")
 
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
-    """Enhanced slash command error handler."""
+    """Handle slash command errors with friendly messages"""
     
+    # Check if already responded
     responded = interaction.response.is_done()
     
     async def send_error(embed):
@@ -17436,18 +16767,25 @@ async def on_app_command_error(interaction: discord.Interaction, error):
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 await interaction.response.send_message(embed=embed, ephemeral=True)
-        except Exception:
+        except:
             pass
     
     # Cooldown
     if isinstance(error, discord.app_commands.errors.CommandOnCooldown):
         minutes = int(error.retry_after // 60)
         seconds = int(error.retry_after % 60)
-        time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+        
+        if minutes > 0:
+            time_str = f"{minutes}m {seconds}s"
+        else:
+            time_str = f"{seconds}s"
         
         embed = discord.Embed(
             title="⏰ Cooldown Active",
-            description=f"This command is on cooldown.\n\n**Try again in:** {time_str}",
+            description=(
+                f"This command is on cooldown!\n\n"
+                f"**Try again in:** {time_str}"
+            ),
             color=0xf39c12
         )
         await send_error(embed)
@@ -17463,6 +16801,7 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         await send_error(embed)
         return
     
+    # Missing role
     elif isinstance(error, discord.app_commands.errors.MissingRole):
         embed = discord.Embed(
             title="🔒 Role Required",
@@ -17472,6 +16811,7 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         await send_error(embed)
         return
     
+    # Bot missing permissions
     elif isinstance(error, discord.app_commands.errors.BotMissingPermissions):
         embed = discord.Embed(
             title="⚠️ Bot Missing Permissions",
@@ -17481,61 +16821,36 @@ async def on_app_command_error(interaction: discord.Interaction, error):
         await send_error(embed)
         return
     
-    elif isinstance(error, discord.app_commands.errors.CheckFailure):
-        # Silent — permission gates
-        return
-    
     # Rate limits
     elif "429" in str(error) or "rate limit" in str(error).lower():
         embed = discord.Embed(
             title="🚫 Rate Limited",
-            description="Discord is temporarily limiting requests. Please wait ~1-2 minutes.",
-            color=0xe74c3c
-        )
-        await send_error(embed)
-        print(f"[RATE LIMIT] Slash: {error}")
-        return
-    
-    # App command invoke errors (the actual crashes)
-    elif isinstance(error, discord.app_commands.errors.CommandInvokeError):
-        original = error.original
-        cmd_name = interaction.command.name if interaction.command else "unknown"
-        
-        # Full traceback to console
-        tb = "".join(traceback.format_exception(type(original), original, original.__traceback__))
-        print(f"[SLASH ERROR] /{cmd_name} by {interaction.user} in #{interaction.channel}")
-        print(f"  Type: {type(original).__name__}")
-        print(f"  Message: {original}")
-        print(f"  Traceback:\n{tb}")
-        
-        embed = discord.Embed(
-            title="❌ Something Went Wrong",
             description=(
-                f"An error occurred with `/{cmd_name}`.\n\n"
-                f"**What to do:**\n"
-                f"• Wait a few seconds and try again\n"
-                f"• If it persists, let staff know\n\n"
-                f"*The error has been logged.*"
+                f"Discord is temporarily limiting requests.\n\n"
+                f"**Please wait:** ~1-2 minutes\n\n"
+                f"*This protects the server from spam!*"
             ),
             color=0xe74c3c
         )
         await send_error(embed)
+        print(f"[RATE LIMIT] Slash command error: {error}")
         return
     
     # Generic error
     else:
-        cmd_name = interaction.command.name if interaction.command else "unknown"
-        print(f"[SLASH ERROR] /{cmd_name} by {interaction.user}: {type(error).__name__}: {error}")
-        
         embed = discord.Embed(
             title="❌ Something Went Wrong",
             description=(
-                f"An error occurred. Please try again.\n\n"
+                f"An error occurred while processing your request.\n\n"
+                f"**What to do:**\n"
+                f"• Wait a few seconds and try again\n"
+                f"• If it persists, contact staff\n\n"
                 f"*The issue has been logged.*"
             ),
             color=0xe74c3c
         )
         await send_error(embed)
+        print(f"[ERROR] Slash command: {interaction.command}, Error: {error}")
 
 
 # Global interaction error handler for buttons/modals
@@ -24937,6 +24252,598 @@ async def setup_poll_views():
 
 # ============================================================
 # END POLL SYSTEM
+# ============================================================
+
+
+# ============================================================
+# DASHBOARD INTEGRATION SYSTEM
+# ============================================================
+
+@tasks.loop(seconds=30)
+async def process_dashboard_actions():
+    """Process pending actions queued from the web dashboard."""
+    if not db_pool:
+        return
+    
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM pending_dashboard_actions WHERE status = 'pending' ORDER BY created_at ASC LIMIT 10"
+            )
+    except Exception:
+        return
+    
+    if not rows:
+        return
+    
+    guild = None
+    for g in bot.guilds:
+        guild = g
+        break
+    if not guild:
+        return
+    
+    for row in rows:
+        action_id = row["id"]
+        action_type = row["action_type"]
+        target_id = row["target_user_id"]
+        params = json.loads(row["params"]) if row["params"] else {}
+        result = "success"
+        
+        try:
+            member = guild.get_member(target_id)
+            uid = str(target_id)
+            data = load_data()
+            data = ensure_user_structure(data, uid)
+            
+            if action_type == "warn":
+                # Use the bot's warning system
+                category = params.get("category", "spam")
+                reason = params.get("reason", "Dashboard action")
+                staff_name = row.get("staff_name", "Dashboard")
+                
+                # Import warning categories from the bot's system
+                cat_data = WARNING_CATEGORIES.get(category, {"points": 1, "name": category})
+                
+                wdata = load_warnings_data()
+                if uid not in wdata["users"]:
+                    wdata["users"][uid] = {"warnings": [], "total_points": 0}
+                
+                warning = {
+                    "id": len(wdata["users"][uid]["warnings"]) + 1,
+                    "category": category,
+                    "category_name": cat_data["name"],
+                    "points": cat_data["points"],
+                    "reason": reason,
+                    "issued_by": str(row.get("staff_id", 0)),
+                    "issued_by_name": staff_name,
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "expired": False
+                }
+                wdata["users"][uid]["warnings"].append(warning)
+                wdata["users"][uid]["total_points"] = sum(
+                    w["points"] for w in wdata["users"][uid]["warnings"] if not w.get("expired")
+                )
+                
+                # Add to recent warnings
+                recent = {"user_id": target_id, "roblox_username": data["users"][uid].get("roblox_username", "Unknown"), **warning}
+                wdata.setdefault("recent_warnings", []).insert(0, recent)
+                wdata["recent_warnings"] = wdata["recent_warnings"][:100]
+                
+                save_warnings_data(wdata)
+                
+                # Auto-punish if threshold hit
+                total_pts = wdata["users"][uid]["total_points"]
+                if cat_data.get("instant_ban") or total_pts >= 10:
+                    if member:
+                        try:
+                            await member.ban(reason=f"Warning threshold: {total_pts} points ({reason})")
+                        except:
+                            pass
+                elif total_pts >= 8 and member:
+                    try:
+                        await member.timeout(datetime.timedelta(hours=24), reason=f"Warning points: {total_pts}")
+                    except:
+                        pass
+                elif total_pts >= 5 and member:
+                    try:
+                        await member.timeout(datetime.timedelta(hours=1), reason=f"Warning points: {total_pts}")
+                    except:
+                        pass
+                
+            elif action_type == "timeout":
+                if member:
+                    duration = datetime.timedelta(minutes=params.get("duration_minutes", 10))
+                    await member.timeout(duration, reason=params.get("reason", "Dashboard timeout"))
+                else:
+                    result = "error: member not in server"
+                    
+            elif action_type == "kick":
+                if member:
+                    await member.kick(reason=params.get("reason", "Dashboard kick"))
+                else:
+                    result = "error: member not in server"
+                    
+            elif action_type == "ban":
+                if member:
+                    await member.ban(reason=params.get("reason", "Dashboard ban"), delete_message_days=0)
+                elif target_id:
+                    try:
+                        await guild.ban(discord.Object(id=target_id), reason=params.get("reason", "Dashboard ban"))
+                    except:
+                        result = "error: could not ban user"
+                        
+            elif action_type == "add_xp":
+                amount = params.get("amount", 0)
+                data["users"][uid]["xp"] = max(0, (data["users"][uid].get("xp", 0) or 0) + amount)
+                # Recalculate level
+                total_xp = data["users"][uid]["xp"]
+                new_level, _ = get_level_from_xp(total_xp)
+                data["users"][uid]["level"] = new_level
+                save_data(data)
+                    
+            elif action_type == "add_coins":
+                amount = params.get("amount", 0)
+                new_coins = max(0, min(MAX_COINS, (data["users"][uid].get("coins", 0) or 0) + amount))
+                data["users"][uid]["coins"] = new_coins
+                save_data(data)
+                    
+            elif action_type == "set_elo":
+                new_elo = params.get("elo", 1000)
+                duels = load_duels_data()
+                duels["elo"][uid] = new_elo
+                save_duels_data(duels)
+                    
+            elif action_type == "set_bg":
+                bg_key = params.get("bg_key", "")
+                # Resolve key to URL from LEVEL_CARD_BACKGROUNDS
+                bg_url = LEVEL_CARD_BACKGROUNDS.get(bg_key)
+                if bg_url:
+                    data["users"][uid]["custom_level_bg"] = bg_url
+                    save_data(data)
+                elif bg_key == "default":
+                    data["users"][uid]["custom_level_bg"] = None
+                    save_data(data)
+                else:
+                    result = f"error: unknown bg key '{bg_key}'"
+                    
+            elif action_type == "remove_warning":
+                warning_id = params.get("warning_id", 0)
+                wdata = load_warnings_data()
+                if uid in wdata["users"]:
+                    warnings = wdata["users"][uid].get("warnings", [])
+                    for w in warnings:
+                        if w.get("id") == warning_id:
+                            w["expired"] = True
+                            break
+                    wdata["users"][uid]["total_points"] = sum(
+                        w["points"] for w in warnings if not w.get("expired")
+                    )
+                    save_warnings_data(wdata)
+                    
+        except Exception as e:
+            result = f"error: {str(e)[:200]}"
+            print(f"[DASHBOARD] Action {action_type} error: {e}")
+        
+        # Mark action as done
+        try:
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE pending_dashboard_actions SET status = $1, result = $2, executed_at = NOW() WHERE id = $3",
+                    "done" if result == "success" else "failed", result, action_id
+                )
+        except Exception as e:
+            print(f"[DASHBOARD] Failed to update action status: {e}")
+
+@process_dashboard_actions.before_loop
+async def before_dashboard_actions():
+    await bot.wait_until_ready()
+
+
+@bot.command(name="dashsync")
+@commands.has_role(STAFF_ROLE_NAME)
+async def dashsync(ctx):
+    """Sync all bot data to the dashboard database."""
+    if not db_pool:
+        await ctx.send("❌ PostgreSQL not connected. Set `DATABASE_URL` in Render environment.")
+        return
+    
+    msg = await ctx.send("🔄 Starting dashboard sync...")
+    errors = []
+    synced = []
+    
+    # 1. Sync avatar URLs for all members
+    try:
+        data = load_data()
+        avatar_count = 0
+        for member in ctx.guild.members:
+            uid = str(member.id)
+            if uid in data["users"]:
+                if member.avatar:
+                    data["users"][uid]["avatar_url"] = str(member.avatar.url).split("?")[0] + "?size=128"
+                else:
+                    data["users"][uid]["avatar_url"] = f"https://cdn.discordapp.com/embed/avatars/{member.id % 5}.png"
+                # Also sync username if missing
+                if not data["users"][uid].get("username"):
+                    data["users"][uid]["username"] = member.display_name
+                avatar_count += 1
+        save_data(data)
+        synced.append(f"✅ Avatars: {avatar_count} users")
+    except Exception as e:
+        errors.append(f"❌ Avatars: {e}")
+    
+    await asyncio.sleep(1)
+    
+    # 2. Sync main_data to json_data table
+    try:
+        data = load_data()
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO json_data (key, data, updated_at)
+                VALUES ('main_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+        user_count = len(data.get("users", {}))
+        synced.append(f"✅ Main data: {user_count} users")
+    except Exception as e:
+        errors.append(f"❌ Main data: {e}")
+    
+    await asyncio.sleep(1)
+    
+    # 3. Sync duels_data
+    try:
+        duels = load_duels_data()
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO json_data (key, data, updated_at)
+                VALUES ('duels_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(duels))
+        elo_count = len(duels.get("elo", {}))
+        synced.append(f"✅ Duels data: {elo_count} ELO entries")
+    except Exception as e:
+        errors.append(f"❌ Duels data: {e}")
+    
+    await asyncio.sleep(1)
+    
+    # 4. Sync warnings_data
+    try:
+        warnings = load_warnings_data()
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO json_data (key, data, updated_at)
+                VALUES ('warnings_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(warnings))
+        warn_users = len(warnings.get("users", {}))
+        synced.append(f"✅ Warnings: {warn_users} users with warnings")
+    except Exception as e:
+        errors.append(f"❌ Warnings: {e}")
+    
+    await asyncio.sleep(1)
+    
+    # 5. Sync guardian stats
+    try:
+        guardian = {
+            "commands_today": 0, "errors_today": 0, "active_abuse_flags": 0,
+            "abuse_scores": {}, "top_users_today": [], "restricted_users": [],
+            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "guild_member_count": ctx.guild.member_count,
+            "guild_name": ctx.guild.name
+        }
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO json_data (key, data, updated_at)
+                VALUES ('guardian_stats', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(guardian))
+        synced.append("✅ Guardian stats")
+    except Exception as e:
+        errors.append(f"❌ Guardian: {e}")
+    
+    # 6. Ensure dashboard tables exist
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute('''CREATE TABLE IF NOT EXISTS dashboard_audit_log (
+                id SERIAL PRIMARY KEY, staff_id BIGINT NOT NULL, staff_name TEXT,
+                action TEXT NOT NULL, target_id BIGINT, details TEXT,
+                created_at TIMESTAMP DEFAULT NOW())''')
+            await conn.execute('''CREATE TABLE IF NOT EXISTS staff_roles (
+                id SERIAL PRIMARY KEY, discord_user_id BIGINT UNIQUE NOT NULL,
+                display_name TEXT DEFAULT '', permission_tier INTEGER DEFAULT 1,
+                added_by BIGINT, created_at TIMESTAMP DEFAULT NOW())''')
+            await conn.execute('''CREATE TABLE IF NOT EXISTS role_config (
+                id SERIAL PRIMARY KEY, discord_role_id BIGINT UNIQUE NOT NULL,
+                role_name TEXT DEFAULT '', permission_tier INTEGER DEFAULT 1,
+                added_by BIGINT, created_at TIMESTAMP DEFAULT NOW())''')
+            await conn.execute('''CREATE TABLE IF NOT EXISTS pending_dashboard_actions (
+                id SERIAL PRIMARY KEY, action_type TEXT NOT NULL, target_user_id BIGINT NOT NULL,
+                staff_id BIGINT NOT NULL, staff_name TEXT, params JSONB DEFAULT '{}',
+                status TEXT DEFAULT 'pending', result TEXT,
+                created_at TIMESTAMP DEFAULT NOW(), executed_at TIMESTAMP)''')
+            # Dashboard tournament tables (separate from bot's tournament system)
+            await conn.execute('''CREATE TABLE IF NOT EXISTS tournaments (
+                id SERIAL PRIMARY KEY, title TEXT NOT NULL, status TEXT DEFAULT 'draft',
+                bracket_size INTEGER DEFAULT 8, entry_requirement TEXT DEFAULT '',
+                entry_fee INTEGER DEFAULT 0, prize_pool TEXT DEFAULT '',
+                match_rules TEXT DEFAULT '', bracket JSONB DEFAULT '[]',
+                created_by BIGINT, created_at TIMESTAMP DEFAULT NOW(),
+                started_at TIMESTAMP, completed_at TIMESTAMP)
+            ''')
+            await conn.execute('''CREATE TABLE IF NOT EXISTS tournament_participants (
+                id SERIAL PRIMARY KEY, tournament_id INTEGER REFERENCES tournaments(id),
+                user_id BIGINT NOT NULL, seed INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'active', eliminated_at TIMESTAMP,
+                UNIQUE(tournament_id, user_id))
+            ''')
+        synced.append("✅ Dashboard tables verified")
+    except Exception as e:
+        errors.append(f"❌ Tables: {e}")
+    
+    # Build response
+    report = "**Dashboard Sync Complete!**\n\n"
+    report += "\n".join(synced)
+    if errors:
+        report += "\n\n**Errors:**\n" + "\n".join(errors)
+    
+    await msg.edit(content=report)
+
+
+@bot.command(name="dashcheck")
+@commands.has_role(STAFF_ROLE_NAME)
+async def dashcheck(ctx):
+    """Diagnose dashboard connection issues."""
+    lines = []
+    
+    # Check DATABASE_URL
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        lines.append("✅ DATABASE_URL is set")
+    else:
+        lines.append("❌ DATABASE_URL not set — dashboard sync won't work!")
+        return await ctx.send("```\n" + "\n".join(lines) + "\n```")
+    
+    # Check DB pool
+    if db_pool:
+        lines.append("✅ Database pool active")
+    else:
+        lines.append("❌ No database pool — DB not connected")
+        return await ctx.send("```\n" + "\n".join(lines) + "\n```")
+    
+    # Check json_data table
+    try:
+        async with db_pool.acquire() as conn:
+            for key in ["main_data", "duels_data", "warnings_data", "guardian_stats"]:
+                row = await conn.fetchrow("SELECT LENGTH(data::text) as size, updated_at FROM json_data WHERE key=$1", key)
+                if row:
+                    updated = row["updated_at"].strftime("%Y-%m-%d %H:%M") if row["updated_at"] else "?"
+                    lines.append(f"✅ {key}: {row['size']:,} bytes (updated: {updated})")
+                else:
+                    lines.append(f"⚠️ {key}: NOT SYNCED — run !dashsync")
+    except Exception as e:
+        lines.append(f"❌ json_data query failed: {e}")
+    
+    # Check dashboard tables
+    for table in ["staff_roles", "role_config", "dashboard_audit_log", "pending_dashboard_actions"]:
+        try:
+            async with db_pool.acquire() as conn:
+                count = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
+                lines.append(f"✅ {table}: {count} rows")
+        except:
+            lines.append(f"⚠️ {table}: not found (run !dashsync to create)")
+    
+    # Check tournament tables
+    try:
+        async with db_pool.acquire() as conn:
+            active = await conn.fetchval("SELECT COUNT(*) FROM tournaments WHERE status IN ('open','active')")
+            lines.append(f"🏆 Active tournaments: {active}")
+    except:
+        lines.append("⚠️ tournaments table: not found")
+    
+    # Check pending actions
+    try:
+        async with db_pool.acquire() as conn:
+            pending = await conn.fetchval("SELECT COUNT(*) FROM pending_dashboard_actions WHERE status='pending'")
+            lines.append(f"📋 Pending dashboard actions: {pending}")
+    except:
+        pass
+    
+    # Local stats
+    data = load_data()
+    lines.append(f"📊 Local users: {len(data.get('users', {}))}")
+    
+    # Check avatar coverage
+    has_avatar = sum(1 for u in data.get("users", {}).values() if u.get("avatar_url"))
+    lines.append(f"🖼️ Users with avatars: {has_avatar}/{len(data.get('users', {}))}")
+    
+    # Environment
+    dash_url = os.getenv("DASHBOARD_URL")
+    lines.append(f"{'✅' if dash_url else '⚠️'} DASHBOARD_URL: {dash_url or 'NOT SET'}")
+    
+    # Dashboard actions loop
+    if hasattr(bot, 'dashboard_actions_started') and bot.dashboard_actions_started:
+        lines.append("✅ Dashboard actions loop: RUNNING")
+    else:
+        lines.append("⚠️ Dashboard actions loop: NOT STARTED")
+    
+    await ctx.send("```\n" + "\n".join(lines) + "\n```")
+
+
+@bot.command(name="dash_tournaments", aliases=["dtournaments"])
+async def dash_tournaments_cmd(ctx):
+    """Show active tournaments from the dashboard."""
+    if not db_pool:
+        await ctx.send("❌ Database not connected.")
+        return
+    
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM tournaments WHERE status IN ('open','active') ORDER BY created_at DESC LIMIT 5"
+            )
+    except Exception as e:
+        await ctx.send(f"❌ Error fetching tournaments: {e}")
+        return
+    
+    if not rows:
+        await ctx.send("No active tournaments right now. Staff can create them from the dashboard.")
+        return
+    
+    embed = discord.Embed(
+        title="🏆 Active Tournaments",
+        color=0x8B0000,
+        description="Join tournaments from the dashboard or with `!tourney_join <id>`"
+    )
+    
+    for t in rows:
+        status_emoji = "📋" if t["status"] == "open" else "⚔️"
+        try:
+            async with db_pool.acquire() as conn:
+                p_count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM tournament_participants WHERE tournament_id = $1", t["id"]
+                )
+        except:
+            p_count = 0
+        
+        embed.add_field(
+            name=f"{status_emoji} #{t['id']}: {t['title']}",
+            value=(
+                f"Status: **{t['status'].upper()}**\n"
+                f"Players: **{p_count}/{t['bracket_size']}**\n"
+                f"Entry Fee: **{t['entry_fee']} FC**\n"
+                f"Prize: {t['prize_pool'] or 'TBD'}\n"
+                f"{t['entry_requirement'] or ''}"
+            ),
+            inline=True
+        )
+    
+    embed.set_footer(text="✝ The Fallen ✝ • Use !tourney_join <id> to register")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="tourney_join", aliases=["tjoin"])
+async def tourney_join_cmd(ctx, tournament_id: int):
+    """Join an open dashboard tournament."""
+    if not db_pool:
+        await ctx.send("❌ Database not connected.")
+        return
+    
+    try:
+        async with db_pool.acquire() as conn:
+            t = await conn.fetchrow(
+                "SELECT * FROM tournaments WHERE id = $1 AND status = 'open'", tournament_id
+            )
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+        return
+    
+    if not t:
+        await ctx.send("❌ Tournament not found or not open for registration.")
+        return
+    
+    # Check if already registered
+    try:
+        async with db_pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT * FROM tournament_participants WHERE tournament_id = $1 AND user_id = $2",
+                tournament_id, ctx.author.id
+            )
+    except:
+        existing = None
+    
+    if existing:
+        await ctx.send("You're already registered for this tournament!")
+        return
+    
+    # Check capacity
+    try:
+        async with db_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM tournament_participants WHERE tournament_id = $1", tournament_id
+            )
+    except:
+        count = 0
+    
+    if count >= t["bracket_size"]:
+        await ctx.send("❌ Tournament is full!")
+        return
+    
+    # Check entry fee
+    if t["entry_fee"] > 0:
+        data = load_data()
+        uid = str(ctx.author.id)
+        data = ensure_user_structure(data, uid)
+        user_coins = data["users"][uid].get("coins", 0) or 0
+        if user_coins < t["entry_fee"]:
+            await ctx.send(f"❌ You need **{t['entry_fee']} FC** to enter. You have **{user_coins} FC**.")
+            return
+        # Deduct fee
+        data["users"][uid]["coins"] -= t["entry_fee"]
+        save_data(data)
+    
+    # Register
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO tournament_participants (tournament_id, user_id, seed) VALUES ($1, $2, $3)",
+                tournament_id, ctx.author.id, count + 1
+            )
+    except Exception as e:
+        await ctx.send(f"❌ Registration failed: {e}")
+        return
+    
+    embed = discord.Embed(
+        title="✅ Registered!",
+        description=f"You've joined **{t['title']}** as seed #{count + 1}",
+        color=0x2ECC71
+    )
+    if t["entry_fee"] > 0:
+        embed.add_field(name="Entry Fee Paid", value=f"{t['entry_fee']} FC")
+    embed.set_footer(text="✝ The Fallen ✝")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="tourney_leave", aliases=["tleave"])
+async def tourney_leave_cmd(ctx, tournament_id: int):
+    """Leave an open tournament you've joined."""
+    if not db_pool:
+        await ctx.send("❌ Database not connected.")
+        return
+    
+    try:
+        async with db_pool.acquire() as conn:
+            t = await conn.fetchrow(
+                "SELECT * FROM tournaments WHERE id = $1 AND status = 'open'", tournament_id
+            )
+            if not t:
+                await ctx.send("❌ Tournament not found or registration is closed.")
+                return
+            
+            deleted = await conn.execute(
+                "DELETE FROM tournament_participants WHERE tournament_id = $1 AND user_id = $2",
+                tournament_id, ctx.author.id
+            )
+            
+            if "DELETE 0" in str(deleted):
+                await ctx.send("You aren't registered for this tournament.")
+                return
+            
+            # Refund entry fee
+            if t["entry_fee"] > 0:
+                data = load_data()
+                uid = str(ctx.author.id)
+                data = ensure_user_structure(data, uid)
+                data["users"][uid]["coins"] = (data["users"][uid].get("coins", 0) or 0) + t["entry_fee"]
+                save_data(data)
+                await ctx.send(f"✅ Left **{t['title']}**. **{t['entry_fee']} FC** refunded.")
+            else:
+                await ctx.send(f"✅ Left **{t['title']}**.")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+
+
+# ============================================================
+# END DASHBOARD INTEGRATION
 # ============================================================
 
 
