@@ -11905,6 +11905,18 @@ async def on_ready():
         bot.dashboard_actions_started = True
         print("✅ Dashboard actions processor started!")
     
+    # Start dashboard heartbeat
+    if not hasattr(bot, 'heartbeat_started'):
+        dashboard_heartbeat.start()
+        bot.heartbeat_started = True
+        print("✅ Dashboard heartbeat started!")
+    
+    # Start auto data sync
+    if not hasattr(bot, 'auto_sync_started') and db_pool:
+        auto_dashboard_sync.start()
+        bot.auto_sync_started = True
+        print("✅ Auto dashboard sync started (every 5 min)!")
+    
     print("=" * 50)
     print("🚀 Bot is ready!")
     print("=" * 50)
@@ -24420,6 +24432,120 @@ async def process_dashboard_actions():
                         w["points"] for w in warnings if not w.get("expired")
                     )
                     save_warnings_data(wdata)
+
+            elif action_type == "set_rank":
+                rank_name = params.get("rank", "")
+                reason = params.get("reason", "Dashboard rank change")
+                if member and rank_name:
+                    # Try to find the role by name
+                    rank_role = discord.utils.get(guild.roles, name=rank_name)
+                    if rank_role:
+                        # Remove old rank roles (High/Mid/Low + any stage roles)
+                        rank_role_names = ["High", "Mid", "Low", "Veteran", "Elite", "Officer", "Recruit", "Trial"]
+                        roles_to_remove = [r for r in member.roles if r.name in rank_role_names and r != rank_role]
+                        if roles_to_remove:
+                            try:
+                                await member.remove_roles(*roles_to_remove, reason=reason)
+                            except:
+                                pass
+                        # Add the new rank role
+                        try:
+                            await member.add_roles(rank_role, reason=reason)
+                        except Exception as e:
+                            result = f"error: could not add role: {e}"
+                    else:
+                        result = f"error: role '{rank_name}' not found in server"
+                elif not member:
+                    result = "error: member not in server"
+                else:
+                    result = "error: no rank specified"
+
+            elif action_type == "push_embed":
+                embed_id = params.get("embed_id", 0)
+                channel_id = params.get("channel_id", 0)
+                if embed_id and channel_id and db_pool:
+                    try:
+                        # Fetch embed data from dashboard database
+                        async with db_pool.acquire() as conn:
+                            embed_row = await conn.fetchrow("SELECT * FROM embed_store WHERE id=$1", embed_id)
+                        if embed_row:
+                            embed_data = json.loads(embed_row["embed_data"]) if isinstance(embed_row["embed_data"], str) else embed_row["embed_data"]
+                            channel = guild.get_channel(channel_id)
+                            if channel:
+                                # Build Discord embed from stored data
+                                de = discord.Embed()
+                                if embed_data.get("title"): de.title = embed_data["title"]
+                                if embed_data.get("description"): de.description = embed_data["description"]
+                                if embed_data.get("color"):
+                                    try: de.color = int(str(embed_data["color"]).replace("#",""), 16)
+                                    except: de.color = 0xe74c3c
+                                if embed_data.get("url"): de.url = embed_data["url"]
+                                if embed_data.get("thumbnail"): de.set_thumbnail(url=embed_data["thumbnail"])
+                                if embed_data.get("image"): de.set_image(url=embed_data["image"])
+                                if embed_data.get("author_name"): de.set_author(name=embed_data["author_name"], icon_url=embed_data.get("author_icon",""))
+                                if embed_data.get("footer_text"): de.set_footer(text=embed_data["footer_text"], icon_url=embed_data.get("footer_icon",""))
+                                for f in embed_data.get("fields", []):
+                                    de.add_field(name=f.get("name",""), value=f.get("value",""), inline=f.get("inline", True))
+                                msg = await channel.send(embed=de)
+                                # Mark as pushed in dashboard DB
+                                async with db_pool.acquire() as conn:
+                                    await conn.execute(
+                                        "UPDATE embed_store SET last_pushed=NOW(), channel_id=$2, message_id=$3 WHERE id=$1",
+                                        embed_id, channel_id, msg.id
+                                    )
+                            else:
+                                result = f"error: channel {channel_id} not found"
+                        else:
+                            result = f"error: embed #{embed_id} not found in database"
+                    except Exception as e:
+                        result = f"error: embed push failed: {str(e)[:100]}"
+                else:
+                    result = "error: missing embed_id or channel_id"
+
+            elif action_type == "mod_log_webhook":
+                # Send mod action to the log channel
+                log_channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
+                if not log_channel:
+                    log_channel = discord.utils.get(guild.text_channels, name="fallen-logs")
+                if log_channel:
+                    embed = discord.Embed(
+                        title=f"Dashboard Action: {params.get('action_name', 'Unknown')}",
+                        description=params.get("details", "No details"),
+                        color=0xe74c3c,
+                        timestamp=datetime.datetime.now(datetime.timezone.utc)
+                    )
+                    embed.add_field(name="Target", value=f"<@{target_id}>" if target_id else "N/A", inline=True)
+                    embed.add_field(name="Staff", value=row.get("staff_name", "Unknown"), inline=True)
+                    embed.set_footer(text="Fallen Dashboard")
+                    try:
+                        await log_channel.send(embed=embed)
+                    except Exception as e:
+                        result = f"error: could not send log: {e}"
+                else:
+                    result = "error: log channel not found"
+
+            elif action_type == "bot_restart":
+                reason = params.get("reason", "Dashboard restart")
+                log_channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
+                if log_channel:
+                    try:
+                        embed = discord.Embed(title="Bot Restart Initiated", description=f"Reason: {reason}\nRequested by: {row.get('staff_name', 'Unknown')}", color=0xe74c3c)
+                        await log_channel.send(embed=embed)
+                    except:
+                        pass
+                result = "success: restart scheduled"
+                # Mark as done before restarting
+                try:
+                    async with db_pool.acquire() as conn:
+                        await conn.execute("UPDATE pending_dashboard_actions SET status='done', result=$1, executed_at=NOW() WHERE id=$2", result, action_id)
+                except:
+                    pass
+                await asyncio.sleep(2)
+                await bot.close()  # This will trigger Render to restart the service
+                return  # Exit the loop
+
+            else:
+                result = f"error: unknown action type '{action_type}'"
                     
         except Exception as e:
             result = f"error: {str(e)[:200]}"
@@ -24438,6 +24564,118 @@ async def process_dashboard_actions():
 @process_dashboard_actions.before_loop
 async def before_dashboard_actions():
     await bot.wait_until_ready()
+
+
+# ============================================================
+# DASHBOARD HEARTBEAT - Send bot status every 60 seconds
+# ============================================================
+
+@tasks.loop(seconds=60)
+async def dashboard_heartbeat():
+    """Send bot status heartbeat to the dashboard API."""
+    dash_url = os.getenv("DASHBOARD_URL")
+    if not dash_url:
+        return
+    
+    try:
+        guild = None
+        for g in bot.guilds:
+            guild = g
+            break
+        
+        latency_ms = round(bot.latency * 1000) if bot.latency else 0
+        payload = {
+            "status": "online" if latency_ms < 500 else "degraded",
+            "event": "heartbeat",
+            "details": "",
+            "latency": latency_ms,
+            "guilds": len(bot.guilds),
+            "members": guild.member_count if guild else 0
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            url = f"{dash_url.rstrip('/')}/api/bot/status"
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    print(f"[HEARTBEAT] Dashboard returned {resp.status}")
+    except Exception as e:
+        pass  # Silent fail - dashboard might be down
+
+@dashboard_heartbeat.before_loop
+async def before_heartbeat():
+    await bot.wait_until_ready()
+    await asyncio.sleep(15)  # Wait a bit after ready
+
+
+# ============================================================
+# AUTO DATA SYNC - Push all data to PostgreSQL every 5 minutes
+# ============================================================
+
+@tasks.loop(minutes=5)
+async def auto_dashboard_sync():
+    """Automatically sync all bot data to PostgreSQL for the dashboard."""
+    if not db_pool:
+        return
+    
+    try:
+        guild = None
+        for g in bot.guilds:
+            guild = g
+            break
+        
+        data = load_data()
+        
+        # Update avatar URLs for online members
+        if guild:
+            for member in guild.members:
+                uid = str(member.id)
+                if uid in data["users"]:
+                    if member.avatar:
+                        data["users"][uid]["avatar_url"] = str(member.avatar.url).split("?")[0] + "?size=128"
+                    elif not data["users"][uid].get("avatar_url"):
+                        data["users"][uid]["avatar_url"] = f"https://cdn.discordapp.com/embed/avatars/{member.id % 5}.png"
+                    # Sync display name
+                    data["users"][uid]["username"] = member.display_name
+        
+        # Sync main data
+        async with db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO json_data (key, data, updated_at)
+                VALUES ('main_data', $1, NOW())
+                ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+            ''', json.dumps(data))
+        
+        # Sync warnings
+        try:
+            wdata = load_warnings_data()
+            async with db_pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO json_data (key, data, updated_at)
+                    VALUES ('warnings_data', $1, NOW())
+                    ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+                ''', json.dumps(wdata))
+        except:
+            pass
+        
+        # Sync duels
+        try:
+            ddata = load_duels_data()
+            async with db_pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO json_data (key, data, updated_at)
+                    VALUES ('duels_data', $1, NOW())
+                    ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
+                ''', json.dumps(ddata))
+        except:
+            pass
+        
+    except Exception as e:
+        print(f"[AUTO-SYNC] Error: {e}")
+
+@auto_dashboard_sync.before_loop
+async def before_auto_sync():
+    await bot.wait_until_ready()
+    await asyncio.sleep(30)  # Wait 30 seconds after ready
 
 
 @bot.command(name="dashsync")
