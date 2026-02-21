@@ -24544,6 +24544,38 @@ async def process_dashboard_actions():
                 await bot.close()  # This will trigger Render to restart the service
                 return  # Exit the loop
 
+            elif action_type == "shop_buy":
+                item_key = params.get("item_key", "")
+                item_name = params.get("item_name", "Unknown")
+                price = params.get("price", 0)
+                if uid and item_key and price > 0:
+                    data = load_data()
+                    data = ensure_user_structure(data, uid)
+                    current_coins = data["users"][uid].get("coins", 0) or 0
+                    if current_coins >= price:
+                        data["users"][uid]["coins"] = current_coins - price
+                        # Add to inventory
+                        inv = data["users"][uid].get("inventory", []) or []
+                        if item_key not in inv:
+                            inv.append(item_key)
+                        data["users"][uid]["inventory"] = inv
+                        save_data(data)
+                        # DM the user about their purchase
+                        if member:
+                            try:
+                                embed = discord.Embed(
+                                    title="Purchase Successful!",
+                                    description=f"You bought **{item_name}** for **{price:,} FC**.\nRemaining balance: **{current_coins - price:,} FC**",
+                                    color=0x2ecc71
+                                )
+                                await member.send(embed=embed)
+                            except:
+                                pass  # DMs might be disabled
+                    else:
+                        result = f"error: not enough coins ({current_coins} < {price})"
+                else:
+                    result = "error: missing item_key or price"
+
             else:
                 result = f"error: unknown action type '{action_type}'"
                     
