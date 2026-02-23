@@ -778,54 +778,63 @@ async def db_get_raid_history(limit: int = 10):
             return [dict(row) for row in rows]
     return []
 
-# --- JSON DATA MANAGEMENT (with PostgreSQL backup) ---
+# --- OPTIMIZED DATA MANAGEMENT ---
+# In-memory data store with periodic flush to disk/postgres
+# Instead of reading/writing JSON on every message, we keep data in memory
+# and flush to disk every FLUSH_INTERVAL seconds. This reduces disk I/O from
+# hundreds of writes per minute to ~6 writes per minute.
 
-# In-memory cache to reduce database calls
 _data_cache = None
-_cache_time = None
-CACHE_DURATION = 5  # seconds
+_data_dirty = False
+_warnings_cache = None
+_warnings_dirty = False
+_duels_cache = None
+_duels_dirty = False
+_events_cache = None
+_events_dirty = False
+_last_flush = None
+FLUSH_INTERVAL = 10  # seconds between disk writes
 
 def load_data():
-    """Load data from PostgreSQL if available, otherwise JSON file"""
-    global _data_cache, _cache_time
+    """Load data — always returns from in-memory cache after first load."""
+    global _data_cache
     
-    # Check cache first
-    if _data_cache and _cache_time and (datetime.datetime.now() - _cache_time).seconds < CACHE_DURATION:
+    if _data_cache is not None:
         return _data_cache
     
-    # Try to load from JSON file (local copy)
+    # Cold start: load from JSON file
     if not os.path.exists(LEADERBOARD_FILE):
-        data = {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
+        _data_cache = {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
     else:
-        with open(LEADERBOARD_FILE, "r") as f:
-            try:
-                data = json.load(f)
-                if "users" not in data: data["users"] = {}
-                if "roster" not in data: data["roster"] = [None]*10
-                if "theme" not in data: data["theme"] = DEFAULT_THEME
-            except Exception as e:
-                print(f"Error loading data: {e}")
-                data = {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
+        try:
+            with open(LEADERBOARD_FILE, "r") as f:
+                _data_cache = json.load(f)
+                if "users" not in _data_cache: _data_cache["users"] = {}
+                if "roster" not in _data_cache: _data_cache["roster"] = [None]*10
+                if "theme" not in _data_cache: _data_cache["theme"] = DEFAULT_THEME
+        except Exception as e:
+            print(f"[DATA] Error loading {LEADERBOARD_FILE}: {e}")
+            _data_cache = {"roster": [None]*10, "theme": DEFAULT_THEME, "users": {}}
     
-    _data_cache = data
-    _cache_time = datetime.datetime.now()
-    return data
+    return _data_cache
 
 def save_data(data):
-    """Save data to JSON file and PostgreSQL if available"""
-    global _data_cache, _cache_time
-    
-    # Always save to local JSON file
-    with open(LEADERBOARD_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-    
-    # Update cache
+    """Mark data as dirty — actual write happens in flush_data_loop."""
+    global _data_cache, _data_dirty
     _data_cache = data
-    _cache_time = datetime.datetime.now()
-    
-    # Also save to PostgreSQL in background if available
-    if db_pool:
-        asyncio.create_task(save_data_to_postgres(data))
+    _data_dirty = True
+    # NOTE: No disk write here! Flush loop handles it.
+
+def _force_save_data():
+    """Force immediate write to disk (for shutdown/critical operations)."""
+    global _data_dirty
+    if _data_cache:
+        try:
+            with open(LEADERBOARD_FILE, "w") as f:
+                json.dump(_data_cache, f, indent=2)
+            _data_dirty = False
+        except Exception as e:
+            print(f"[DATA] Force save error: {e}")
 
 async def save_data_to_postgres(data):
     """Save main data to PostgreSQL json_data table"""
@@ -840,7 +849,7 @@ async def save_data_to_postgres(data):
                 ON CONFLICT (key) DO UPDATE SET data = $1, updated_at = NOW()
             ''', json.dumps(data))
     except Exception as e:
-        print(f"PostgreSQL save error: {e}")
+        print(f"[DATA] PostgreSQL save error: {e}")
 
 async def load_data_from_postgres():
     """Load main data from PostgreSQL - use on startup to restore data"""
@@ -3730,19 +3739,20 @@ ELO_TIERS = [
 ]
 
 def load_duels_data():
+    global _duels_cache
+    if _duels_cache is not None:
+        return _duels_cache
     try:
         with open(DUELS_FILE, "r") as f:
-            return json.load(f)
+            _duels_cache = json.load(f)
     except:
-        return {"elo": {}, "pending_duels": {}, "duel_history": [], "active_duels": {}}
+        _duels_cache = {"elo": {}, "pending_duels": {}, "duel_history": [], "active_duels": {}}
+    return _duels_cache
 
 def save_duels_data(data):
-    with open(DUELS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-    
-    # Also save to PostgreSQL if available
-    if db_pool:
-        asyncio.create_task(save_duels_to_postgres(data))
+    global _duels_cache, _duels_dirty
+    _duels_cache = data
+    _duels_dirty = True
 
 async def save_duels_to_postgres(data):
     """Save duels data to PostgreSQL"""
@@ -5004,19 +5014,20 @@ async def check_attendance_roles(member, guild):
     return roles_to_add
 
 def load_events_data():
+    global _events_cache
+    if _events_cache is not None:
+        return _events_cache
     try:
         with open(EVENTS_FILE, "r") as f:
-            return json.load(f)
+            _events_cache = json.load(f)
     except:
-        return {"scheduled_events": [], "attendance_history": {}}
+        _events_cache = {"scheduled_events": [], "attendance_history": {}}
+    return _events_cache
 
 def save_events_data(data):
-    with open(EVENTS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-    
-    # Also save to PostgreSQL if available
-    if db_pool:
-        asyncio.create_task(save_events_to_postgres(data))
+    global _events_cache, _events_dirty
+    _events_cache = data
+    _events_dirty = True
 
 async def save_events_to_postgres(data):
     """Save events data to PostgreSQL"""
@@ -5697,20 +5708,22 @@ PUNISHMENT_THRESHOLDS = [
 ]
 
 def load_warnings_data():
-    """Load warnings data from file"""
+    """Load warnings data — returns from memory cache after first load."""
+    global _warnings_cache
+    if _warnings_cache is not None:
+        return _warnings_cache
     try:
         with open(WARNINGS_FILE, "r") as f:
-            return json.load(f)
+            _warnings_cache = json.load(f)
     except:
-        return {"users": {}, "recent_warnings": [], "kicked_users": []}
+        _warnings_cache = {"users": {}, "recent_warnings": [], "kicked_users": []}
+    return _warnings_cache
 
 def save_warnings_data(data):
-    """Save warnings data to file and PostgreSQL"""
-    with open(WARNINGS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-    # Also sync to json_data table for dashboard
-    if db_pool:
-        asyncio.create_task(_save_warnings_to_postgres(data))
+    """Mark warnings data as dirty — flush loop handles disk write."""
+    global _warnings_cache, _warnings_dirty
+    _warnings_cache = data
+    _warnings_dirty = True
 
 async def _save_warnings_to_postgres(data):
     """Save warnings data to PostgreSQL json_data table for dashboard"""
@@ -11859,7 +11872,16 @@ async def on_ready():
                     json.dump(inactivity_data, f, indent=2)
                 print("✅ Inactivity data synced from PostgreSQL!")
     else:
-        print("📁 Using JSON file storage (no PostgreSQL)")
+        print("=" * 50)
+        print("⚠️  DATABASE NOT CONNECTED — DASHBOARD INTEGRATION DISABLED")
+        if not POSTGRES_AVAILABLE:
+            print("   Reason: asyncpg not installed")
+            print("   Fix: pip install asyncpg")
+        if not DATABASE_URL:
+            print("   Reason: DATABASE_URL environment variable not set")
+            print("   Fix: Set DATABASE_URL on Render (same URL as dashboard)")
+        print("   Without DB: No action queue, no heartbeat, no auto-sync")
+        print("=" * 50)
     
     # Check database health
     print("Checking database health...")
@@ -11899,11 +11921,22 @@ async def on_ready():
         await setup_poll_views()
         bot.poll_views_loaded = True
     
+    # Start data flush loop (writes dirty data to disk every 10s)
+    if not hasattr(bot, 'flush_started'):
+        flush_data_loop.start()
+        bot.flush_started = True
+        print("✅ Data flush loop started (every 10s)!")
+    
     # Start dashboard pending actions processor
     if not hasattr(bot, 'dashboard_actions_started') and db_pool:
         process_dashboard_actions.start()
         bot.dashboard_actions_started = True
         print("✅ Dashboard actions processor started!")
+    
+    # Start aiohttp API server for instant dashboard communication
+    if not hasattr(bot, 'api_started'):
+        await start_api_server()
+        bot.api_started = True
     
     # Start dashboard heartbeat
     if not hasattr(bot, 'heartbeat_started'):
@@ -11917,6 +11950,13 @@ async def on_ready():
         bot.auto_sync_started = True
         print("✅ Auto dashboard sync started (every 5 min)!")
     
+    # Start auto role sync
+    if not hasattr(bot, 'role_sync_started') and db_pool:
+        auto_role_sync.start()
+        bot.role_sync_started = True
+        print("✅ Auto role sync started (hourly + startup)!")
+    
+    bot._ready_time = datetime.datetime.now(datetime.timezone.utc)
     print("=" * 50)
     print("🚀 Bot is ready!")
     print("=" * 50)
@@ -12157,35 +12197,36 @@ async def on_member_remove(member):
 @bot.event
 async def on_message(message):
     if not message.author.bot and message.guild:
-        # === XP & ACTIVITY ===
-        # Check cooldown before giving XP
+        data = load_data()
+        uid = str(message.author.id)
+        data = ensure_user_structure(data, uid)
+        
+        # === XP (with cooldown) ===
         if check_xp_cooldown(message.author.id, "message"):
             xp = random.randint(*XP_TEXT_RANGE)
-            
-            # Get role perks multiplier
             perks = get_member_perks(message.author)
             role_multiplier = perks.get("xp_multiplier", 1.0)
-            
-            # Booster bonus stacks with role bonus
             if is_booster(message.author):
                 xp = int(xp * BOOSTER_XP_MULTIPLIER * role_multiplier)
             else:
                 xp = int(xp * role_multiplier)
-            
-            add_xp_to_user(message.author.id, xp)
-            await check_level_up(message.author.id, message.guild)
+            data["users"][uid]["xp"] = (data["users"][uid].get("xp", 0) or 0) + xp
+            data["users"][uid]["weekly_xp"] = (data["users"][uid].get("weekly_xp", 0) or 0) + xp
+            data["users"][uid]["monthly_xp"] = (data["users"][uid].get("monthly_xp", 0) or 0) + xp
         
-        # Always update last_active, avatar, and message count for dashboard
-        data = load_data()
-        uid = str(message.author.id)
-        data = ensure_user_structure(data, uid)
+        # === Activity tracking (every message) ===
         data["users"][uid]["last_active"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         data["users"][uid]["messages"] = (data["users"][uid].get("messages", 0) or 0) + 1
         if message.author.avatar:
             data["users"][uid]["avatar_url"] = str(message.author.avatar.url).split("?")[0] + "?size=128"
         else:
             data["users"][uid]["avatar_url"] = f"https://cdn.discordapp.com/embed/avatars/{message.author.id % 5}.png"
-        save_data(data)
+        data["users"][uid]["username"] = message.author.display_name
+        
+        save_data(data)  # Just marks dirty — flush loop handles disk write
+        
+        # Check level up (async, does its own data reload)
+        await check_level_up(message.author.id, message.guild)
         
     await bot.process_commands(message)
 
@@ -24271,9 +24312,334 @@ async def setup_poll_views():
 # DASHBOARD INTEGRATION SYSTEM
 # ============================================================
 
+# ============================================================
+# DATA FLUSH LOOP - Writes dirty data to disk every 10 seconds
+# ============================================================
+
+@tasks.loop(seconds=FLUSH_INTERVAL)
+async def flush_data_loop():
+    """Periodically flush dirty data to disk and PostgreSQL."""
+    global _data_dirty, _warnings_dirty, _duels_dirty, _events_dirty
+    
+    flushed = []
+    
+    if _data_dirty and _data_cache:
+        try:
+            with open(LEADERBOARD_FILE, "w") as f:
+                json.dump(_data_cache, f, indent=2)
+            _data_dirty = False
+            flushed.append("main")
+            if db_pool:
+                await save_data_to_postgres(_data_cache)
+        except Exception as e:
+            print(f"[FLUSH] Main data error: {e}")
+    
+    if _warnings_dirty and _warnings_cache:
+        try:
+            with open(WARNINGS_FILE, "w") as f:
+                json.dump(_warnings_cache, f, indent=2)
+            _warnings_dirty = False
+            flushed.append("warnings")
+            if db_pool:
+                await _save_warnings_to_postgres(_warnings_cache)
+        except Exception as e:
+            print(f"[FLUSH] Warnings error: {e}")
+    
+    if _duels_dirty and _duels_cache:
+        try:
+            with open(DUELS_FILE, "w") as f:
+                json.dump(_duels_cache, f, indent=2)
+            _duels_dirty = False
+            flushed.append("duels")
+            if db_pool:
+                await save_duels_to_postgres(_duels_cache)
+        except Exception as e:
+            print(f"[FLUSH] Duels error: {e}")
+    
+    if _events_dirty and _events_cache:
+        try:
+            with open(EVENTS_FILE, "w") as f:
+                json.dump(_events_cache, f, indent=2)
+            _events_dirty = False
+            flushed.append("events")
+            if db_pool:
+                await save_events_to_postgres(_events_cache)
+        except Exception as e:
+            print(f"[FLUSH] Events error: {e}")
+
+@flush_data_loop.before_loop
+async def before_flush():
+    await bot.wait_until_ready()
+
+
+# ============================================================
+# AIOHTTP API SERVER - Direct dashboard → bot communication
+# Replaces the 30s polling delay with instant action execution
+# ============================================================
+
+from aiohttp import web
+
+_api_runner = None
+
+async def start_api_server():
+    """Start a lightweight HTTP API server alongside the bot."""
+    global _api_runner
+    
+    app_api = web.Application()
+    app_api.router.add_post("/api/action", handle_api_action)
+    app_api.router.add_get("/api/health", handle_api_health)
+    app_api.router.add_get("/api/stats", handle_api_stats)
+    
+    _api_runner = web.AppRunner(app_api)
+    await _api_runner.setup()
+    
+    port = int(os.getenv("BOT_API_PORT", 8081))
+    site = web.TCPSite(_api_runner, "0.0.0.0", port)
+    try:
+        await site.start()
+        print(f"✅ Bot API server started on port {port}")
+    except Exception as e:
+        print(f"⚠️ Bot API server failed to start on port {port}: {e}")
+        print("   Dashboard will fall back to database polling (30s delay)")
+
+async def handle_api_health(request):
+    """Health check endpoint."""
+    return web.json_response({
+        "status": "online",
+        "latency_ms": round(bot.latency * 1000, 1),
+        "guilds": len(bot.guilds),
+        "members": sum(g.member_count or 0 for g in bot.guilds),
+        "uptime": str(datetime.datetime.now(datetime.timezone.utc) - bot._ready_time) if hasattr(bot, '_ready_time') else "unknown"
+    })
+
+async def handle_api_stats(request):
+    """Bot stats endpoint."""
+    data = load_data()
+    return web.json_response({
+        "users": len(data.get("users", {})),
+        "flush_interval": FLUSH_INTERVAL,
+        "data_dirty": _data_dirty,
+        "db_connected": db_pool is not None,
+        "api_version": "1.0"
+    })
+
+async def handle_api_action(request):
+    """Execute a dashboard action immediately (no polling delay)."""
+    try:
+        body = await request.json()
+    except:
+        return web.json_response({"error": "invalid json"}, status=400)
+    
+    action_type = body.get("action_type")
+    target_id = body.get("target_user_id", 0)
+    staff_id = body.get("staff_id", 0)
+    staff_name = body.get("staff_name", "Dashboard")
+    params = body.get("params", {})
+    
+    if not action_type:
+        return web.json_response({"error": "missing action_type"}, status=400)
+    
+    # Also write to DB for audit trail
+    if db_pool:
+        try:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "INSERT INTO pending_dashboard_actions (action_type, target_user_id, staff_id, staff_name, params, status) VALUES ($1,$2,$3,$4,$5,'processing') RETURNING id",
+                    action_type, target_id, staff_id, staff_name, json.dumps(params)
+                )
+                action_id = row["id"] if row else 0
+        except:
+            action_id = 0
+    else:
+        action_id = 0
+    
+    # Execute immediately (reuse the same processing logic)
+    result = await _execute_action(action_type, target_id, staff_id, staff_name, params)
+    
+    # Update DB record
+    if db_pool and action_id:
+        try:
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE pending_dashboard_actions SET status=$1, result=$2, executed_at=NOW() WHERE id=$3",
+                    "done" if "error" not in result else "failed", result, action_id
+                )
+        except:
+            pass
+    
+    return web.json_response({"ok": True, "result": result, "action_id": action_id})
+
+async def _execute_action(action_type, target_id, staff_id, staff_name, params):
+    """Execute a single dashboard action. Used by both API server and polling loop."""
+    guild = None
+    for g in bot.guilds:
+        guild = g
+        break
+    if not guild:
+        return "error: no guild"
+    
+    member = guild.get_member(target_id) if target_id else None
+    uid = str(target_id) if target_id else "0"
+    result = "success"
+    
+    try:
+        data = load_data()
+        if uid != "0":
+            data = ensure_user_structure(data, uid)
+        
+        if action_type == "add_xp":
+            amount = params.get("amount", 0)
+            data["users"][uid]["xp"] = (data["users"][uid].get("xp", 0) or 0) + amount
+            save_data(data)
+        elif action_type == "add_coins":
+            amount = params.get("amount", 0)
+            data["users"][uid]["coins"] = (data["users"][uid].get("coins", 0) or 0) + amount
+            save_data(data)
+        elif action_type == "set_elo":
+            elo = params.get("elo", 1000)
+            ddata = load_duels_data()
+            if uid not in ddata.get("elo", {}): ddata["elo"][uid] = {"elo": 1000, "wins": 0, "losses": 0}
+            ddata["elo"][uid]["elo"] = elo
+            save_duels_data(ddata)
+        elif action_type == "warn":
+            category = params.get("category", "spam")
+            reason = params.get("reason", "Dashboard action")
+            cat_data = WARNING_CATEGORIES.get(category, {"points": 1, "name": category})
+            wdata = load_warnings_data()
+            if uid not in wdata["users"]: wdata["users"][uid] = {"warnings": [], "total_points": 0}
+            warning = {"id": len(wdata["users"][uid]["warnings"]) + 1, "category": category, "category_name": cat_data["name"],
+                "points": cat_data["points"], "reason": reason, "issued_by": str(staff_id), "issued_by_name": staff_name,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(), "expired": False}
+            wdata["users"][uid]["warnings"].append(warning)
+            wdata["users"][uid]["total_points"] = sum(w["points"] for w in wdata["users"][uid]["warnings"] if not w.get("expired"))
+            save_warnings_data(wdata)
+            total_pts = wdata["users"][uid]["total_points"]
+            if cat_data.get("instant_ban") or total_pts >= 10:
+                if member:
+                    try: await member.ban(reason=f"Warning threshold: {total_pts} pts")
+                    except: pass
+            elif total_pts >= 8 and member:
+                try: await member.timeout(datetime.timedelta(hours=24), reason=f"Warning: {total_pts} pts")
+                except: pass
+            elif total_pts >= 5 and member:
+                try: await member.timeout(datetime.timedelta(hours=1), reason=f"Warning: {total_pts} pts")
+                except: pass
+        elif action_type == "timeout":
+            if member:
+                duration = datetime.timedelta(minutes=params.get("duration_minutes", 10))
+                await member.timeout(duration, reason=params.get("reason", "Dashboard timeout"))
+            else: result = "error: member not in server"
+        elif action_type == "kick":
+            if member: await member.kick(reason=params.get("reason", "Dashboard kick"))
+            else: result = "error: member not in server"
+        elif action_type == "ban":
+            if member: await member.ban(reason=params.get("reason", "Dashboard ban"), delete_message_days=params.get("delete_days", 0))
+            else:
+                try: await guild.ban(discord.Object(id=target_id), reason=params.get("reason", "Dashboard ban"))
+                except: result = "error: ban failed"
+        elif action_type == "set_bg":
+            bg_key = params.get("bg_key", "")
+            data["users"][uid]["custom_level_bg"] = bg_key
+            save_data(data)
+        elif action_type == "remove_warning":
+            wid = params.get("warning_id", 0)
+            wdata = load_warnings_data()
+            if uid in wdata["users"]:
+                for w in wdata["users"][uid]["warnings"]:
+                    if w.get("id") == wid: w["expired"] = True; break
+                wdata["users"][uid]["total_points"] = sum(w["points"] for w in wdata["users"][uid]["warnings"] if not w.get("expired"))
+                save_warnings_data(wdata)
+        elif action_type == "set_rank":
+            rank_name = params.get("rank_name", "")
+            if member and rank_name:
+                rank_roles = ["High", "Mid", "Low", "Veteran", "Elite", "Officer", "Recruit", "Trial"]
+                for r in member.roles:
+                    if r.name in rank_roles:
+                        try: await member.remove_roles(r)
+                        except: pass
+                new_role = discord.utils.get(guild.roles, name=rank_name)
+                if new_role:
+                    try: await member.add_roles(new_role)
+                    except: result = f"error: failed to add role {rank_name}"
+                else: result = f"error: role '{rank_name}' not found"
+            else: result = "error: member not in server or no rank name"
+        elif action_type == "push_embed":
+            if db_pool:
+                try:
+                    async with db_pool.acquire() as conn:
+                        row = await conn.fetchrow("SELECT * FROM embed_store WHERE id=$1", params.get("embed_id", 0))
+                    if row:
+                        embed_data = json.loads(row["embed_data"]) if isinstance(row["embed_data"], str) else row["embed_data"]
+                        embed = discord.Embed(title=embed_data.get("title",""), description=embed_data.get("description",""), color=embed_data.get("color",0x8B0000))
+                        ch = guild.get_channel(params.get("channel_id", 0))
+                        if ch: await ch.send(embed=embed)
+                        else: result = "error: channel not found"
+                    else: result = "error: embed not found"
+                except Exception as e: result = f"error: {e}"
+        elif action_type == "mod_log_webhook":
+            for ch in guild.text_channels:
+                if "fallen-logs" in ch.name.lower() or "mod-log" in ch.name.lower():
+                    embed = discord.Embed(title=f"Dashboard Action: {params.get('action','?')}", description=params.get("details",""), color=0xe74c3c)
+                    embed.add_field(name="Target", value=str(target_id)); embed.add_field(name="Staff", value=staff_name)
+                    await ch.send(embed=embed); break
+        elif action_type == "bot_restart":
+            for ch in guild.text_channels:
+                if "fallen-logs" in ch.name.lower():
+                    await ch.send(embed=discord.Embed(title="Bot Restart", description=f"Restart requested by {staff_name}", color=0xe74c3c))
+                    break
+            _force_save_data()  # Force save before restart
+            await asyncio.sleep(2)
+            await bot.close()
+            return "success: restart scheduled"
+        elif action_type == "shop_buy":
+            item_key = params.get("item_key", "")
+            item_name = params.get("item_name", "Unknown")
+            price = params.get("price", 0)
+            if uid and item_key and price > 0:
+                current_coins = data["users"][uid].get("coins", 0) or 0
+                if current_coins >= price:
+                    data["users"][uid]["coins"] = current_coins - price
+                    inv = data["users"][uid].get("inventory", []) or []
+                    if item_key not in inv: inv.append(item_key)
+                    data["users"][uid]["inventory"] = inv
+                    save_data(data)
+                    if member:
+                        try: await member.send(embed=discord.Embed(title="Purchase Successful!", description=f"You bought **{item_name}** for **{price:,} FC**.\nBalance: **{current_coins - price:,} FC**", color=0x2ecc71))
+                        except: pass
+                else: result = f"error: not enough coins ({current_coins} < {price})"
+            else: result = "error: missing item_key or price"
+        elif action_type == "tournament_announce":
+            tid = params.get("tournament_id", 0)
+            title = params.get("title", "Tournament")
+            channel = None
+            ch_id = params.get("channel_id", 0)
+            if ch_id: channel = guild.get_channel(ch_id)
+            if not channel:
+                for ch in guild.text_channels:
+                    if any(k in ch.name.lower() for k in ("tournament","announce","general")): channel = ch; break
+            if not channel and guild.text_channels: channel = guild.text_channels[0]
+            if channel:
+                embed = discord.Embed(title=f"🏆 {title}", description=f"**{params.get('status','open').upper()}**", color=0x8B0000)
+                embed.add_field(name="Bracket", value=f"{params.get('bracket_size',8)} players", inline=True)
+                embed.add_field(name="Entry Fee", value=f"{params.get('entry_fee',0)} FC" if params.get('entry_fee') else "Free", inline=True)
+                embed.add_field(name="Signed Up", value=f"{params.get('participants',0)}/{params.get('bracket_size',8)}", inline=True)
+                if params.get("prize_pool"): embed.add_field(name="Prize Pool", value=params["prize_pool"], inline=False)
+                if params.get("dashboard_url"): embed.add_field(name="Join / View", value=f"[Open Dashboard]({params['dashboard_url']})", inline=False)
+                embed.set_footer(text="✝ The Fallen ✝"); embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+                await channel.send(embed=embed)
+                result = f"success: announced in #{channel.name}"
+            else: result = "error: no suitable channel found"
+        else:
+            result = f"error: unknown action type '{action_type}'"
+    except Exception as e:
+        result = f"error: {str(e)[:200]}"
+    
+    return result
+
+
 @tasks.loop(seconds=30)
 async def process_dashboard_actions():
-    """Process pending actions queued from the web dashboard."""
+    """Process pending actions queued from the web dashboard (fallback polling)."""
     if not db_pool:
         return
     
@@ -24288,311 +24654,22 @@ async def process_dashboard_actions():
     if not rows:
         return
     
-    guild = None
-    for g in bot.guilds:
-        guild = g
-        break
-    if not guild:
-        return
-    
     for row in rows:
         action_id = row["id"]
-        action_type = row["action_type"]
-        target_id = row["target_user_id"]
-        params = json.loads(row["params"]) if row["params"] else {}
-        result = "success"
+        result = await _execute_action(
+            row["action_type"], row["target_user_id"], 
+            row.get("staff_id", 0), row.get("staff_name", "Dashboard"),
+            json.loads(row["params"]) if row["params"] else {}
+        )
         
-        try:
-            member = guild.get_member(target_id)
-            uid = str(target_id)
-            data = load_data()
-            data = ensure_user_structure(data, uid)
-            
-            if action_type == "warn":
-                # Use the bot's warning system
-                category = params.get("category", "spam")
-                reason = params.get("reason", "Dashboard action")
-                staff_name = row.get("staff_name", "Dashboard")
-                
-                # Import warning categories from the bot's system
-                cat_data = WARNING_CATEGORIES.get(category, {"points": 1, "name": category})
-                
-                wdata = load_warnings_data()
-                if uid not in wdata["users"]:
-                    wdata["users"][uid] = {"warnings": [], "total_points": 0}
-                
-                warning = {
-                    "id": len(wdata["users"][uid]["warnings"]) + 1,
-                    "category": category,
-                    "category_name": cat_data["name"],
-                    "points": cat_data["points"],
-                    "reason": reason,
-                    "issued_by": str(row.get("staff_id", 0)),
-                    "issued_by_name": staff_name,
-                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "expired": False
-                }
-                wdata["users"][uid]["warnings"].append(warning)
-                wdata["users"][uid]["total_points"] = sum(
-                    w["points"] for w in wdata["users"][uid]["warnings"] if not w.get("expired")
-                )
-                
-                # Add to recent warnings
-                recent = {"user_id": target_id, "roblox_username": data["users"][uid].get("roblox_username", "Unknown"), **warning}
-                wdata.setdefault("recent_warnings", []).insert(0, recent)
-                wdata["recent_warnings"] = wdata["recent_warnings"][:100]
-                
-                save_warnings_data(wdata)
-                
-                # Auto-punish if threshold hit
-                total_pts = wdata["users"][uid]["total_points"]
-                if cat_data.get("instant_ban") or total_pts >= 10:
-                    if member:
-                        try:
-                            await member.ban(reason=f"Warning threshold: {total_pts} points ({reason})")
-                        except:
-                            pass
-                elif total_pts >= 8 and member:
-                    try:
-                        await member.timeout(datetime.timedelta(hours=24), reason=f"Warning points: {total_pts}")
-                    except:
-                        pass
-                elif total_pts >= 5 and member:
-                    try:
-                        await member.timeout(datetime.timedelta(hours=1), reason=f"Warning points: {total_pts}")
-                    except:
-                        pass
-                
-            elif action_type == "timeout":
-                if member:
-                    duration = datetime.timedelta(minutes=params.get("duration_minutes", 10))
-                    await member.timeout(duration, reason=params.get("reason", "Dashboard timeout"))
-                else:
-                    result = "error: member not in server"
-                    
-            elif action_type == "kick":
-                if member:
-                    await member.kick(reason=params.get("reason", "Dashboard kick"))
-                else:
-                    result = "error: member not in server"
-                    
-            elif action_type == "ban":
-                if member:
-                    await member.ban(reason=params.get("reason", "Dashboard ban"), delete_message_days=0)
-                elif target_id:
-                    try:
-                        await guild.ban(discord.Object(id=target_id), reason=params.get("reason", "Dashboard ban"))
-                    except:
-                        result = "error: could not ban user"
-                        
-            elif action_type == "add_xp":
-                amount = params.get("amount", 0)
-                data["users"][uid]["xp"] = max(0, (data["users"][uid].get("xp", 0) or 0) + amount)
-                # Recalculate level
-                total_xp = data["users"][uid]["xp"]
-                new_level, _ = get_level_from_xp(total_xp)
-                data["users"][uid]["level"] = new_level
-                save_data(data)
-                    
-            elif action_type == "add_coins":
-                amount = params.get("amount", 0)
-                new_coins = max(0, min(MAX_COINS, (data["users"][uid].get("coins", 0) or 0) + amount))
-                data["users"][uid]["coins"] = new_coins
-                save_data(data)
-                    
-            elif action_type == "set_elo":
-                new_elo = params.get("elo", 1000)
-                duels = load_duels_data()
-                duels["elo"][uid] = new_elo
-                save_duels_data(duels)
-                    
-            elif action_type == "set_bg":
-                bg_key = params.get("bg_key", "")
-                # Resolve key to URL from LEVEL_CARD_BACKGROUNDS
-                bg_url = LEVEL_CARD_BACKGROUNDS.get(bg_key)
-                if bg_url:
-                    data["users"][uid]["custom_level_bg"] = bg_url
-                    save_data(data)
-                elif bg_key == "default":
-                    data["users"][uid]["custom_level_bg"] = None
-                    save_data(data)
-                else:
-                    result = f"error: unknown bg key '{bg_key}'"
-                    
-            elif action_type == "remove_warning":
-                warning_id = params.get("warning_id", 0)
-                wdata = load_warnings_data()
-                if uid in wdata["users"]:
-                    warnings = wdata["users"][uid].get("warnings", [])
-                    for w in warnings:
-                        if w.get("id") == warning_id:
-                            w["expired"] = True
-                            break
-                    wdata["users"][uid]["total_points"] = sum(
-                        w["points"] for w in warnings if not w.get("expired")
-                    )
-                    save_warnings_data(wdata)
-
-            elif action_type == "set_rank":
-                rank_name = params.get("rank", "")
-                reason = params.get("reason", "Dashboard rank change")
-                if member and rank_name:
-                    # Try to find the role by name
-                    rank_role = discord.utils.get(guild.roles, name=rank_name)
-                    if rank_role:
-                        # Remove old rank roles (High/Mid/Low + any stage roles)
-                        rank_role_names = ["High", "Mid", "Low", "Veteran", "Elite", "Officer", "Recruit", "Trial"]
-                        roles_to_remove = [r for r in member.roles if r.name in rank_role_names and r != rank_role]
-                        if roles_to_remove:
-                            try:
-                                await member.remove_roles(*roles_to_remove, reason=reason)
-                            except:
-                                pass
-                        # Add the new rank role
-                        try:
-                            await member.add_roles(rank_role, reason=reason)
-                        except Exception as e:
-                            result = f"error: could not add role: {e}"
-                    else:
-                        result = f"error: role '{rank_name}' not found in server"
-                elif not member:
-                    result = "error: member not in server"
-                else:
-                    result = "error: no rank specified"
-
-            elif action_type == "push_embed":
-                embed_id = params.get("embed_id", 0)
-                channel_id = params.get("channel_id", 0)
-                if embed_id and channel_id and db_pool:
-                    try:
-                        # Fetch embed data from dashboard database
-                        async with db_pool.acquire() as conn:
-                            embed_row = await conn.fetchrow("SELECT * FROM embed_store WHERE id=$1", embed_id)
-                        if embed_row:
-                            embed_data = json.loads(embed_row["embed_data"]) if isinstance(embed_row["embed_data"], str) else embed_row["embed_data"]
-                            channel = guild.get_channel(channel_id)
-                            if channel:
-                                # Build Discord embed from stored data
-                                de = discord.Embed()
-                                if embed_data.get("title"): de.title = embed_data["title"]
-                                if embed_data.get("description"): de.description = embed_data["description"]
-                                if embed_data.get("color"):
-                                    try: de.color = int(str(embed_data["color"]).replace("#",""), 16)
-                                    except: de.color = 0xe74c3c
-                                if embed_data.get("url"): de.url = embed_data["url"]
-                                if embed_data.get("thumbnail"): de.set_thumbnail(url=embed_data["thumbnail"])
-                                if embed_data.get("image"): de.set_image(url=embed_data["image"])
-                                if embed_data.get("author_name"): de.set_author(name=embed_data["author_name"], icon_url=embed_data.get("author_icon",""))
-                                if embed_data.get("footer_text"): de.set_footer(text=embed_data["footer_text"], icon_url=embed_data.get("footer_icon",""))
-                                for f in embed_data.get("fields", []):
-                                    de.add_field(name=f.get("name",""), value=f.get("value",""), inline=f.get("inline", True))
-                                msg = await channel.send(embed=de)
-                                # Mark as pushed in dashboard DB
-                                async with db_pool.acquire() as conn:
-                                    await conn.execute(
-                                        "UPDATE embed_store SET last_pushed=NOW(), channel_id=$2, message_id=$3 WHERE id=$1",
-                                        embed_id, channel_id, msg.id
-                                    )
-                            else:
-                                result = f"error: channel {channel_id} not found"
-                        else:
-                            result = f"error: embed #{embed_id} not found in database"
-                    except Exception as e:
-                        result = f"error: embed push failed: {str(e)[:100]}"
-                else:
-                    result = "error: missing embed_id or channel_id"
-
-            elif action_type == "mod_log_webhook":
-                # Send mod action to the log channel
-                log_channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
-                if not log_channel:
-                    log_channel = discord.utils.get(guild.text_channels, name="fallen-logs")
-                if log_channel:
-                    embed = discord.Embed(
-                        title=f"Dashboard Action: {params.get('action_name', 'Unknown')}",
-                        description=params.get("details", "No details"),
-                        color=0xe74c3c,
-                        timestamp=datetime.datetime.now(datetime.timezone.utc)
-                    )
-                    embed.add_field(name="Target", value=f"<@{target_id}>" if target_id else "N/A", inline=True)
-                    embed.add_field(name="Staff", value=row.get("staff_name", "Unknown"), inline=True)
-                    embed.set_footer(text="Fallen Dashboard")
-                    try:
-                        await log_channel.send(embed=embed)
-                    except Exception as e:
-                        result = f"error: could not send log: {e}"
-                else:
-                    result = "error: log channel not found"
-
-            elif action_type == "bot_restart":
-                reason = params.get("reason", "Dashboard restart")
-                log_channel = discord.utils.get(guild.text_channels, name=LOG_CHANNEL_NAME)
-                if log_channel:
-                    try:
-                        embed = discord.Embed(title="Bot Restart Initiated", description=f"Reason: {reason}\nRequested by: {row.get('staff_name', 'Unknown')}", color=0xe74c3c)
-                        await log_channel.send(embed=embed)
-                    except:
-                        pass
-                result = "success: restart scheduled"
-                # Mark as done before restarting
-                try:
-                    async with db_pool.acquire() as conn:
-                        await conn.execute("UPDATE pending_dashboard_actions SET status='done', result=$1, executed_at=NOW() WHERE id=$2", result, action_id)
-                except:
-                    pass
-                await asyncio.sleep(2)
-                await bot.close()  # This will trigger Render to restart the service
-                return  # Exit the loop
-
-            elif action_type == "shop_buy":
-                item_key = params.get("item_key", "")
-                item_name = params.get("item_name", "Unknown")
-                price = params.get("price", 0)
-                if uid and item_key and price > 0:
-                    data = load_data()
-                    data = ensure_user_structure(data, uid)
-                    current_coins = data["users"][uid].get("coins", 0) or 0
-                    if current_coins >= price:
-                        data["users"][uid]["coins"] = current_coins - price
-                        # Add to inventory
-                        inv = data["users"][uid].get("inventory", []) or []
-                        if item_key not in inv:
-                            inv.append(item_key)
-                        data["users"][uid]["inventory"] = inv
-                        save_data(data)
-                        # DM the user about their purchase
-                        if member:
-                            try:
-                                embed = discord.Embed(
-                                    title="Purchase Successful!",
-                                    description=f"You bought **{item_name}** for **{price:,} FC**.\nRemaining balance: **{current_coins - price:,} FC**",
-                                    color=0x2ecc71
-                                )
-                                await member.send(embed=embed)
-                            except:
-                                pass  # DMs might be disabled
-                    else:
-                        result = f"error: not enough coins ({current_coins} < {price})"
-                else:
-                    result = "error: missing item_key or price"
-
-            else:
-                result = f"error: unknown action type '{action_type}'"
-                    
-        except Exception as e:
-            result = f"error: {str(e)[:200]}"
-            print(f"[DASHBOARD] Action {action_type} error: {e}")
-        
-        # Mark action as done
         try:
             async with db_pool.acquire() as conn:
                 await conn.execute(
                     "UPDATE pending_dashboard_actions SET status = $1, result = $2, executed_at = NOW() WHERE id = $3",
-                    "done" if result == "success" else "failed", result, action_id
+                    "done" if "error" not in result else "failed", result, action_id
                 )
         except Exception as e:
-            print(f"[DASHBOARD] Failed to update action status: {e}")
-
+            print(f"[DASHBOARD] Failed to update action {action_id}: {e}")
 @process_dashboard_actions.before_loop
 async def before_dashboard_actions():
     await bot.wait_until_ready()
@@ -24708,6 +24785,72 @@ async def auto_dashboard_sync():
 async def before_auto_sync():
     await bot.wait_until_ready()
     await asyncio.sleep(30)  # Wait 30 seconds after ready
+
+
+# ============================================================
+# AUTO ROLE SYNC - Push Discord role hierarchy to dashboard DB
+# ============================================================
+
+@tasks.loop(hours=1)
+async def auto_role_sync():
+    """Sync Discord roles to the dashboard role_config table for auto-permissions."""
+    if not db_pool:
+        return
+    
+    guild = None
+    for g in bot.guilds:
+        guild = g
+        break
+    if not guild:
+        return
+    
+    try:
+        async with db_pool.acquire() as conn:
+            for role in guild.roles:
+                if role.is_default():
+                    continue  # Skip @everyone
+                
+                # Determine permission tier from Discord permissions
+                tier = 0
+                if role.permissions.administrator:
+                    tier = 3
+                elif role.permissions.manage_guild or (role.permissions.kick_members and role.permissions.ban_members):
+                    tier = 2
+                elif role.permissions.moderate_members or role.permissions.manage_roles or role.permissions.kick_members:
+                    tier = 1
+                
+                # Also check by role name against known staff roles
+                if role.name in HIGH_STAFF_ROLES:
+                    tier = max(tier, 3)
+                elif role.name == STAFF_ROLE_NAME:
+                    tier = max(tier, 1)
+                
+                # Only sync roles that have some staff relevance
+                if tier > 0:
+                    await conn.execute('''
+                        INSERT INTO role_config (discord_role_id, role_name, permission_tier, added_by)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (discord_role_id) DO UPDATE SET
+                            role_name = $2, permission_tier = GREATEST(role_config.permission_tier, $3)
+                    ''', role.id, role.name, tier, bot.user.id if bot.user else 0)
+            
+            # Also sync guild owner to staff_roles as tier 3
+            if guild.owner:
+                await conn.execute('''
+                    INSERT INTO staff_roles (discord_user_id, display_name, permission_tier, added_by)
+                    VALUES ($1, $2, 3, $1)
+                    ON CONFLICT (discord_user_id) DO UPDATE SET
+                        display_name = $2, permission_tier = GREATEST(staff_roles.permission_tier, 3)
+                ''', guild.owner.id, guild.owner.display_name)
+        
+        print(f"[ROLE-SYNC] Synced {sum(1 for r in guild.roles if not r.is_default())} roles to dashboard")
+    except Exception as e:
+        print(f"[ROLE-SYNC] Error: {e}")
+
+@auto_role_sync.before_loop
+async def before_role_sync():
+    await bot.wait_until_ready()
+    await asyncio.sleep(10)  # Run quickly after startup
 
 
 @bot.command(name="dashsync")
@@ -24905,7 +25048,7 @@ async def dashcheck(ctx):
     # Check tournament tables
     try:
         async with db_pool.acquire() as conn:
-            active = await conn.fetchval("SELECT COUNT(*) FROM tournaments WHERE status IN ('open','active')")
+            active = await conn.fetchval("SELECT COUNT(*) FROM dash_tournaments WHERE status IN ('open','active')")
             lines.append(f"🏆 Active tournaments: {active}")
     except:
         lines.append("⚠️ tournaments table: not found")
@@ -24936,6 +25079,18 @@ async def dashcheck(ctx):
     else:
         lines.append("⚠️ Dashboard actions loop: NOT STARTED")
     
+    # Performance stats
+    lines.append("")
+    lines.append("--- Performance ---")
+    lines.append(f"{'✅' if hasattr(bot, 'flush_started') else '❌'} Data flush loop: {'RUNNING' if hasattr(bot, 'flush_started') else 'NOT STARTED'}")
+    lines.append(f"{'✅' if hasattr(bot, 'api_started') else '❌'} API server: {'RUNNING' if hasattr(bot, 'api_started') else 'NOT STARTED'}")
+    lines.append(f"📝 Dirty flags: main={_data_dirty} warn={_warnings_dirty} duels={_duels_dirty} events={_events_dirty}")
+    lines.append(f"⏱️ Flush interval: {FLUSH_INTERVAL}s")
+    if hasattr(bot, '_ready_time'):
+        uptime = datetime.datetime.now(datetime.timezone.utc) - bot._ready_time
+        lines.append(f"⏱️ Uptime: {str(uptime).split('.')[0]}")
+    lines.append(f"🏓 Latency: {round(bot.latency * 1000, 1)}ms")
+    
     await ctx.send("```\n" + "\n".join(lines) + "\n```")
 
 
@@ -24949,7 +25104,7 @@ async def dash_tournaments_cmd(ctx):
     try:
         async with db_pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM tournaments WHERE status IN ('open','active') ORDER BY created_at DESC LIMIT 5"
+                "SELECT * FROM dash_tournaments WHERE status IN ('open','active') ORDER BY created_at DESC LIMIT 5"
             )
     except Exception as e:
         await ctx.send(f"❌ Error fetching tournaments: {e}")
@@ -24970,7 +25125,7 @@ async def dash_tournaments_cmd(ctx):
         try:
             async with db_pool.acquire() as conn:
                 p_count = await conn.fetchval(
-                    "SELECT COUNT(*) FROM tournament_participants WHERE tournament_id = $1", t["id"]
+                    "SELECT COUNT(*) FROM dash_tournament_participants WHERE tournament_id = $1", t["id"]
                 )
         except:
             p_count = 0
@@ -25001,7 +25156,7 @@ async def tourney_join_cmd(ctx, tournament_id: int):
     try:
         async with db_pool.acquire() as conn:
             t = await conn.fetchrow(
-                "SELECT * FROM tournaments WHERE id = $1 AND status = 'open'", tournament_id
+                "SELECT * FROM dash_tournaments WHERE id = $1 AND status = 'open'", tournament_id
             )
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
@@ -25015,7 +25170,7 @@ async def tourney_join_cmd(ctx, tournament_id: int):
     try:
         async with db_pool.acquire() as conn:
             existing = await conn.fetchrow(
-                "SELECT * FROM tournament_participants WHERE tournament_id = $1 AND user_id = $2",
+                "SELECT * FROM dash_tournament_participants WHERE tournament_id = $1 AND user_id = $2",
                 tournament_id, ctx.author.id
             )
     except:
@@ -25029,7 +25184,7 @@ async def tourney_join_cmd(ctx, tournament_id: int):
     try:
         async with db_pool.acquire() as conn:
             count = await conn.fetchval(
-                "SELECT COUNT(*) FROM tournament_participants WHERE tournament_id = $1", tournament_id
+                "SELECT COUNT(*) FROM dash_tournament_participants WHERE tournament_id = $1", tournament_id
             )
     except:
         count = 0
@@ -25055,7 +25210,7 @@ async def tourney_join_cmd(ctx, tournament_id: int):
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO tournament_participants (tournament_id, user_id, seed) VALUES ($1, $2, $3)",
+                "INSERT INTO dash_tournament_participants (tournament_id, user_id, seed) VALUES ($1, $2, $3)",
                 tournament_id, ctx.author.id, count + 1
             )
     except Exception as e:
@@ -25083,14 +25238,14 @@ async def tourney_leave_cmd(ctx, tournament_id: int):
     try:
         async with db_pool.acquire() as conn:
             t = await conn.fetchrow(
-                "SELECT * FROM tournaments WHERE id = $1 AND status = 'open'", tournament_id
+                "SELECT * FROM dash_tournaments WHERE id = $1 AND status = 'open'", tournament_id
             )
             if not t:
                 await ctx.send("❌ Tournament not found or registration is closed.")
                 return
             
             deleted = await conn.execute(
-                "DELETE FROM tournament_participants WHERE tournament_id = $1 AND user_id = $2",
+                "DELETE FROM dash_tournament_participants WHERE tournament_id = $1 AND user_id = $2",
                 tournament_id, ctx.author.id
             )
             
@@ -25203,4 +25358,19 @@ if __name__ == "__main__":
         time.sleep(60)
         sys.exit(1)
     finally:
+        print("Flushing data to disk before exit...")
+        _force_save_data()
+        # Also flush warnings, duels, events
+        if _warnings_cache and _warnings_dirty:
+            try:
+                with open(WARNINGS_FILE, "w") as f: json.dump(_warnings_cache, f, indent=2)
+            except: pass
+        if _duels_cache and _duels_dirty:
+            try:
+                with open(DUELS_FILE, "w") as f: json.dump(_duels_cache, f, indent=2)
+            except: pass
+        if _events_cache and _events_dirty:
+            try:
+                with open(EVENTS_FILE, "w") as f: json.dump(_events_cache, f, indent=2)
+            except: pass
         print("Bot stopped.")
