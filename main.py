@@ -24629,6 +24629,140 @@ async def _execute_action(action_type, target_id, staff_id, staff_name, params):
                 await channel.send(embed=embed)
                 result = f"success: announced in #{channel.name}"
             else: result = "error: no suitable channel found"
+        elif action_type == "allies_embed":
+            # Build and post/update the allies embed in Discord
+            allies_data = params.get("allies", [])
+            ch_id = params.get("channel_id", 0)
+            channel = guild.get_channel(ch_id) if ch_id else None
+            if not channel:
+                for ch in guild.text_channels:
+                    if any(k in ch.name.lower() for k in ("allies", "alliance", "partner", "announce", "general")):
+                        channel = ch; break
+            if not channel and guild.text_channels: channel = guild.text_channels[0]
+            if channel and allies_data:
+                # Group by tier
+                gold = [a for a in allies_data if a.get("tier") == "gold"]
+                silver = [a for a in allies_data if a.get("tier") == "silver"]
+                bronze = [a for a in allies_data if a.get("tier") not in ("gold", "silver")]
+                embed = discord.Embed(
+                    title="🤝 Allied Servers",
+                    description="Our trusted alliances forged through strength and loyalty.",
+                    color=0x8B0000
+                )
+                for label, group, emoji in [("Gold Allies", gold, "🥇"), ("Silver Allies", silver, "🥈"), ("Bronze Allies", bronze, "🥉")]:
+                    if group:
+                        for a in group:
+                            invite = f"\n[Join Server]({a['invite']})" if a.get("invite") else ""
+                            type_label = a.get("type", "friendly").replace("_", " ").title()
+                            desc = a.get("description", "")[:100]
+                            embed.add_field(
+                                name=f"{emoji} {a['name']}",
+                                value=f"*{type_label}*\n{desc}{invite}",
+                                inline=True
+                            )
+                embed.set_footer(text=f"✝ The Fallen ✝ • {len(allies_data)} allied servers • Last updated")
+                embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+                # Check if we have a stored message to edit
+                try:
+                    if db_pool:
+                        async with db_pool.acquire() as conn:
+                            row = await conn.fetchrow("SELECT embed_message_id, embed_channel_id FROM allies WHERE embed_message_id > 0 LIMIT 1")
+                        if row and row["embed_message_id"] and row["embed_channel_id"]:
+                            old_ch = guild.get_channel(row["embed_channel_id"])
+                            if old_ch:
+                                try:
+                                    old_msg = await old_ch.fetch_message(row["embed_message_id"])
+                                    await old_msg.edit(embed=embed)
+                                    result = f"success: updated existing embed in #{old_ch.name}"
+                                except discord.NotFound:
+                                    msg = await channel.send(embed=embed)
+                                    if db_pool:
+                                        async with db_pool.acquire() as conn:
+                                            await conn.execute("UPDATE allies SET embed_message_id=$1, embed_channel_id=$2 WHERE status='active' AND visibility='public'", msg.id, channel.id)
+                                    result = f"success: posted new embed in #{channel.name} (old message not found)"
+                            else:
+                                msg = await channel.send(embed=embed)
+                                result = f"success: posted in #{channel.name}"
+                        else:
+                            msg = await channel.send(embed=embed)
+                            if db_pool:
+                                async with db_pool.acquire() as conn:
+                                    await conn.execute("UPDATE allies SET embed_message_id=$1, embed_channel_id=$2 WHERE status='active' AND visibility='public'", msg.id, channel.id)
+                            result = f"success: posted new embed in #{channel.name}"
+                    else:
+                        msg = await channel.send(embed=embed)
+                        result = f"success: posted in #{channel.name}"
+                except Exception as e:
+                    msg = await channel.send(embed=embed)
+                    result = f"success: posted in #{channel.name} (edit failed: {e})"
+            elif channel:
+                result = "error: no allies data to post"
+            else: result = "error: no suitable channel found"
+        elif action_type == "ally_app_notify":
+            # DM a user about their ally application status
+            status = params.get("status", "")
+            server_name = params.get("server_name", "")
+            notes = params.get("notes", "")
+            if member:
+                try:
+                    if status == "approved":
+                        embed = discord.Embed(
+                            title="Alliance Application Approved! 🤝",
+                            description=f"Your alliance application for **{server_name}** has been **approved**!",
+                            color=0x27ae60
+                        )
+                        if notes: embed.add_field(name="Notes", value=notes, inline=False)
+                        embed.set_footer(text="✝ The Fallen ✝ • Welcome to the alliance")
+                    else:
+                        embed = discord.Embed(
+                            title="Alliance Application Update",
+                            description=f"Your alliance application for **{server_name}** has been **{status}**.",
+                            color=0xe74c3c if status == "denied" else 0xf39c12
+                        )
+                        if notes: embed.add_field(name="Reason", value=notes, inline=False)
+                        embed.set_footer(text="✝ The Fallen ✝")
+                    await member.send(embed=embed)
+                except: result = "success: notification sent (DMs may be off)"
+            else: result = "error: user not in server"
+        elif action_type == "top10_embed":
+            # Post Top 10 Rankings embed to Discord
+            rankings_data = params.get("rankings", [])
+            fmt = params.get("format", "1v1")
+            ch_id = params.get("channel_id", 0)
+            channel = guild.get_channel(ch_id) if ch_id else None
+            if not channel:
+                for ch in guild.text_channels:
+                    if any(k in ch.name.lower() for k in ("leaderboard", "rankings", "top-10", "competitive", "announce")):
+                        channel = ch; break
+            if not channel and guild.text_channels: channel = guild.text_channels[0]
+            if channel and rankings_data:
+                tier_emojis = {"Champion": "👑", "Grand Master": "🔥", "Master": "💎",
+                    "Diamond": "💠", "Platinum": "⚪", "Gold": "🥇",
+                    "Silver": "🥈", "Bronze": "🥉", "Unranked": "⬜"}
+                rank_emojis = {1: "🥇", 2: "🥈", 3: "🥉"}
+                desc_lines = []
+                for r in rankings_data[:10]:
+                    rank = r.get("rank", 0)
+                    emoji = rank_emojis.get(rank, f"**#{rank}**")
+                    tier_emoji = tier_emojis.get(r.get("tier", "Unranked"), "")
+                    name = r.get("name", "Unknown")
+                    pts = r.get("points", 0)
+                    tier = r.get("tier", "")
+                    wins = r.get("wins", 0)
+                    losses = r.get("losses", 0)
+                    desc_lines.append(f"{emoji} **{name}** — {pts} pts {tier_emoji} *{tier}* ({wins}W/{losses}L)")
+                embed = discord.Embed(
+                    title=f"🏆 Top 10 Rankings — {fmt}",
+                    description="\n".join(desc_lines),
+                    color=0xFFD700
+                )
+                embed.set_footer(text="✝ The Fallen ✝ • Competitive Rankings • Last updated")
+                embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
+                await channel.send(embed=embed)
+                result = f"success: posted Top 10 in #{channel.name}"
+            elif channel:
+                result = "error: no ranking data"
+            else: result = "error: no channel found"
         else:
             result = f"error: unknown action type '{action_type}'"
     except Exception as e:
@@ -25265,6 +25399,85 @@ async def tourney_leave_cmd(ctx, tournament_id: int):
                 await ctx.send(f"✅ Left **{t['title']}**.")
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
+
+
+# ============================================================
+# ALLIES BOT COMMANDS & INVITE VALIDATION
+# ============================================================
+
+@bot.command(name="allies", aliases=["alliances"])
+async def allies_cmd(ctx):
+    """Show current allied servers."""
+    if not db_pool:
+        await ctx.send("❌ Database not connected.")
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM allies WHERE status='active' AND visibility='public' ORDER BY display_order ASC, allied_at DESC LIMIT 20"
+            )
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+        return
+    if not rows:
+        await ctx.send("No active allies right now.")
+        return
+    
+    embed = discord.Embed(
+        title="🤝 Allied Servers",
+        description="Our trusted alliances.",
+        color=0x8B0000
+    )
+    tier_emoji = {"gold": "🥇", "silver": "🥈", "bronze": "🥉"}
+    for a in rows:
+        emoji = tier_emoji.get(a.get("tier", "bronze"), "🥉")
+        invite = f"\n[Join]({a['invite_link']})" if a.get("invite_link") else ""
+        embed.add_field(
+            name=f"{emoji} {a['server_name']}",
+            value=f"*{a.get('ally_type','friendly').title()}*\n{(a.get('description','') or '')[:80]}{invite}",
+            inline=True
+        )
+    embed.set_footer(text=f"✝ The Fallen ✝ • {len(rows)} allies")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="allycheck")
+@commands.has_role(STAFF_ROLE_NAME)
+async def ally_check_cmd(ctx):
+    """Validate all ally invite links."""
+    if not db_pool:
+        await ctx.send("❌ Database not connected.")
+        return
+    try:
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT id, server_name, invite_link FROM allies WHERE status='active' AND invite_link != ''")
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+        return
+    if not rows:
+        await ctx.send("No allies with invite links to check.")
+        return
+    
+    msg = await ctx.send(f"🔍 Checking {len(rows)} ally invites...")
+    valid = 0
+    invalid = []
+    for a in rows:
+        try:
+            # Extract invite code
+            invite_code = a["invite_link"].split("/")[-1]
+            invite = await bot.fetch_invite(invite_code)
+            if invite:
+                valid += 1
+                if db_pool:
+                    async with db_pool.acquire() as conn:
+                        await conn.execute("UPDATE allies SET last_validated=NOW() WHERE id=$1", a["id"])
+        except:
+            invalid.append(a["server_name"])
+    
+    result = f"✅ {valid} valid invites"
+    if invalid:
+        result += f"\n⚠️ {len(invalid)} expired/invalid: {', '.join(invalid)}"
+    await msg.edit(content=result)
 
 
 # ============================================================
